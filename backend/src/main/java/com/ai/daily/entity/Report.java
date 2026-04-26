@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 简报实体
  */
 @Data
-@TableName("report")
+@TableName("reports")
 public class Report {
 
     @TableId(type = IdType.AUTO)
