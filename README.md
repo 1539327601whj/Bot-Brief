@@ -1,6 +1,7 @@
 # AI 每日简报 - Spring Boot 后端
 
 > 提供简报存储与查询 API，支持 GitHub Actions 推送简报 + Web 前端读取
+> 网页大概长这样，可以看一下 https://brief-mind-frontend.vercel.app/
 
 ## 技术栈
 
