@@ -1,34 +1,27 @@
-# Maven
-target/
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
 
 # IDE
+.vscode/
 .idea/
 *.iml
-*.ipr
-*.iws
-.project
-.classpath
-.settings/
-.vscode/
 
 # Logs
 *.log
-logs/
+npm-debug.log*
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Gradle
-.gradle/
-build/
+# Environment
+.env
+.env.local
+.env.*.local
 
-# Package files
-*.jar
-*.war
-*.ear
+# Test
+coverage/

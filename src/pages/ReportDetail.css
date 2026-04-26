@@ -1,0 +1,133 @@
+.detail-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.back-btn {
+  display: inline-block;
+  margin-bottom: 20px;
+  color: #667eea;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: #999;
+}
+
+.report-article {
+  background: white;
+  border-radius: 12px;
+  padding: 36px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.article-header {
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.time {
+  color: #999;
+  font-size: 13px;
+}
+
+.article-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.article-content {
+  line-height: 1.9;
+  color: #444;
+}
+
+.article-content h2 {
+  font-size: 18px;
+  margin: 24px 0 12px;
+  color: #222;
+}
+
+.article-content h3 {
+  font-size: 16px;
+  margin: 20px 0 10px;
+  color: #333;
+}
+
+.article-content p {
+  margin-bottom: 14px;
+}
+
+.article-content ul,
+.article-content ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.article-content li {
+  margin-bottom: 6px;
+}
+
+.article-content strong {
+  color: #222;
+}
+
+.article-content a {
+  color: #667eea;
+}
+
+.article-content code {
+  background: #f5f6fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+}
+
+.article-content pre {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.article-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.article-content blockquote {
+  border-left: 3px solid #667eea;
+  margin: 16px 0;
+  padding: 8px 16px;
+  background: #f5f6fa;
+  color: #666;
+  border-radius: 0 6px 6px 0;
+}
+
+.article-footer {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+  color: #999;
+  font-size: 13px;
+}

@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 350">
+  <defs>
+    <!-- 霓虹发光滤镜 -->
+    <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 强发光滤镜 -->
+    <filter id="strong-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 全息渐变 -->
+    <radialGradient id="body-grad" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#1a237e"/>
+      <stop offset="40%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#01579b"/>
+    </radialGradient>
+    
+    <radialGradient id="core-grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e5ff"/>
+      <stop offset="50%" stop-color="#00b0ff"/>
+      <stop offset="100%" stop-color="#2979ff"/>
+    </radialGradient>
+    
+    <linearGradient id="wing-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c4dff" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#00e5ff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0.3"/>
+    </linearGradient>
+    
+    <linearGradient id="screen-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    
+    <!-- 扫描线渐变 -->
+    <linearGradient id="scan-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="transparent"/>
+      <stop offset="50%" stop-color="#00e5ff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- 底部能量光环 -->
+  <ellipse cx="200" cy="310" rx="80" ry="20" fill="#00e5ff" opacity="0.2" filter="url(#strong-glow)">
+    <animate attributeName="rx" values="80;100;80" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.2;0.4;0.2" dur="2s" repeatCount="indefinite"/>
+  </ellipse>
+  
+  <!-- 悬浮动画组 -->
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0,0; 0,-8; 0,0" dur="3s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"/>
+    
+    <!-- 左翅膀/推进器 -->
+    <g>
+      <path d="M 80 180 Q 40 160 30 200 Q 35 240 85 220 Z" fill="url(#wing-grad)" filter="url(#neon-glow)" opacity="0.8">
+        <animate attributeName="opacity" values="0.8;0.4;0.8" dur="1.5s" repeatCount="indefinite"/>
+      </path>
+      <!-- 翅膀推进光效 -->
+      <ellipse cx="35" cy="210" rx="15" ry="8" fill="#00e5ff" opacity="0.6" filter="url(#strong-glow)">
+        <animate attributeName="rx" values="15;25;15" dur="0.5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.6;0.2;0.6" dur="0.5s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    
+    <!-- 右翅膀/推进器 -->
+    <g>
+      <path d="M 320 180 Q 360 160 370 200 Q 365 240 315 220 Z" fill="url(#wing-grad)" filter="url(#neon-glow)" opacity="0.8">
+        <animate attributeName="opacity" values="0.8;0.4;0.8" dur="1.5s" repeatCount="indefinite" begin="0.2s"/>
+      </path>
+      <!-- 翅膀推进光效 -->
+      <ellipse cx="365" cy="210" rx="15" ry="8" fill="#00e5ff" opacity="0.6" filter="url(#strong-glow)">
+        <animate attributeName="rx" values="15;25;15" dur="0.5s" repeatCount="indefinite" begin="0.1s"/>
+        <animate attributeName="opacity" values="0.6;0.2;0.6" dur="0.5s" repeatCount="indefinite" begin="0.1s"/>
+      </ellipse>
+    </g>
+    
+    <!-- 左侧数据屏幕 -->
+    <g transform="translate(45, 120) rotate(-15)">
+      <rect x="0" y="0" width="70" height="50" rx="5" fill="url(#screen-grad)" stroke="#00e5ff" stroke-width="1" opacity="0.9" filter="url(#neon-glow)"/>
+      <!-- 屏幕内容 -->
+      <text x="35" y="15" text-anchor="middle" fill="#00e5ff" font-size="8" font-family="monospace">DATA</text>
+      <rect x="10" y="22" width="50" height="3" fill="#00e5ff" opacity="0.6">
+        <animate attributeName="width" values="10;50;20;50" dur="2s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="10" y="28" width="35" height="3" fill="#7c4dff" opacity="0.6">
+        <animate attributeName="width" values="35;15;40;35" dur="1.8s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="10" y="34" width="40" height="3" fill="#00e5ff" opacity="0.6">
+        <animate attributeName="width" values="40;25;45;40" dur="2.2s" repeatCount="indefinite"/>
+      </rect>
+      <!-- 扫描线 -->
+      <rect x="0" y="0" width="70" height="8" fill="url(#scan-grad)">
+        <animate attributeName="y" values="0;42;0" dur="2s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+    
+    <!-- 右侧数据屏幕 -->
+    <g transform="translate(285, 120) rotate(15)">
+      <rect x="0" y="0" width="70" height="50" rx="5" fill="url(#screen-grad)" stroke="#7c4dff" stroke-width="1" opacity="0.9" filter="url(#neon-glow)"/>
+      <!-- 屏幕内容 -->
+      <text x="35" y="15" text-anchor="middle" fill="#7c4dff" font-size="8" font-family="monospace">AI CORE</text>
+      <!-- 波形图 -->
+      <polyline points="10,35 20,25 30,30 40,20 50,28 60,22" fill="none" stroke="#7c4dff" stroke-width="2" opacity="0.8">
+        <animate attributeName="points" values="10,35 20,25 30,30 40,20 50,28 60,22;10,30 20,35 30,22 40,30 50,20 60,28;10,35 20,25 30,30 40,20 50,28 60,22" dur="1s" repeatCount="indefinite"/>
+      </polyline>
+      <!-- 扫描线 -->
+      <rect x="0" y="0" width="70" height="8" fill="url(#scan-grad)">
+        <animate attributeName="y" values="42;0;42" dur="2.5s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+    
+    <!-- 机器人主体 -->
+    <g>
+      <!-- 主体球体 -->
+      <circle cx="200" cy="180" r="65" fill="url(#body-grad)" filter="url(#neon-glow)"/>
+      
+      <!-- 高光 -->
+      <ellipse cx="175" cy="155" rx="25" ry="18" fill="white" opacity="0.15"/>
+      
+      <!-- 面部区域 -->
+      <ellipse cx="200" cy="175" rx="50" ry="40" fill="#0a1628" opacity="0.8"/>
+      
+      <!-- 眼睛 -->
+      <g filter="url(#neon-glow)">
+        <!-- 左眼 -->
+        <ellipse cx="180" cy="165" rx="12" ry="15" fill="#00e5ff">
+          <animate attributeName="ry" values="15;1;15" dur="3s" repeatCount="indefinite" begin="0.5s"/>
+        </ellipse>
+        <circle cx="182" cy="162" r="4" fill="white" opacity="0.8">
+          <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        
+        <!-- 右眼 -->
+        <ellipse cx="220" cy="165" rx="12" ry="15" fill="#00e5ff">
+          <animate attributeName="ry" values="15;1;15" dur="3s" repeatCount="indefinite" begin="0.5s"/>
+        </ellipse>
+        <circle cx="222" cy="162" r="4" fill="white" opacity="0.8">
+          <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </g>
+      
+      <!-- 嘴巴 -->
+      <path d="M 185 195 Q 200 205 215 195" fill="none" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" opacity="0.7">
+        <animate attributeName="d" values="M 185 195 Q 200 205 215 195;M 185 198 Q 200 208 215 198;M 185 195 Q 200 205 215 195" dur="4s" repeatCount="indefinite"/>
+      </path>
+      
+      <!-- 胸前核心 -->
+      <circle cx="200" cy="210" r="15" fill="url(#core-grad)" filter="url(#strong-glow)">
+        <animate attributeName="r" values="15;17;15" dur="1.5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="1;0.7;1" dur="1.5s" repeatCount="indefinite"/>
+      </circle>
+      <!-- 核心内部 -->
+      <circle cx="200" cy="210" r="8" fill="white" opacity="0.6">
+        <animate attributeName="r" values="8;10;8" dur="1.5s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+    
+    <!-- 顶部天线 -->
+    <g>
+      <line x1="200" y1="115" x2="200" y2="95" stroke="#00e5ff" stroke-width="2" filter="url(#neon-glow)"/>
+      <circle cx="200" cy="90" r="6" fill="#7c4dff" filter="url(#strong-glow)">
+        <animate attributeName="r" values="6;10;6" dur="1s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite"/>
+      </circle>
+      <!-- 信号波纹 -->
+      <circle cx="200" cy="90" r="12" fill="none" stroke="#7c4dff" stroke-width="1" opacity="0">
+        <animate attributeName="r" values="12;30" dur="1.5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.8;0" dur="1.5s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+    
+    <!-- 环绕光环 -->
+    <ellipse cx="200" cy="180" rx="90" ry="25" fill="none" stroke="#00e5ff" stroke-width="1" opacity="0.4" filter="url(#neon-glow)">
+      <animateTransform attributeName="transform" type="rotate" from="0 200 180" to="360 200 180" dur="8s" repeatCount="indefinite"/>
+    </ellipse>
+    
+    <ellipse cx="200" cy="180" rx="80" ry="20" fill="none" stroke="#7c4dff" stroke-width="1" opacity="0.3" filter="url(#neon-glow)">
+      <animateTransform attributeName="transform" type="rotate" from="360 200 180" to="0 200 180" dur="6s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+  
+  <!-- 底部粒子效果 -->
+  <g>
+    <circle cx="150" cy="300" r="2" fill="#00e5ff" opacity="0">
+      <animate attributeName="cy" values="300;280;300" dur="3s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.8;0" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="305" r="2" fill="#7c4dff" opacity="0">
+      <animate attributeName="cy" values="305;285;305" dur="2.5s" repeatCount="indefinite" begin="0.5s"/>
+      <animate attributeName="opacity" values="0;0.8;0" dur="2.5s" repeatCount="indefinite" begin="0.5s"/>
+    </circle>
+    <circle cx="200" cy="295" r="1.5" fill="#00e5ff" opacity="0">
+      <animate attributeName="cy" values="295;275;295" dur="2s" repeatCount="indefinite" begin="1s"/>
+      <animate attributeName="opacity" values="0;0.6;0" dur="2s" repeatCount="indefinite" begin="1s"/>
+    </circle>
+  </g>
+</svg>
