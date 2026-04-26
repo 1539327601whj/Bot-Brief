@@ -1,0 +1,32 @@
+# render.yaml - Render 部署配置
+# 文档: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: ai-daily-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: free
+
+    envVars:
+      - key: JAVA_OPTS
+        value: "-Xmx256m -Xms128m"
+
+      # TiDB 数据库配置
+      - key: DB_HOST
+        sync: false  # 需要在 Render Dashboard 中设置
+      - key: DB_PORT
+        value: "4000"
+      - key: DB_NAME
+        value: "ai_daily"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+      # AI API 配置
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
