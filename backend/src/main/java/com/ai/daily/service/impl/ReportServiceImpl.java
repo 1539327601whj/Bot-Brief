@@ -25,4 +25,12 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         report.setCreatedAt(LocalDateTime.now());
         this.save(report);
     }
+
+    @Override
+    public Report getLatestReport() {
+        return this.lambdaQuery()
+                .orderByDesc(Report::getCreatedAt)
+                .last("LIMIT 1")
+                .one();
+    }
 }
