@@ -27,11 +27,15 @@ export default function History() {
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
+    // 转为北京时间 (UTC+8)
+    d.setHours(d.getHours() + 8)
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr)
+    // 转为北京时间 (UTC+8)
+    d.setHours(d.getHours() + 8)
     return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
   }
 

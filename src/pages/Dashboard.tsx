@@ -130,7 +130,13 @@ export default function Dashboard() {
                 <div key={report.id} className="report-item">
                   <div className="item-left">
                     <span className={editionTagClass(report.edition)}>{editionLabel(report.edition)}</span>
-                    <span className="item-time">{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+                    <span className="item-time">{
+                      (() => {
+                        const d = new Date(report.createdAt)
+                        d.setHours(d.getHours() + 8)
+                        return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+                      })()
+                    }</span>
                   </div>
                   <div className="item-right">
                     <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>

@@ -3,6 +3,22 @@
     {
       "source": "/api/:path*",
       "destination": "https://ai-daily-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/report/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/history",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/chat",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/subscribe",
+      "destination": "/index.html"
     }
   ],
   "headers": [

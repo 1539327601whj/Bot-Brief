@@ -32,6 +32,13 @@ export default function ReportDetail() {
   const editionLabel = report.edition === 'morning' ? '🌅 早间版' : '🌙 晚间版'
   const editionClass = report.edition === 'morning' ? 'tag tag-morning' : 'tag tag-evening'
 
+  // 转为北京时间 (UTC+8)
+  const beijingTime = (dateStr: string) => {
+    const d = new Date(dateStr)
+    d.setHours(d.getHours() + 8)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  }
+
   return (
     <div className="detail-page">
       <Link to="/" className="back-btn">← 返回列表</Link>
@@ -40,7 +47,7 @@ export default function ReportDetail() {
         <header className="article-header">
           <div className="meta">
             <span className={editionClass}>{editionLabel}</span>
-            <span className="time">{dayjs(report.createdAt).format('YYYY-MM-DD HH:mm')}</span>
+            <span className="time">{beijingTime(report.createdAt)}</span>
           </div>
           <h1>{report.title}</h1>
         </header>
