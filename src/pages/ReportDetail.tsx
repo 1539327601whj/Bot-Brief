@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import dayjs from 'dayjs'
+import dayjs from '../utils/dayjs'
 import './ReportDetail.css'
 
 interface Report {
@@ -32,12 +32,8 @@ export default function ReportDetail() {
   const editionLabel = report.edition === 'morning' ? '🌅 早间版' : '🌙 晚间版'
   const editionClass = report.edition === 'morning' ? 'tag tag-morning' : 'tag tag-evening'
 
-  // 转为北京时间 (UTC+8)
-  const beijingTime = (dateStr: string) => {
-    const d = new Date(dateStr)
-    d.setHours(d.getHours() + 8)
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-  }
+  // 格式化时间（使用北京时间）
+  const formatTime = (dateStr: string) => dayjs(dateStr).format('YYYY-MM-DD HH:mm')
 
   return (
     <div className="detail-page">
@@ -47,7 +43,7 @@ export default function ReportDetail() {
         <header className="article-header">
           <div className="meta">
             <span className={editionClass}>{editionLabel}</span>
-            <span className="time">{beijingTime(report.createdAt)}</span>
+            <span className="time">{formatTime(report.createdAt)}</span>
           </div>
           <h1>{report.title}</h1>
         </header>

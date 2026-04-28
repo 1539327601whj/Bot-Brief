@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import dayjs from 'dayjs'
+import dayjs from '../utils/dayjs'
 import './Dashboard.css'
 
 interface Report {
@@ -21,7 +21,6 @@ interface PageData {
 export default function Dashboard() {
   const navigate = useNavigate()
   const [pageData, setPageData] = useState<PageData | null>(null)
-  const [latest, setLatest] = useState<Report | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [edition, setEdition] = useState<string>('')
@@ -29,12 +28,9 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [pageRes, latestRes] = await Promise.all([
-        fetch(`/api/reports?page=${page}&size=10${edition ? `&edition=${edition}` : ''}`).then(r => r.json()),
-        fetch(`/api/reports/latest${edition ? `?edition=${edition}` : ''}`).then(r => r.json()),
-      ])
-      setPageData(pageRes.data)
-      setLatest(latestRes.data)
+      const res = await fetch(`/api/reports?page=${page}&size=10${edition ? `&edition=${edition}` : ''}`)
+      const data = await res.json()
+      setPageData(data.data)
     } catch (e) {
       console.error(e)
     } finally {
@@ -131,11 +127,7 @@ export default function Dashboard() {
                   <div className="item-left">
                     <span className={editionTagClass(report.edition)}>{editionLabel(report.edition)}</span>
                     <span className="item-time">{
-                      (() => {
-                        const d = new Date(report.createdAt)
-                        d.setHours(d.getHours() + 8)
-                        return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-                      })()
+                      dayjs(report.createdAt).format('MM-DD HH:mm')
                     }</span>
                   </div>
                   <div className="item-right">

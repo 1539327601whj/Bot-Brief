@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import dayjs from '../utils/dayjs'
 import './History.css'
 
 interface Report {
@@ -10,6 +12,7 @@ interface Report {
 }
 
 export default function History() {
+  const navigate = useNavigate()
   const [reports, setReports] = useState<Report[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -24,20 +27,6 @@ export default function History() {
       .catch(() => {/* ignore */})
       .finally(() => setLoading(false))
   }, [])
-
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    // 转为北京时间 (UTC+8)
-    d.setHours(d.getHours() + 8)
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-  }
-
-  const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr)
-    // 转为北京时间 (UTC+8)
-    d.setHours(d.getHours() + 8)
-    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-  }
 
   const isMorning = (edition: string) => edition === 'morning'
 
@@ -74,7 +63,7 @@ export default function History() {
       ) : (
         <div className="reports-list">
           {reports.map(report => (
-            <div key={report.id} className="report-card" onClick={() => window.location.href = `/report/${report.id}`}>
+            <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
               <div className="report-icon">
                 {isMorning(report.edition) ? '🌅' : '🌙'}
               </div>
@@ -88,8 +77,8 @@ export default function History() {
                 <h3 className="report-title">{report.title}</h3>
                 <p className="report-summary">{report.summary}</p>
                 <div className="report-footer">
-                  <span className="report-date">{formatDate(report.createdAt)}</span>
-                  <span className="report-time">{formatTime(report.createdAt)}</span>
+                  <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
+                  <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
                 </div>
               </div>
               <div className="report-arrow">→</div>
