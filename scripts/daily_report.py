@@ -32,10 +32,15 @@ def push_to_backend(edition, title, content, summary, run_id):
         print("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
         return False
 
+    # Render 免费层限制请求体约 1MB，截断 content 避免 400 错误
+    # 保留约 100KB 安全余量（约 3万字符）
+    max_content_length = 30000
+    truncated_content = content if len(content) <= max_content_length else content[:max_content_length] + "\n\n> ...(内容已截断，完整版请查看企业微信)"
+
     payload = {
         "edition": edition,
         "title": title,
-        "content": content,
+        "content": truncated_content,
         "summary": summary,
         "runId": run_id
     }

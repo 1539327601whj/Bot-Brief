@@ -19,6 +19,12 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
 
+  # 增加请求体大小限制（避免 400 input length too long）
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
@@ -29,6 +35,8 @@ mybatis-plus:
 
 server:
   port: ${SERVER_PORT:8081}
+  # 增加请求头大小限制
+  max-http-request-header-size: 16KB
 
 # 允许 GitHub Actions 跨域调用（开发时放开，生产环境建议配置具体域名）
 allowed-origins: ${ALLOWED_ORIGINS:*}
