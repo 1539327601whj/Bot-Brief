@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://ai-daily-backend.onrender.com/api/:path*"
+      "destination": "https://ai-daily-bot.onrender.com/api/:path*"
     }
   ],
   "headers": [
