@@ -12,6 +12,8 @@ services:
     envVars:
       - key: JAVA_OPTS
         value: "-Xmx256m -Xms128m"
+      - key: SERVER_PORT
+        value: "8081"
 
       # TiDB 数据库配置
       - key: DB_HOST
