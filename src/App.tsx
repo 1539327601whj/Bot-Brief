@@ -62,7 +62,7 @@ function Header() {
   return (
     <header className="header-bar">
       <div className="header-left">
-        <h1 className="header-title">AI 简报助手</h1>
+        <h1 className="header-title">BriefMind</h1>
       </div>
       <div className="header-right">
         <span className="header-time">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</span>

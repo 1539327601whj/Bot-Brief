@@ -52,7 +52,7 @@ export default function Dashboard() {
       {/* 欢迎横幅 */}
       <div className="welcome-banner">
         <div className="welcome-content">
-          <h1 className="welcome-title">👋 欢迎使用 AI 简报助手</h1>
+          <h1 className="welcome-title">👋 欢迎使用 BriefMind</h1>
           <p className="welcome-subtitle">智能聚合多源资讯，生成个性化每日简报</p>
           <div className="feature-tags">
             <span className="feature-tag">🤖 AI 智能搜集</span>
