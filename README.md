@@ -11,7 +11,7 @@
 
 **基于 DeepSeek 大模型的每日资讯智能聚合与简报生成系统**
 
-[**在线演示**](https://project-mu-jet.vercel.app/) · [**后端 API**](https://ai-daily-backend.onrender.com/) · [**项目源码**](https://github.com/GoodHappy666/ai-daily-bot)
+[**在线演示**](https://qaq.goodhappy.top/)
 
 </div>
 
