@@ -11,7 +11,7 @@
 
 **基于 DeepSeek 大模型的智能资讯聚合与简报生成平台**
 
-[**在线演示**](https://qaq.goodhappy.top/)
+在线演示：https://qaq.goodhappy.top/
 
 </div>
 
