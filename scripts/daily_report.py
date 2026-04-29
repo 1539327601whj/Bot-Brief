@@ -25,7 +25,7 @@ def now_beijing():
 # ─── 推送 Spring Boot 后端 ─────────────────────────────────────────
 
 def push_to_backend(edition, title, content, summary, run_id):
-    """将简报 POST 到 Spring Boot 后端 API 存储"""
+    """将简报 POST 到 Spring Boot 后端 API 存储（带重试机制，解决 Render 冷启动问题）"""
     import requests as req
     backend_url = os.environ.get("BACKEND_API_URL", "")
     if not backend_url:
@@ -44,17 +44,35 @@ def push_to_backend(edition, title, content, summary, run_id):
         "summary": summary,
         "runId": run_id
     }
-    try:
-        resp = req.post(f"{backend_url}/api/reports", json=payload, timeout=10)
-        if resp.status_code == 200:
-            print(f"  ✅ 已同步到后端 API")
-            return True
-        else:
-            print(f"  ⚠️ 后端 API 返回 {resp.status_code}: {resp.text}")
+
+    # Render 冷启动约 30-60 秒，需要足够的超时和重试
+    max_retries = 5
+    base_timeout = 60  # 首次等待 60 秒
+
+    for attempt in range(max_retries):
+        try:
+            resp = req.post(f"{backend_url}/api/reports", json=payload, timeout=base_timeout)
+            if resp.status_code == 200:
+                print(f"  ✅ 已同步到后端 API（第 {attempt + 1} 次尝试）")
+                return True
+            else:
+                print(f"  ⚠️ 后端 API 返回 {resp.status_code}: {resp.text}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 15
+                    print(f"  ⏳ {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                return False
+        except Exception as e:
+            print(f"  ⚠️ 后端 API 同步失败: {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 15
+                print(f"  ⏳ {wait_time} 秒后重试...")
+                time.sleep(wait_time)
+                continue
             return False
-    except Exception as e:
-        print(f"  ⚠️ 后端 API 同步失败: {e}")
-        return False
+
+    return False
 
 
 # ─── 企业微信推送 ───────────────────────────────────────────────
