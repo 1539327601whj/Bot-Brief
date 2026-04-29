@@ -1,9 +1,8 @@
 name: AI 每日高价值简报
 
 on:
-  schedule:
-    - cron: '0 0 * * *'   # UTC 0点 = 北京时间次日 08:00（早间版）
-    - cron: '0 12 * * *'  # UTC 12点 = 北京时间 20:00（晚间版）
+  # 定时触发已由腾讯云 SCF 接管（北京时间 8:00、20:00）
+  # 保留手动触发用于测试和补发
   workflow_dispatch:
     inputs:
       edition:
