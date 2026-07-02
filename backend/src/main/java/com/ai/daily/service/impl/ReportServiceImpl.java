@@ -36,4 +36,14 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 .last("LIMIT 1")
                 .one();
     }
+
+    @Override
+    public Report getLatestByEdition(String edition) {
+        if (edition == null) return getLatestReport();
+        return this.lambdaQuery()
+                .eq(Report::getEdition, edition)
+                .orderByDesc(Report::getCreatedAt)
+                .last("LIMIT 1")
+                .one();
+    }
 }

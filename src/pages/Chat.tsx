@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import api from '../utils/api'
 import './Chat.css'
 
 interface Message {
@@ -50,13 +51,8 @@ export default function Chat() {
     setError('')
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q })
-      })
-      const result = await res.json()
-      
+      const res = await api.post('/chat', { question: q })
+      const result = res.data
       if (result.code === 200 && result.data) {
         const assistantMessage: Message = {
           role: 'assistant',
@@ -67,8 +63,8 @@ export default function Chat() {
       } else {
         setError(result.message || '请求失败')
       }
-    } catch (e) {
-      setError('网络错误，请检查后端服务是否启动')
+    } catch (e: any) {
+      setError(e?.response?.data?.message || '网络错误，请检查后端服务是否启动')
     } finally {
       setLoading(false)
       inputRef.current?.focus()

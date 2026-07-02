@@ -1,22 +1,18 @@
-const API_BASE = '/api'
+import api from '../utils/api'
 
 export async function fetchReports(page = 1, size = 10, edition?: string) {
-  const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (edition) params.set('edition', edition)
-  const res = await fetch(`${API_BASE}/reports?${params}`)
-  if (!res.ok) throw new Error('获取简报列表失败')
-  return res.json()
+  const params: Record<string, string | number> = { page, size }
+  if (edition) params.edition = edition
+  const res = await api.get('/reports', { params })
+  return res.data
 }
 
 export async function fetchLatest(edition?: string) {
-  const params = edition ? `?edition=${edition}` : ''
-  const res = await fetch(`${API_BASE}/reports/latest${params}`)
-  if (!res.ok) throw new Error('获取最新简报失败')
-  return res.json()
+  const res = await api.get('/reports/latest', { params: edition ? { edition } : {} })
+  return res.data
 }
 
 export async function fetchReportById(id: string) {
-  const res = await fetch(`${API_BASE}/reports/${id}`)
-  if (!res.ok) throw new Error('获取简报详情失败')
-  return res.json()
+  const res = await api.get(`/reports/${id}`)
+  return res.data
 }

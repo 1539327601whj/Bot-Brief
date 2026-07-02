@@ -4,15 +4,34 @@ node_modules/
 # Build output
 dist/
 build/
+backend/target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven / Gradle
+.mvn/
+.gradle/
+!.mvn/wrapper/maven-wrapper.jar
 
 # IDE
 .vscode/
 .idea/
 *.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
 
 # Logs
 *.log
+logs/
 npm-debug.log*
+hs_err_pid*
+replay_pid*
 
 # OS
 .DS_Store
@@ -22,6 +41,11 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Local startup scripts (contain DB passwords / JWT secret / admin password)
+start-local.ps1
+backend/start-local.ps1
+backend/start-local.*.ps1
 
 # Test
 coverage/
@@ -33,3 +57,10 @@ coverage/
 # Generated reports
 AI日报_*.md
 test_tidb.js
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/

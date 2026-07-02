@@ -17,4 +17,9 @@ public interface ReportService extends IService<Report> {
      * 获取最新简报
      */
     Report getLatestReport();
+
+    /**
+     * 获取指定版次（morning/evening）的最新简报
+     */
+    Report getLatestByEdition(String edition);
 }

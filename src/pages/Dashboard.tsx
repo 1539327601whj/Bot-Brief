@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import dayjs from '../utils/dayjs'
+import api from '../utils/api'
 import './Dashboard.css'
 
 interface Report {
@@ -8,7 +10,64 @@ interface Report {
   edition: string
   title: string
   summary: string
+  content?: string
   createdAt: string
+}
+
+function TodayCard({ edition }: { edition: 'morning' | 'evening' }) {
+  const [report, setReport] = useState<Report | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    api.get('/reports/latest', { params: { edition } })
+      .then(res => {
+        if (res.data?.code === 200 && res.data.data) setReport(res.data.data)
+      })
+      .catch(() => {/* ignore */})
+      .finally(() => setLoading(false))
+  }, [edition])
+
+  const meta = edition === 'morning'
+    ? { icon: '🌅', label: '今日早间版', accent: 'today-card-morning' }
+    : { icon: '🌙', label: '今日晚间版', accent: 'today-card-evening' }
+
+  const isToday = report && dayjs(report.createdAt).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD')
+
+  return (
+    <div className={`today-card ${meta.accent}`}>
+      <div className="today-card-header">
+        <div className="today-card-title">
+          <span className="today-card-icon">{meta.icon}</span>
+          <span>{meta.label}</span>
+        </div>
+        {report && (
+          <Link to={`/report/${report.id}`} className="today-card-link">详情 →</Link>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="today-card-empty">加载中…</div>
+      ) : !report || !isToday ? (
+        <div className="today-card-empty">
+          <span className="today-card-empty-title">今日尚未生成</span>
+          <span className="today-card-empty-sub">
+            {edition === 'morning' ? '每日 08:00 自动推送' : '每日 20:00 自动推送'}
+          </span>
+        </div>
+      ) : (
+        <>
+          <h3 className="today-card-report-title">{report.title}</h3>
+          <div className={`today-card-body ${expanded ? 'expanded' : ''}`}>
+            <ReactMarkdown>{expanded ? (report.content || report.summary) : report.summary}</ReactMarkdown>
+          </div>
+          <button className="today-card-toggle" onClick={() => setExpanded(v => !v)}>
+            {expanded ? '收起' : '展开阅读'}
+          </button>
+        </>
+      )}
+    </div>
+  )
 }
 
 interface PageData {
@@ -18,19 +77,27 @@ interface PageData {
   size: number
 }
 
+interface DashboardStats {
+  todayCount: number
+  totalCount: number
+  hotTags: string[]
+  nextPushAt: string
+}
+
 export default function Dashboard() {
-  const navigate = useNavigate()
   const [pageData, setPageData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [edition, setEdition] = useState<string>('')
+  const [stats, setStats] = useState<DashboardStats | null>(null)
 
   const fetchData = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/reports?page=${page}&size=10${edition ? `&edition=${edition}` : ''}`)
-      const data = await res.json()
-      setPageData(data.data)
+      const params: Record<string, string | number> = { page, size: 10 }
+      if (edition) params.edition = edition
+      const res = await api.get('/reports', { params })
+      setPageData(res.data?.data)
     } catch (e) {
       console.error(e)
     } finally {
@@ -41,6 +108,18 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData()
   }, [page, edition])
+
+  useEffect(() => {
+    api.get('/stats/dashboard')
+      .then(res => {
+        if (res.data?.code === 200 && res.data.data) setStats(res.data.data)
+      })
+      .catch(() => {/* ignore */})
+  }, [])
+
+  const nextPushLabel = stats?.nextPushAt
+    ? dayjs(stats.nextPushAt).format('MM-DD HH:mm')
+    : '--:--'
 
   const editionLabel = (e: string) => e === 'morning' ? '🌅 早间版' : '🌙 晚间版'
   const editionTagClass = (e: string) => e === 'morning' ? 'tag tag-morning' : 'tag tag-evening'
@@ -65,34 +144,44 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* 今日简报 */}
+      <div className="today-grid">
+        <TodayCard edition="morning" />
+        <TodayCard edition="evening" />
+      </div>
+
       {/* 功能卡片区 */}
       <div className="cards-grid">
         <div className="stat-card">
           <div className="stat-icon">📄</div>
           <div className="stat-info">
-            <span className="stat-value">{pageData?.total || 0}</span>
-            <span className="stat-label">已生成简报</span>
+            <span className="stat-value">{stats?.todayCount ?? '—'}</span>
+            <span className="stat-label">今日新增</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">📬</div>
+          <div className="stat-icon">📚</div>
           <div className="stat-info">
-            <span className="stat-value">2</span>
-            <span className="stat-label">订阅源</span>
+            <span className="stat-value">{stats?.totalCount ?? pageData?.total ?? 0}</span>
+            <span className="stat-label">累计简报</span>
+          </div>
+        </div>
+        <div className="stat-card stat-card-tags">
+          <div className="stat-icon">🔥</div>
+          <div className="stat-info">
+            <span className="stat-value stat-value-tags">
+              {stats?.hotTags && stats.hotTags.length > 0
+                ? stats.hotTags.slice(0, 3).join(' · ')
+                : '暂无'}
+            </span>
+            <span className="stat-label">本周热词</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">💬</div>
+          <div className="stat-icon">⏰</div>
           <div className="stat-info">
-            <span className="stat-value">0</span>
-            <span className="stat-label">对话次数</span>
-          </div>
-        </div>
-        <div className="stat-card clickable" onClick={() => navigate('/chat')}>
-          <div className="stat-icon">🚀</div>
-          <div className="stat-info">
-            <span className="stat-value">开始</span>
-            <span className="stat-label">RAG 对话</span>
+            <span className="stat-value stat-value-time">{nextPushLabel}</span>
+            <span className="stat-label">下次推送</span>
           </div>
         </div>
       </div>

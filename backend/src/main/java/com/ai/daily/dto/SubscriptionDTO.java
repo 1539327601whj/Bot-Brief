@@ -1,6 +1,5 @@
 package com.ai.daily.dto;
 
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.List;
@@ -11,14 +10,24 @@ import java.util.List;
 @Data
 public class SubscriptionDTO {
 
-    /** 接收时间：morning / evening / both */
-    @NotNull(message = "接收时间不能为空")
+    /** 兼容字段：morning / evening / both（可留空，前端使用 morning_enabled/evening_enabled 主导） */
     private String receiveTime;
 
     /** 偏好领域列表 */
     private List<String> preferenceFields;
 
-    /** 是否启用 */
-    @NotNull(message = "启用状态不能为空")
+    /** 总开关 */
     private Boolean enabled;
+
+    /** 是否接收早间版 */
+    private Boolean morningEnabled;
+
+    /** 早间版推送时间 "HH:mm" 或 "HH:mm:ss" */
+    private String morningTime;
+
+    /** 是否接收晚间版 */
+    private Boolean eveningEnabled;
+
+    /** 晚间版推送时间 */
+    private String eveningTime;
 }

@@ -112,6 +112,24 @@
 
 .nav-label {
   font-size: 14px;
+  flex: 1;
+}
+
+.nav-badge-wip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(239, 68, 68, 0.2) 100%);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.nav-item.active .nav-badge-wip {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(239, 68, 68, 0.3) 100%);
+  color: #fbbf24;
 }
 
 .sidebar-user {
