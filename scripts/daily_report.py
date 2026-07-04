@@ -25,11 +25,18 @@ def now_beijing():
 # ─── 推送 Spring Boot 后端 ─────────────────────────────────────────
 
 def push_to_backend(edition, title, content, summary, run_id):
-    """将简报 POST 到 Spring Boot 后端 API 存储（带重试机制，解决 Render 冷启动问题）"""
+    """
+    将简报 POST 到 Spring Boot 后端 API 存储（带重试机制，解决 Render 冷启动问题）
+    使用 /api/reports/ingest 端点 + X-Ingest-Token 鉴权（避开 JWT 用户登录）
+    """
     import requests as req
     backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
     if not backend_url:
         print("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
+        return False
+    if not ingest_token:
+        print("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
         return False
 
     # Render 免费层限制请求体约 1MB，截断 content 避免 400 错误
@@ -44,6 +51,10 @@ def push_to_backend(edition, title, content, summary, run_id):
         "summary": summary,
         "runId": run_id
     }
+    headers = {
+        "X-Ingest-Token": ingest_token,
+        "Content-Type": "application/json"
+    }
 
     # Render 冷启动约 30-60 秒，需要足够的超时和重试
     max_retries = 5
@@ -51,7 +62,12 @@ def push_to_backend(edition, title, content, summary, run_id):
 
     for attempt in range(max_retries):
         try:
-            resp = req.post(f"{backend_url}/api/reports", json=payload, timeout=base_timeout)
+            resp = req.post(
+                f"{backend_url}/api/reports/ingest",
+                json=payload,
+                headers=headers,
+                timeout=base_timeout,
+            )
             if resp.status_code == 200:
                 print(f"  ✅ 已同步到后端 API（第 {attempt + 1} 次尝试）")
                 return True
