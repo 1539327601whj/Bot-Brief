@@ -28,18 +28,29 @@ function TodayCard({ edition }: { edition: 'morning' | 'evening' }) {
       .finally(() => setLoading(false))
   }, [edition])
 
-  const meta = edition === 'morning'
-    ? { icon: '🌅', label: '今日早间版', accent: 'today-card-morning' }
-    : { icon: '🌙', label: '今日晚间版', accent: 'today-card-evening' }
+  const editionInfo = edition === 'morning'
+    ? { icon: '🌅', name: '早间版', pushHint: '每日 08:00 自动推送', accent: 'today-card-morning' }
+    : { icon: '🌙', name: '晚间版', pushHint: '每日 20:00 自动推送', accent: 'today-card-evening' }
 
-  const isToday = report && dayjs(report.createdAt).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD')
+  // 判断简报新旧
+  const today = dayjs().format('YYYY-MM-DD')
+  const reportDate = report ? dayjs(report.createdAt).format('YYYY-MM-DD') : ''
+  const isToday = report && reportDate === today
+  const daysAgo = report ? dayjs(today).diff(dayjs(reportDate), 'day') : 0
+
+  // 卡片标题：有今天的就"今日 X 版"；只有旧的就"最近一期 X 版"
+  const cardLabel = !report
+    ? `今日${editionInfo.name}`
+    : isToday
+      ? `今日${editionInfo.name}`
+      : `最近${editionInfo.name}（${daysAgo} 天前）`
 
   return (
-    <div className={`today-card ${meta.accent}`}>
+    <div className={`today-card ${editionInfo.accent}`}>
       <div className="today-card-header">
         <div className="today-card-title">
-          <span className="today-card-icon">{meta.icon}</span>
-          <span>{meta.label}</span>
+          <span className="today-card-icon">{editionInfo.icon}</span>
+          <span>{cardLabel}</span>
         </div>
         {report && (
           <Link to={`/report/${report.id}`} className="today-card-link">详情 →</Link>
@@ -48,16 +59,19 @@ function TodayCard({ edition }: { edition: 'morning' | 'evening' }) {
 
       {loading ? (
         <div className="today-card-empty">加载中…</div>
-      ) : !report || !isToday ? (
+      ) : !report ? (
         <div className="today-card-empty">
-          <span className="today-card-empty-title">今日尚未生成</span>
-          <span className="today-card-empty-sub">
-            {edition === 'morning' ? '每日 08:00 自动推送' : '每日 20:00 自动推送'}
-          </span>
+          <span className="today-card-empty-title">尚未生成任何简报</span>
+          <span className="today-card-empty-sub">{editionInfo.pushHint}</span>
         </div>
       ) : (
         <>
           <h3 className="today-card-report-title">{report.title}</h3>
+          {!isToday && (
+            <div className="today-card-stale-hint">
+              ⚠️ 今日 {editionInfo.name}尚未生成，以下为最近一期（{reportDate}）
+            </div>
+          )}
           <div className={`today-card-body ${expanded ? 'expanded' : ''}`}>
             <ReactMarkdown>{expanded ? (report.content || report.summary) : report.summary}</ReactMarkdown>
           </div>

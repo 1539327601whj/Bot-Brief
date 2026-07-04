@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
@@ -12,13 +13,15 @@ import Notifications from './pages/Notifications'
 import Admin from './pages/Admin'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
+import UserMenu from './components/UserMenu'
 import './Layout.css'
 
 // 侧边栏导航组件
 function Sidebar() {
   const location = useLocation()
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const nav = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const menuItems = [
     { path: '/', icon: '🏠', label: '首页概览' },
@@ -35,16 +38,15 @@ function Sidebar() {
     return location.pathname.startsWith(path)
   }
 
-  const handleAuthClick = () => {
+  const handleUserClick = () => {
     if (user) {
-      if (confirm('确定要退出登录吗？')) {
-        logout()
-        nav('/login')
-      }
+      setMenuOpen(v => !v)
     } else {
       nav('/login')
     }
   }
+
+  const initial = (user?.displayName || user?.email || '?').charAt(0).toUpperCase()
 
   return (
     <aside className="sidebar">
@@ -66,19 +68,24 @@ function Sidebar() {
         ))}
       </nav>
 
+      <UserMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
       <div
-        className="sidebar-user"
-        onClick={handleAuthClick}
+        className={`sidebar-user ${menuOpen ? 'active' : ''}`}
+        onClick={handleUserClick}
         style={{ cursor: 'pointer' }}
-        title={user ? '点击退出登录' : '点击去登录'}
+        title={user ? '点击查看账户菜单' : '点击去登录'}
       >
-        <div className="user-avatar">{user ? '👤' : '🔒'}</div>
+        <div className="user-avatar user-avatar-initial">
+          {user ? initial : '🔒'}
+        </div>
         <div className="user-info">
           <span className="user-name">{user?.displayName || '未登录'}</span>
           <span className="user-role">
             {user ? (user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
           </span>
         </div>
+        {user && <span className="user-menu-caret">{menuOpen ? '▾' : '▸'}</span>}
       </div>
     </aside>
   )

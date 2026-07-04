@@ -139,6 +139,21 @@
   align-items: center;
   gap: 12px;
   background: linear-gradient(90deg, rgba(0, 212, 170, 0.05) 0%, transparent 100%);
+  transition: background 0.2s;
+  position: relative;
+}
+.sidebar-user:hover,
+.sidebar-user.active {
+  background: linear-gradient(90deg, rgba(0, 212, 170, 0.12) 0%, rgba(124, 58, 237, 0.06) 100%);
+}
+.user-menu-caret {
+  margin-left: auto;
+  color: #8b949e;
+  font-size: 14px;
+  transition: transform 0.15s, color 0.15s;
+}
+.sidebar-user.active .user-menu-caret {
+  color: #00d4aa;
 }
 
 .user-avatar {
@@ -152,6 +167,13 @@
   font-size: 20px;
   box-shadow: 0 0 15px rgba(0, 212, 170, 0.4);
   animation: avatar-glow 3s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.user-avatar-initial {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0a0e14;
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 @keyframes avatar-glow {

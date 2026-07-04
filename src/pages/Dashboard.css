@@ -199,6 +199,17 @@
   line-height: 1.4;
 }
 
+.today-card-stale-hint {
+  background: rgba(255, 195, 0, 0.08);
+  border: 1px solid rgba(255, 195, 0, 0.22);
+  color: #ffc542;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -4px 0 12px;
+}
+
 .today-card-body {
   font-size: 13.5px;
   color: #c9d1d9;

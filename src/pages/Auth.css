@@ -112,3 +112,205 @@
 .auth-footer a:hover {
   text-decoration: underline;
 }
+
+/* ==============================
+ * 已保存账户列表（QQ 式）
+ * ============================== */
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.account-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(10, 14, 26, 0.6);
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.account-card:hover {
+  border-color: rgba(0, 212, 170, 0.6);
+  background: rgba(0, 212, 170, 0.06);
+  transform: translateY(-1px);
+}
+.account-card:hover .account-delete {
+  opacity: 1;
+}
+.account-card.loading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.account-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c4dff 0%, #00d4aa 100%);
+  color: #0a0e14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px rgba(0, 212, 170, 0.25);
+}
+
+.account-info {
+  flex: 1;
+  min-width: 0;
+}
+.account-name {
+  color: #e6edf3;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-badge.admin {
+  font-size: 12px;
+  background: rgba(255, 195, 0, 0.15);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.account-email {
+  color: #8b949e;
+  font-size: 12px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.account-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.account-tag {
+  font-size: 16px;
+  opacity: 0.7;
+}
+.account-tag.saved { opacity: 1; }
+
+.account-delete {
+  opacity: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #8b949e;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 0.15s;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.account-delete:hover {
+  background: rgba(255, 90, 90, 0.15);
+  border-color: rgba(255, 90, 90, 0.4);
+  color: #ff8080;
+}
+
+.account-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 14, 26, 0.75);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00d4aa;
+  font-size: 13px;
+  backdrop-filter: blur(2px);
+}
+
+.auth-btn-secondary {
+  width: 100%;
+  margin-top: 8px;
+  background: transparent;
+  color: #c9d1d9;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 11px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.auth-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(0, 212, 170, 0.06);
+  color: #e6edf3;
+}
+.auth-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==============================
+ * "记住账户" 勾选
+ * ============================== */
+.remember-check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 8px !important;
+  cursor: pointer;
+  user-select: none;
+}
+.remember-check.standalone {
+  margin-top: -4px;
+}
+.remember-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #00d4aa;
+  cursor: pointer;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+}
+.remember-check span {
+  color: #c9d1d9 !important;
+  font-size: 13px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+.remember-check small {
+  color: #6e7681;
+  font-size: 11px;
+}
+
+/* 关于密码的温馨提示 */
+.password-tip {
+  background: rgba(0, 212, 170, 0.06);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+  color: #a8d4c9;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.password-tip b {
+  color: #00d4aa;
+  font-weight: 600;
+}
