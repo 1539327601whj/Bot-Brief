@@ -1,0 +1,86 @@
+name: Bot-Brief CI/CD Pipeline
+
+# 触发条件：当有代码 push 到 main 分支时触发
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 拉取 GitHub 仓库中的最新代码
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    # ================= 前端构建 =================
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: 'npm'
+
+    - name: Build Frontend
+      run: |
+        npm install
+        npm run build  # 打包出 dist 静态资源目录
+
+    # ================= 后端构建 =================
+    - name: Setup JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Build Backend (Spring Boot)
+      run: |
+        cd backend
+        mvn clean package -DskipTests  # 跳过测试并打包成 jar 包
+
+    # ================= 部署到腾讯云服务器 =================
+    # 1. 上传前端打包好的 dist 文件夹到服务器指定的网站根目录
+    - name: Deploy Frontend to Server
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        source: "dist/"
+        target: "/www/wwwroot/bot_brief_frontend/"
+
+    # 2. 上传后端生成的 jar 包到服务器指定的目录
+    - name: Deploy Backend Jar to Server
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        source: "backend/target/*.jar"
+        target: "/www/wwwroot/bot_brief_backend/"
+        strip_components: 2 # 忽略 backend/target/ 这两级本地目录，直接在服务器生成 jar 文件
+
+    # 3. 通过 SSH 登录服务器，杀死老进程，运行新 Jar 包
+    - name: SSH and Restart Java Application
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        script: |
+          cd /www/wwwroot/bot_brief_backend/
+          
+          # 1. 查找正在运行的旧 bot-brief 进程并优雅杀死
+          PID=$(ps -ef | grep bot-brief | grep -v grep | awk '{print $2}')
+          if [ -n "$PID" ]; then
+            echo "Stopping application (PID: $PID)..."
+            kill -15 $PID
+            sleep 3
+          fi
+          
+          # 2. 后台启动新的 Jar 包进程（分配 1G 内存防止挤爆服务器，并输出日志到 app.log）
+          # 提示：如果你的后端启动需要传入 DeepSeek 等 API KEY，可以在此处用 --DEEPSEEK_API_KEY="xxx" 传入
+          nohup java -Xms512m -Xmx1024m -jar *.jar > app.log 2>&1 &
+          echo "New application started successfully!"
