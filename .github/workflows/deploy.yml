@@ -1,86 +1,110 @@
-name: Bot-Brief CI/CD Pipeline
+name: Bot-Brief Docker CI/CD Pipeline
 
-# 触发条件：当有代码 push 到 main 分支时触发
 on:
   push:
     branches:
       - main
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+# 授予推送 GitHub 镜像仓库的权限
+permissions:
+  packages: write
+  contents: read
 
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
     steps:
-    # 1. 拉取 GitHub 仓库中的最新代码
     - name: Checkout Code
       uses: actions/checkout@v3
 
-    # ================= 前端构建 =================
-    - name: Setup Node.js
+    # 1. 登录 GitHub 官方私有 Docker 镜像仓库
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }} # 自动生成，无需你在 Secrets 里配置
+
+    # ================= 前端：打包 + 制作 Docker 镜像并推送 =================
+    - name: Setup Node.js & Build Frontend
       uses: actions/setup-node@v3
       with:
         node-version: 18
         cache: 'npm'
-
-    - name: Build Frontend
+    - name: Build Frontend Assets
       run: |
         npm install
-        npm run build  # 打包出 dist 静态资源目录
+        npm run build
 
-    # ================= 后端构建 =================
-    - name: Setup JDK 17
+    - name: Build and Push Frontend Image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+
+    # ================= 后端：编译 + 制作 Docker 镜像并推送 =================
+    - name: Setup JDK 17 & Build Backend
       uses: actions/setup-java@v3
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
-
-    - name: Build Backend (Spring Boot)
+    - name: Build Backend Jar
       run: |
         cd backend
-        mvn clean package -DskipTests  # 跳过测试并打包成 jar 包
+        mvn clean package -DskipTests
 
-    # ================= 部署到腾讯云服务器 =================
-    # 1. 上传前端打包好的 dist 文件夹到服务器指定的网站根目录
-    - name: Deploy Frontend to Server
-      uses: appleboy/scp-action@master
+    - name: Build and Push Backend Image
+      uses: docker/build-push-action@v4
       with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        source: "dist/"
-        target: "/www/wwwroot/bot_brief_frontend/"
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: true
+        tags: ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
 
-    # 2. 上传后端生成的 jar 包到服务器指定的目录
-    - name: Deploy Backend Jar to Server
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        source: "backend/target/*.jar"
-        target: "/www/wwwroot/bot_brief_backend/"
-        strip_components: 2 # 忽略 backend/target/ 这两级本地目录，直接在服务器生成 jar 文件
-
-    # 3. 通过 SSH 登录服务器，杀死老进程，运行新 Jar 包
-    - name: SSH and Restart Java Application
+  deploy-to-server:
+    needs: build-and-push-images
+    runs-on: ubuntu-latest
+    steps:
+    # 通过 SSH 登录你的腾讯云服务器，直接拉取镜像并用 Docker 运行
+    - name: SSH and Run Docker Containers
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_IP }}
         username: ${{ secrets.SERVER_USER }}
         password: ${{ secrets.SERVER_PASSWORD }}
         script: |
-          cd /www/wwwroot/bot_brief_backend/
-          
-          # 1. 查找正在运行的旧 bot-brief 进程并优雅杀死
-          PID=$(ps -ef | grep bot-brief | grep -v grep | awk '{print $2}')
-          if [ -n "$PID" ]; then
-            echo "Stopping application (PID: $PID)..."
-            kill -15 $PID
-            sleep 3
+          # 1. 确保服务器安装了 Docker，如果没有就自动安装（腾讯云通常自带）
+          if ! command -v docker &> /dev/null; then
+            curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+            systemctl start docker
+            systemctl enable docker
           fi
-          
-          # 2. 后台启动新的 Jar 包进程（分配 1G 内存防止挤爆服务器，并输出日志到 app.log）
-          # 提示：如果你的后端启动需要传入 DeepSeek 等 API KEY，可以在此处用 --DEEPSEEK_API_KEY="xxx" 传入
-          nohup java -Xms512m -Xmx1024m -jar *.jar > app.log 2>&1 &
-          echo "New application started successfully!"
+
+          # 2. 登录 GitHub 镜像仓库，以便能拉取你的私有镜像
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+          # 3. 停止并删除旧容器（如果存在）
+          docker stop bot-brief-frontend || true
+          docker rm bot-brief-frontend || true
+          docker stop bot-brief-backend || true
+          docker rm bot-brief-backend || true
+
+          # 4. 拉取最新构建好的 Docker 镜像（服务器上完全不需要任何源码！）
+          docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+          docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
+
+          # 5. 启动前端容器（将容器内 80 端口映射到服务器的 80 端口，或者你指定的端口如 8001）
+          docker run -d --name bot-brief-frontend -p 80:80 --restart always ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+
+          # 6. 启动后端容器（将容器内 8080 端口映射到服务器的 8080 端口，并在此注入环境变量 API KEY）
+          docker run -d --name bot-brief-backend -p 8080:8080 \
+            -e DEEPSEEK_API_KEY="你的实际APIKEY" \
+            --restart always \
+            ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
+
+          # 清理无用的旧镜像，释放服务器磁盘空间
+          docker image prune -f
+          echo "Docker Deployment completed successfully!"
