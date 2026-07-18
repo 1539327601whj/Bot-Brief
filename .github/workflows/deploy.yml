@@ -1,118 +1,13 @@
-name: Bot-Brief Docker CI/CD Pipeline
+name: Legacy Combined Deploy
 
 on:
-  push:
-    branches:
-      - main
-
-# 授予推送 GitHub 镜像仓库的权限
-permissions:
-  packages: write
-  contents: read
+  workflow_dispatch:
 
 jobs:
-  build-and-push-images:
+  notice:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
-
-    # 1. 登录 GitHub 官方私有 Docker 镜像仓库
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }} # 自动生成，无需你在 Secrets 里配置
-
-    # ================= 前端：打包 + 制作 Docker 镜像并推送 =================
-    - name: Setup Node.js & Build Frontend
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
-    - name: Build Frontend Assets
-      working-directory: frontend
-      run: |
-        npm install
-        npm run build
-
-    - name: Build and Push Frontend Image
-      uses: docker/build-push-action@v4
-      with:
-        context: ./frontend
-        file: ./frontend/Dockerfile
-        push: true
-        tags: ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
-
-    # ================= 后端：编译 + 制作 Docker 镜像并推送 =================
-    - name: Setup JDK 17 & Build Backend
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: 'maven'
-    - name: Build Backend Jar
-      run: |
-        cd backend
-        mvn clean package -DskipTests
-
-    - name: Build and Push Backend Image
-      uses: docker/build-push-action@v4
-      with:
-        context: ./backend
-        file: ./backend/Dockerfile
-        push: true
-        tags: ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
-
-  deploy-to-server:
-    needs: build-and-push-images
-    runs-on: ubuntu-latest
-    steps:
-    # 通过 SSH 登录你的腾讯云服务器，直接拉取镜像并用 Docker 运行
-    - name: SSH and Run Docker Containers
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        script: |
-          # 1. 确保服务器安装了 Docker，如果没有就自动安装（腾讯云通常自带）
-          if ! command -v docker &> /dev/null; then
-            curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-            systemctl start docker
-            systemctl enable docker
-          fi
-
-          # 2. 登录 GitHub 镜像仓库，以便能拉取你的私有镜像
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-          # 3. 停止并删除旧容器（如果存在）
-          docker stop bot-brief-frontend || true
-          docker rm bot-brief-frontend || true
-          docker stop bot-brief-backend || true
-          docker rm bot-brief-backend || true
-
-          # 4. 拉取最新构建好的 Docker 镜像（服务器上完全不需要任何源码！）
-          docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
-          docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
-
-          # 5. 启动后端容器
-          docker run -d --name bot-brief-backend --network host \
-            -e SERVER_PORT="8081" \
-            -e DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}" \
-            -e DB_HOST="${{ secrets.DB_HOST }}" \
-            -e DB_PORT="${{ secrets.DB_PORT }}" \
-            -e DB_NAME="${{ secrets.DB_NAME }}" \
-            -e DB_USER="${{ secrets.DB_USER }}" \
-            -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            --restart always \
-            ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
-
-          # 6. 启动前端容器
-          docker run -d --name bot-brief-frontend --network host --restart always ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
-
-          # 清理无用的旧镜像，释放服务器磁盘空间
-          docker image prune -f
-          echo "Docker Deployment completed successfully!"
+      - name: Show migration notice
+        run: |
+          echo "Combined deploy is disabled."
+          echo "Use Deploy Frontend or Deploy Backend workflows instead."

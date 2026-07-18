@@ -1,0 +1,79 @@
+name: Deploy Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '要部署的分支'
+        required: true
+        default: 'main'
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend Assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+
+      - name: Deploy Frontend Container
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+              systemctl start docker
+              systemctl enable docker
+            fi
+
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+            docker stop bot-brief-frontend || true
+            docker rm bot-brief-frontend || true
+            docker run -d --name bot-brief-frontend \
+              -p 127.0.0.1:8080:80 \
+              --restart always \
+              ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
+            docker image prune -f
