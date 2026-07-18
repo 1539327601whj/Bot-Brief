@@ -68,8 +68,21 @@ jobs:
               systemctl enable docker
             fi
 
+            IMAGE="ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest"
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
+
+            for attempt in 1 2 3 4 5; do
+              if docker pull "$IMAGE"; then
+                break
+              fi
+              if [ "$attempt" = "5" ]; then
+                echo "Failed to pull $IMAGE after 5 attempts"
+                exit 1
+              fi
+              echo "docker pull failed, retrying in 20 seconds... ($attempt/5)"
+              sleep 20
+            done
+
             docker stop bot-brief-backend || true
             docker rm bot-brief-backend || true
             docker run -d --name bot-brief-backend \
@@ -82,5 +95,5 @@ jobs:
               -e DB_USER="${{ secrets.DB_USER }}" \
               -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
               --restart always \
-              ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
+              "$IMAGE"
             docker image prune -f
