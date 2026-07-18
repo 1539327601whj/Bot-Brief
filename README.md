@@ -11,7 +11,7 @@
 
 **基于 DeepSeek 大模型的智能资讯聚合与简报生成平台**
 
-<img src="https://raw.githubusercontent.com/1539327601whj/Bot-Brief/main/public/web.jpg" alt="前端界面预览" width="800"/>
+<img src="https://raw.githubusercontent.com/1539327601whj/Bot-Brief/main/frontend/public/web.jpg" alt="前端界面预览" width="800"/>
 
 在线演示：https://qaq.goodhappy.top/
 
@@ -274,6 +274,8 @@ cd ai-daily-bot
 ### 2. 前端启动
 
 ```bash
+cd frontend
+
 # 安装依赖
 npm install
 
@@ -402,12 +404,12 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r automation/requirements.txt
       - name: Run crawler and push
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
-        run: python scripts/main.py
+        run: python automation/scripts/daily_report.py
 ```
 
 ---
@@ -416,54 +418,29 @@ jobs:
 
 ```
 ai-daily-bot/
-├── .github/
-│   └── workflows/
-│       └── daily.yml              # GitHub Actions 定时任务
-├── backend/                        # Spring Boot 后端
-│   ├── src/main/java/com/aidaily/
-│   │   ├── controller/             # REST API 控制器
-│   │   │   ├── BriefingController.java
-│   │   │   ├── NewsController.java
-│   │   │   └── SubscriberController.java
-│   │   ├── service/                # 业务逻辑层
-│   │   │   ├── BriefingService.java
-│   │   │   └── NewsService.java
-│   │   ├── mapper/                 # MyBatis 数据访问层
-│   │   │   ├── BriefingMapper.java
-│   │   │   └── NewsMapper.java
-│   │   ├── entity/                 # 实体类
-│   │   │   ├── Briefing.java
-│   │   │   └── News.java
-│   │   └── config/                 # 配置类
-│   │       └── MybatisPlusConfig.java  # 分页插件配置
-│   └── src/main/resources/
-│       └── application.yml         # 配置文件
+├── .github/workflows/              # GitHub Actions 工作流
+│   ├── daily.yml                   # 简报生成与推送
+│   └── deploy.yml                  # Docker 构建与部署
 ├── frontend/                       # React + Vite 前端
-│   ├── src/
-│   │   ├── components/             # 公共组件
-│   │   ├── pages/                  # 页面组件
-│   │   │   ├── Dashboard.tsx       # 首页概览
-│   │   │   ├── History.tsx         # 历史简报
-│   │   │   ├── Subscribe.tsx       # 订阅管理
-│   │   │   └── Chat.tsx            # AI 对话
-│   │   ├── api/                    # API 封装
-│   │   └── App.tsx
+│   ├── src/                        # 前端源码
 │   ├── public/                     # 静态资源
-│   │   └── bg.png                  # 背景图片
-│   └── package.json
-├── scripts/                        # Python 爬虫脚本
-│   ├── sources/                    # 数据源爬虫
-│   │   ├── base.py                 # 爬虫基类
-│   │   ├── kr36.py                 # 36氪
-│   │   ├── huxiu.py                # 虎嗅
-│   │   └── ithome.py               # IT之家
-│   ├── ai/                         # AI 处理模块
-│   │   └── summarizer.py           # DeepSeek 摘要生成
-│   └── main.py                     # 程序入口
-├── sql/                            # 数据库脚本
-│   └── init_tidb.sql               # TiDB 初始化
-├── README.md
-└── package.json
+│   ├── Dockerfile                  # 前端镜像
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/                        # Spring Boot 后端
+│   ├── src/main/java/com/ai/daily/ # 后端源码
+│   ├── src/main/resources/         # 后端配置
+│   ├── sql/                        # 后端数据库脚本副本
+│   ├── Dockerfile
+│   └── pom.xml
+├── automation/                     # Python 自动化任务
+│   ├── requirements.txt
+│   └── scripts/                    # 简报生成和企业微信推送脚本
+├── database/                       # 数据库初始化脚本
+│   └── sql/
+├── deploy/                         # 平台部署配置
+│   └── render.yaml
+└── README.md
 ```
 
 ---
@@ -511,7 +488,7 @@ ai-daily-bot/
 | 虎嗅 | huxiu.com | 科技/商业/深度 | Python + BeautifulSoup |
 | IT之家 | ithome.com | 科技/数码/快讯 | Python + lxml |
 
-> 💡 扩展数据源：参考 `scripts/sources/` 目录下的现有实现创建新的爬虫模块
+> 💡 扩展数据源：在 `automation/scripts/` 下维护新的采集与推送脚本
 
 ---
 

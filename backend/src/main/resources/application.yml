@@ -3,8 +3,7 @@ spring:
     name: ai-daily-backend
 
   datasource:
-    # TiDB Serverless 默认端口 4000，启用 SSL
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:4000}/${DB_NAME:ai_daily}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=true&sslMode=VERIFY_IDENTITY&allowPublicKeyRetrieval=true&connectTimeout=10000&socketTimeout=30000
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai_daily}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&connectTimeout=10000&socketTimeout=30000
     username: ${DB_USER:root}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver

@@ -31,7 +31,9 @@ jobs:
       with:
         node-version: 18
         cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
     - name: Build Frontend Assets
+      working-directory: frontend
       run: |
         npm install
         npm run build
@@ -39,8 +41,8 @@ jobs:
     - name: Build and Push Frontend Image
       uses: docker/build-push-action@v4
       with:
-        context: .
-        file: ./Dockerfile
+        context: ./frontend
+        file: ./frontend/Dockerfile
         push: true
         tags: ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
 
@@ -96,14 +98,20 @@ jobs:
           docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
           docker pull ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
 
-          # 5. 启动前端容器（将容器内 80 端口映射到服务器的 80 端口，或者你指定的端口如 8001）
-          docker run -d --name bot-brief-frontend -p 80:80 --restart always ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
-
-          # 6. 启动后端容器（将容器内 8080 端口映射到服务器的 8080 端口，并在此注入环境变量 API KEY）
-          docker run -d --name bot-brief-backend -p 8080:8080 \
-            -e DEEPSEEK_API_KEY="你的实际APIKEY" \
+          # 5. 启动后端容器
+          docker run -d --name bot-brief-backend --network host \
+            -e SERVER_PORT="8081" \
+            -e DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}" \
+            -e DB_HOST="${{ secrets.DB_HOST }}" \
+            -e DB_PORT="${{ secrets.DB_PORT }}" \
+            -e DB_NAME="${{ secrets.DB_NAME }}" \
+            -e DB_USER="${{ secrets.DB_USER }}" \
+            -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
             --restart always \
             ghcr.io/${{ github.repository_owner }}/bot-brief-backend:latest
+
+          # 6. 启动前端容器
+          docker run -d --name bot-brief-frontend --network host --restart always ghcr.io/${{ github.repository_owner }}/bot-brief-frontend:latest
 
           # 清理无用的旧镜像，释放服务器磁盘空间
           docker image prune -f

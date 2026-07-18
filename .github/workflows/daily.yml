@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: 安装依赖
-        run: pip install -r requirements.txt -q
+        run: pip install -r automation/requirements.txt -q
       - name: 生成 AI 简报 & 推送
         env:
           TZ: 'Asia/Shanghai'
@@ -35,4 +35,4 @@ jobs:
           BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
           EDITION: ${{ github.event.inputs.edition || 'auto' }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/daily_report.py
+        run: python automation/scripts/daily_report.py
