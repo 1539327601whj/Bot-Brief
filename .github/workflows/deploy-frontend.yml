@@ -61,6 +61,8 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
+          timeout: 30m
+          command_timeout: 30m
           script: |
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
