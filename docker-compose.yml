@@ -5,6 +5,8 @@ services:
     container_name: bot-brief-backend
     ports:
       - "127.0.0.1:8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       SERVER_PORT: "8081"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
