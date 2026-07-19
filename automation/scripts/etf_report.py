@@ -22,6 +22,7 @@ ETF_LIST = [
         "eastmoney_secid": "1.510300",
         "sina_code": "sh510300",
         "index_name": "沪深300指数",
+        "valuation_index_code": "SH000300",
         "valuation_env_prefix": "CSI300",
     },
     {
@@ -30,6 +31,7 @@ ETF_LIST = [
         "eastmoney_secid": "1.513100",
         "sina_code": "sh513100",
         "index_name": "纳斯达克100指数",
+        "valuation_index_code": "NDX",
         "valuation_env_prefix": "NASDAQ100",
     },
 ]
@@ -183,49 +185,102 @@ def fetch_etf_quote(etf: dict[str, str]) -> dict[str, Any]:
     raise RuntimeError(f"{etf['name']} 所有行情源均失败")
 
 
-def fetch_valuation(etf: dict[str, str]) -> dict[str, Any]:
+def valuation_level(percentile_value: Optional[float]) -> str:
+    if percentile_value is None:
+        return "已提供 PE，未提供分位"
+    if percentile_value < 30:
+        return "偏低"
+    if percentile_value <= 70:
+        return "合理"
+    return "偏高"
+
+
+def normalize_percentile(value: Any) -> Optional[float]:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n * 100 if n <= 1 else n
+
+
+def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
+    url = "https://danjuanfunds.com/djapi/index_eva/dj"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://danjuanfunds.com/djmodule/value-center",
+    }
+    resp = requests.get(url, timeout=12, headers=headers)
+    resp.raise_for_status()
+    items = resp.json().get("data", {}).get("items", [])
+    target_code = etf["valuation_index_code"].upper()
+    for item in items:
+        if str(item.get("index_code", "")).upper() != target_code:
+            continue
+        pe_value = item.get("pe")
+        try:
+            pe_value = float(pe_value) if pe_value not in (None, "") else None
+        except (TypeError, ValueError):
+            pe_value = None
+        percentile_value = normalize_percentile(item.get("pe_percentile"))
+        ts = item.get("ts")
+        updated_at = None
+        if ts:
+            try:
+                updated_at = datetime.fromtimestamp(int(ts) / 1000, BEIJING_TZ).strftime("%Y-%m-%d")
+            except (TypeError, ValueError):
+                updated_at = str(ts)
+        return {
+            "index_name": item.get("name") or etf["index_name"],
+            "pe_ttm": pe_value,
+            "pe_percentile": percentile_value,
+            "valuation_level": valuation_level(percentile_value),
+            "source": "蛋卷基金指数估值",
+            "updated_at": updated_at,
+        }
+    raise RuntimeError(f"蛋卷估值未找到 {etf['valuation_index_code']}")
+
+
+def fetch_valuation_from_env(etf: dict[str, str]) -> dict[str, Any]:
     prefix = etf["valuation_env_prefix"]
     pe = os.environ.get(f"{prefix}_PE")
     percentile = os.environ.get(f"{prefix}_PE_PERCENTILE")
     source = os.environ.get(f"{prefix}_VALUATION_SOURCE", "手动环境变量")
 
-    if not pe:
+    try:
+        pe_value = float(pe) if pe else None
+    except ValueError:
+        pe_value = None
+    percentile_value = normalize_percentile(percentile) if percentile else None
+
+    if pe_value is None:
         return {
             "index_name": etf["index_name"],
             "pe_ttm": None,
             "pe_percentile": None,
             "valuation_level": "估值数据暂不可用",
-            "source": "未配置稳定估值源",
+            "source": "未获取到稳定估值源",
             "updated_at": None,
         }
-
-    try:
-        pe_value = float(pe)
-    except ValueError:
-        pe_value = None
-
-    try:
-        percentile_value = float(percentile) if percentile else None
-    except ValueError:
-        percentile_value = None
-
-    if percentile_value is None:
-        level = "已提供 PE，未提供分位"
-    elif percentile_value < 30:
-        level = "偏低"
-    elif percentile_value <= 70:
-        level = "合理"
-    else:
-        level = "偏高"
 
     return {
         "index_name": etf["index_name"],
         "pe_ttm": pe_value,
         "pe_percentile": percentile_value,
-        "valuation_level": level,
+        "valuation_level": valuation_level(percentile_value),
         "source": source,
         "updated_at": now_beijing().strftime("%Y-%m-%d"),
     }
+
+
+def fetch_valuation(etf: dict[str, str]) -> dict[str, Any]:
+    try:
+        valuation = fetch_valuation_from_danjuan(etf)
+        print(f"  ✅ {etf['name']} 估值来自 {valuation['source']}")
+        return valuation
+    except Exception as e:
+        print(f"  ⚠️ {etf['name']} 蛋卷估值抓取失败: {e}")
+        return fetch_valuation_from_env(etf)
 
 
 def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
