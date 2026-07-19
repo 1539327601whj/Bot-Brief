@@ -18,6 +18,7 @@ import ShopAnalytics from './pages/ShopAnalytics'
 import Admin from './pages/Admin'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
+import BrandLogo from './components/BrandLogo'
 import UserMenu from './components/UserMenu'
 import './Layout.css'
 
@@ -61,7 +62,7 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <span className="logo-icon">📝</span>
+        <BrandLogo className="logo-icon" />
         <span className="logo-text">BriefMind</span>
       </div>
 

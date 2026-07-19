@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import BrandLogo from '../components/BrandLogo'
 import {
   listSavedAccounts,
   saveAccount,
@@ -103,9 +104,11 @@ export default function Login() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-header">
-            <div className="auth-logo">📝</div>
-            <h1>选择账户登录</h1>
-            <p className="auth-desc">点击已保存的账户，用它的邮箱快速登录</p>
+            <div className="auth-brand-mark">
+              <BrandLogo className="auth-logo" title="Brief logo" />
+              <h1>Brief</h1>
+            </div>
+            <p className="auth-desc">AI智能应用服务平台</p>
           </div>
 
           <div className="account-list">
@@ -152,9 +155,11 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-header">
-          <div className="auth-logo">📝</div>
-          <h1>登录 BriefMind</h1>
-          <p className="auth-desc">用你的邮箱和密码登录</p>
+          <div className="auth-brand-mark">
+            <BrandLogo className="auth-logo" title="Brief logo" />
+            <h1>Brief</h1>
+          </div>
+          <p className="auth-desc">AI智能应用服务平台</p>
         </div>
 
         <form onSubmit={handleFormSubmit} className="auth-form" autoComplete="on">
@@ -196,10 +201,6 @@ export default function Login() {
             </span>
           </label>
 
-          <div className="password-tip">
-            🔒 <b>关于密码：</b>登录后浏览器会提示"保存密码"，同意即可。
-            它会用系统级加密（Windows Hello / Keychain 等）安全保存，比任何网站自己存都安全。
-          </div>
 
           {error && <div className="auth-error">❌ {error}</div>}
 

@@ -22,6 +22,7 @@ public interface SubscriptionService extends IService<Subscription> {
     void updateForUser(Long userId,
                        String receiveTime,
                        String preferenceFields,
+                       String topicSchedules,
                        Boolean enabled,
                        Boolean morningEnabled,
                        LocalTime morningTime,

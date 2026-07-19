@@ -1,6 +1,6 @@
 -- ============================================================
 -- V2 多租户改造：用户 + 邀请码 + 订阅按人隔离
--- 执行方式：在 TiDB / MySQL 里直接运行本脚本
+-- 执行方式：在 MySQL 里直接运行本脚本
 -- 幂等：可重复执行
 -- ============================================================
 
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS push_log (
 -- ------------------------------------------------------------
 -- 迁移订阅表：加 user_id + morning/evening 时间字段
 -- ------------------------------------------------------------
--- MySQL 8 / TiDB 支持 IF NOT EXISTS on ADD COLUMN；若不支持请手动删除后重跑
+-- MySQL 8 支持 IF NOT EXISTS on ADD COLUMN；若不支持请手动删除后重跑
 ALTER TABLE subscription
     ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 1 AFTER id;
 ALTER TABLE subscription

@@ -30,4 +30,20 @@ public class SubscriptionDTO {
 
     /** 晚间版推送时间 */
     private String eveningTime;
+
+    /** 按早/晚间版分组的主题订阅时间配置 */
+    private TopicSchedulesDTO topicSchedules;
+
+    @Data
+    public static class TopicSchedulesDTO {
+        private List<TopicScheduleItemDTO> morning;
+        private List<TopicScheduleItemDTO> evening;
+    }
+
+    @Data
+    public static class TopicScheduleItemDTO {
+        private String topic;
+        private Boolean enabled;
+        private String time;
+    }
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import BrandLogo from '../components/BrandLogo'
 import './Auth.css'
 
 export default function Register() {
@@ -31,9 +32,11 @@ export default function Register() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-header">
-          <div className="auth-logo">📝</div>
-          <h1>注册 BriefMind</h1>
-          <p className="auth-desc">向管理员索要邀请码后即可注册</p>
+          <div className="auth-brand-mark">
+            <BrandLogo className="auth-logo" title="Brief logo" />
+            <h1>Brief</h1>
+          </div>
+          <p className="auth-desc">AI智能应用服务平台</p>
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">

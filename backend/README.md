@@ -5,7 +5,7 @@
 ## 技术栈
 
 - Spring Boot 3.2.0
-- MySQL 8.x / TiDB Serverless
+- MySQL 8.x
 - MyBatis-Plus（简化 CRUD）
 - Lombok（简化代码）
 - Docker（Render 部署）
@@ -42,11 +42,11 @@ mvn spring-boot:run
 
 1. 将代码推送到 GitHub
 2. 登录 [Render](https://render.com)
-3. New → PostgreSQL → 创建免费数据库（可选，用 TiDB 也行）
+3. 准备服务器 MySQL 数据库
 4. New → Blueprint → 选择 GitHub 仓库
 5. 配置环境变量：
-   - `DB_HOST`: TiDB Host（gateway01.us-west-2.prod.aws.tidbcloud.com）
-   - `DB_PORT`: 4000
+   - `DB_HOST`: MySQL 服务器地址
+   - `DB_PORT`: 3306
    - `DB_NAME`: ai_daily
    - `DB_USER`: 你的用户名
    - `DB_PASSWORD`: 你的密码
@@ -62,10 +62,10 @@ mvn spring-boot:run
 
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
-| `DB_HOST` | MySQL/TiDB 主机 | gateway01.us-west-2.prod.aws.tidbcloud.com |
-| `DB_PORT` | 端口 | 4000 |
+| `DB_HOST` | MySQL 主机 | your.mysql.host |
+| `DB_PORT` | 端口 | 3306 |
 | `DB_NAME` | 数据库名 | ai_daily |
-| `DB_USER` | 用户名 | 2mdpH9MkQ28H3P9.root |
+| `DB_USER` | 用户名 | your_user |
 | `DB_PASSWORD` | 密码 | ****** |
 
 ## Render 免费版限制
@@ -74,13 +74,13 @@ mvn spring-boot:run
 - 每月 750 小时免费额度
 - 30 天无访问会自动休眠
 
-## TiDB Serverless 配置
+## MySQL 配置
 
 ```yaml
 # application.yml 配置示例
 spring:
   datasource:
-    url: jdbc:mysql://gateway01.us-west-2.prod.aws.tidbcloud.com:4000/ai_daily?sslMode=VERIFY_IDENTITY&serverTimezone=UTC
+    url: jdbc:mysql://your.mysql.host:3306/ai_daily?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
     username: 你的用户名
     password: 你的密码
     driver-class-name: com.mysql.cj.jdbc.Driver

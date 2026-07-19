@@ -16,11 +16,11 @@ services:
       - key: SERVER_PORT
         value: "8081"
 
-      # TiDB 数据库配置
+      # MySQL 数据库配置
       - key: DB_HOST
         sync: false  # 需要在 Render Dashboard 中设置
       - key: DB_PORT
-        value: "4000"
+        value: "3306"
       - key: DB_NAME
         value: "ai_daily"
       - key: DB_USER

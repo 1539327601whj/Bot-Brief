@@ -12,7 +12,7 @@ public class MybatisPlusConfig {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 添加分页插件，指定数据库类型为 MySQL（TiDB 兼容 MySQL）
+        // 添加分页插件，指定数据库类型为 MySQL
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
         return interceptor;
     }

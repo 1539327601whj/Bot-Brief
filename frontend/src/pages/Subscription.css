@@ -1,6 +1,6 @@
 /* 订阅管理页面 - 赛博朋克科技风格 */
 .subscription-page {
-  max-width: 700px;
+  max-width: 940px;
   margin: 0 auto;
   padding: 24px;
   animation: fadeIn 0.3s ease;
@@ -302,4 +302,162 @@
   flex-wrap: wrap;
   color: #e6edf3;
   font-size: 14px;
+}
+
+.subscription-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.subscription-summary > div {
+  padding: 18px;
+  background: rgba(26, 31, 54, 0.6);
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 12px;
+}
+
+.summary-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #8b949e;
+  font-size: 13px;
+}
+
+.subscription-summary strong {
+  color: #00d4aa;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.edition-section {
+  border-color: rgba(124, 77, 255, 0.35);
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-title-row h3 {
+  margin-bottom: 0;
+}
+
+.section-count {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(0, 212, 170, 0.1);
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  color: #00d4aa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.topic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.topic-actions button {
+  padding: 8px 12px;
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 8px;
+  background: rgba(10, 14, 26, 0.5);
+  color: #8b949e;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.topic-actions button:hover:not(:disabled) {
+  border-color: rgba(0, 212, 170, 0.5);
+  color: #e6edf3;
+}
+
+.topic-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.topic-schedule-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.topic-schedule-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 12px;
+  background: rgba(10, 14, 26, 0.5);
+  transition: all 0.2s ease;
+}
+
+.topic-schedule-row.active {
+  border-color: rgba(0, 212, 170, 0.35);
+  background: rgba(0, 212, 170, 0.06);
+}
+
+.topic-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 110px;
+  color: #e6edf3;
+  cursor: pointer;
+}
+
+.topic-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #00d4aa;
+}
+
+.topic-check input:disabled,
+.topic-check input:disabled + span {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.topic-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8b949e;
+  font-size: 12px;
+}
+
+.topic-time input[type="time"] {
+  width: 105px;
+  padding: 7px 8px;
+  background: rgba(10, 14, 26, 0.75);
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 8px;
+  color: #e6edf3;
+  color-scheme: dark;
+}
+
+.topic-time input[type="time"]:disabled {
+  opacity: 0.45;
+}
+
+@media (max-width: 760px) {
+  .subscription-summary,
+  .topic-schedule-list {
+    grid-template-columns: 1fr;
+  }
+
+  .topic-schedule-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

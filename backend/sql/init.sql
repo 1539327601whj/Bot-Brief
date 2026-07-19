@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS subscription (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
     receive_time VARCHAR(20) NOT NULL DEFAULT 'both' COMMENT '接收时间：morning / evening / both',
     preference_fields JSON DEFAULT NULL COMMENT '偏好领域 JSON 数组',
+    topic_schedules JSON DEFAULT NULL COMMENT '早/晚间版按主题配置的推送时间',
     enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用订阅：1 启用 0 暂停',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'

@@ -27,6 +27,9 @@ public class Subscription {
     /** 偏好领域（JSON 数组格式） */
     private String preferenceFields;
 
+    /** 早/晚间版按主题配置的推送时间（JSON） */
+    private String topicSchedules;
+
     /** 总开关：1启用 0暂停 */
     private Boolean enabled;
 

@@ -1,10 +1,13 @@
 package com.ai.daily.service.impl;
 
+import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.mapper.SubscriptionMapper;
 import com.ai.daily.service.SubscriptionService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
@@ -12,6 +15,12 @@ import java.util.List;
 
 @Service
 public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Subscription> implements SubscriptionService {
+
+    private final ObjectMapper objectMapper;
+
+    public SubscriptionServiceImpl(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public Subscription getOrCreateForUser(Long userId) {
@@ -45,6 +54,7 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
     public void updateForUser(Long userId,
                               String receiveTime,
                               String preferenceFields,
+                              String topicSchedules,
                               Boolean enabled,
                               Boolean morningEnabled,
                               LocalTime morningTime,
@@ -53,6 +63,7 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
         Subscription s = getOrCreateForUser(userId);
         if (receiveTime != null) s.setReceiveTime(receiveTime);
         s.setPreferenceFields(preferenceFields);
+        s.setTopicSchedules(topicSchedules);
         if (enabled != null) s.setEnabled(enabled);
         if (morningEnabled != null) s.setMorningEnabled(morningEnabled);
         if (morningTime != null) s.setMorningTime(morningTime);
@@ -63,21 +74,48 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
 
     @Override
     public List<Subscription> findDueForEdition(String edition, LocalTime nowFloor) {
-        // 只需比较到分钟精度
         LocalTime hm = nowFloor.withSecond(0).withNano(0);
         LambdaQueryWrapper<Subscription> w = new LambdaQueryWrapper<>();
         w.eq(Subscription::getEnabled, true);
         if ("morning".equals(edition)) {
-            w.eq(Subscription::getMorningEnabled, true)
-                    .apply("HOUR(morning_time) = {0} AND MINUTE(morning_time) = {1}",
-                            hm.getHour(), hm.getMinute());
+            w.eq(Subscription::getMorningEnabled, true);
         } else if ("evening".equals(edition)) {
-            w.eq(Subscription::getEveningEnabled, true)
-                    .apply("HOUR(evening_time) = {0} AND MINUTE(evening_time) = {1}",
-                            hm.getHour(), hm.getMinute());
+            w.eq(Subscription::getEveningEnabled, true);
         } else {
             return List.of();
         }
-        return this.list(w);
+        return this.list(w).stream()
+                .filter(s -> isDueForEdition(s, edition, hm))
+                .toList();
+    }
+
+    private boolean isDueForEdition(Subscription s, String edition, LocalTime hm) {
+        SubscriptionDTO.TopicSchedulesDTO schedules = parseTopicSchedules(s.getTopicSchedules());
+        List<SubscriptionDTO.TopicScheduleItemDTO> items = schedules == null
+                ? null
+                : ("morning".equals(edition) ? schedules.getMorning() : schedules.getEvening());
+        if (items == null || items.isEmpty()) {
+            LocalTime fallback = "morning".equals(edition) ? s.getMorningTime() : s.getEveningTime();
+            return fallback != null && sameMinute(fallback, hm);
+        }
+        return items.stream().anyMatch(item -> Boolean.TRUE.equals(item.getEnabled()) && sameMinute(parseTime(item.getTime()), hm));
+    }
+
+    private SubscriptionDTO.TopicSchedulesDTO parseTopicSchedules(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return objectMapper.readValue(raw, SubscriptionDTO.TopicSchedulesDTO.class);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private LocalTime parseTime(String s) {
+        if (s == null || s.isBlank()) return null;
+        return s.length() <= 5 ? LocalTime.parse(s + ":00") : LocalTime.parse(s);
+    }
+
+    private boolean sameMinute(LocalTime a, LocalTime b) {
+        return a != null && b != null && a.getHour() == b.getHour() && a.getMinute() == b.getMinute();
     }
 }

@@ -12,6 +12,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 订阅配置控制器（按登录用户隔离）
@@ -36,19 +40,27 @@ public class SubscriptionController {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
 
+        List<String> fields = dto.getTopicSchedules() == null
+                ? dto.getPreferenceFields()
+                : collectEnabledTopics(dto.getTopicSchedules());
         String preferenceFields = "[]";
-        if (dto.getPreferenceFields() != null && !dto.getPreferenceFields().isEmpty()) {
-            try {
-                preferenceFields = objectMapper.writeValueAsString(dto.getPreferenceFields());
-            } catch (JsonProcessingException e) {
-                return Result.error(500, "偏好领域转换失败");
+        String topicSchedules = null;
+        try {
+            if (fields != null && !fields.isEmpty()) {
+                preferenceFields = objectMapper.writeValueAsString(fields);
             }
+            if (dto.getTopicSchedules() != null) {
+                topicSchedules = objectMapper.writeValueAsString(dto.getTopicSchedules());
+            }
+        } catch (JsonProcessingException e) {
+            return Result.error(500, "订阅配置转换失败");
         }
 
         subscriptionService.updateForUser(
                 userId,
                 dto.getReceiveTime(),
                 preferenceFields,
+                topicSchedules,
                 dto.getEnabled(),
                 dto.getMorningEnabled(),
                 parseTime(dto.getMorningTime()),
@@ -73,16 +85,62 @@ public class SubscriptionController {
         dto.setEveningEnabled(s.getEveningEnabled());
         dto.setEveningTime(s.getEveningTime() == null ? null : s.getEveningTime().toString());
 
-        if (s.getPreferenceFields() != null && !s.getPreferenceFields().isEmpty()) {
-            try {
-                dto.setPreferenceFields(objectMapper.readValue(
-                        s.getPreferenceFields(), new TypeReference<>() {}));
-            } catch (JsonProcessingException e) {
-                dto.setPreferenceFields(java.util.Collections.emptyList());
-            }
-        } else {
-            dto.setPreferenceFields(java.util.Collections.emptyList());
-        }
+        List<String> fields = parsePreferenceFields(s.getPreferenceFields());
+        dto.setPreferenceFields(fields);
+        dto.setTopicSchedules(parseTopicSchedules(s, fields));
         return dto;
+    }
+
+    private List<String> parsePreferenceFields(String raw) {
+        if (raw != null && !raw.isEmpty()) {
+            try {
+                return objectMapper.readValue(raw, new TypeReference<>() {});
+            } catch (JsonProcessingException ignored) {
+                return java.util.Collections.emptyList();
+            }
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    private SubscriptionDTO.TopicSchedulesDTO parseTopicSchedules(Subscription s, List<String> fields) {
+        if (s.getTopicSchedules() != null && !s.getTopicSchedules().isBlank()) {
+            try {
+                return objectMapper.readValue(s.getTopicSchedules(), SubscriptionDTO.TopicSchedulesDTO.class);
+            } catch (JsonProcessingException ignored) {
+                // fall through to legacy defaults
+            }
+        }
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        schedules.setMorning(defaultTopicItems(fields, s.getMorningTime()));
+        schedules.setEvening(defaultTopicItems(fields, s.getEveningTime()));
+        return schedules;
+    }
+
+    private List<SubscriptionDTO.TopicScheduleItemDTO> defaultTopicItems(List<String> fields, LocalTime time) {
+        List<SubscriptionDTO.TopicScheduleItemDTO> items = new ArrayList<>();
+        for (String field : fields) {
+            SubscriptionDTO.TopicScheduleItemDTO item = new SubscriptionDTO.TopicScheduleItemDTO();
+            item.setTopic(field);
+            item.setEnabled(true);
+            item.setTime(time == null ? null : time.toString());
+            items.add(item);
+        }
+        return items;
+    }
+
+    private List<String> collectEnabledTopics(SubscriptionDTO.TopicSchedulesDTO schedules) {
+        Set<String> fields = new LinkedHashSet<>();
+        collectEnabledTopics(fields, schedules.getMorning());
+        collectEnabledTopics(fields, schedules.getEvening());
+        return new ArrayList<>(fields);
+    }
+
+    private void collectEnabledTopics(Set<String> fields, List<SubscriptionDTO.TopicScheduleItemDTO> items) {
+        if (items == null) return;
+        for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
+            if (Boolean.TRUE.equals(item.getEnabled()) && item.getTopic() != null && !item.getTopic().isBlank()) {
+                fields.add(item.getTopic());
+            }
+        }
     }
 }

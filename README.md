@@ -78,7 +78,7 @@
 
 - **RESTful API**：提供完整的简报查询、订阅管理、用户管理接口
 - **MyBatis-Plus ORM**：高效数据库操作，支持分页查询与动态 SQL
-- **TiDB Serverless**：云原生分布式数据库，支持水平扩展与高可用
+- **MySQL**：服务器数据库，承载简报、订阅和用户数据
 - **分层架构**：Controller → Service → Mapper 三层职责清晰
 
 ---
@@ -104,7 +104,7 @@
 | **Spring Web** | - | RESTful API 开发 |
 | **MyBatis-Plus** | 3.5.x | ORM 持久层框架，强大的 CRUD 增强 |
 | **MyBatis-Plus 分页插件** | - | 物理分页，支持多种数据库 |
-| **TiDB Serverless** | - | 云原生分布式数据库，MySQL 兼容 |
+| **MySQL** | 8.x | 关系型数据库，存储简报、订阅和用户数据 |
 | **Maven** | 3.8+ | 项目构建与依赖管理 |
 
 ### AI 与数据处理
@@ -125,7 +125,7 @@
 | **GitHub Actions** | CI/CD 与定时工作流编排 |
 | **Vercel** | 前端静态网站托管，全球 CDN 加速 |
 | **Render** | 后端容器化部署，自动扩缩容 |
-| **TiDB Cloud** | Serverless 数据库服务 |
+| **MySQL 服务器** | 关系型数据库服务 |
 
 ### 消息推送
 
@@ -216,7 +216,7 @@
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        数据存储层 (TiDB Serverless)                           │
+│                        数据存储层 (MySQL)                                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │   │
 │  │  │  news 表    │  │ briefings 表 │  │ subscribers表│                  │   │
@@ -256,7 +256,7 @@
 
 1. **前后端分离**：React 前端与 Spring Boot 后端独立部署，通过 REST API 通信
 2. **Serverless 定时**：腾讯云 SCF 实现低成本、高可靠的定时触发
-3. **云原生数据库**：TiDB Serverless 免运维、自动扩缩容
+3. **服务器数据库**：MySQL 承载核心业务数据，部署和运维路径清晰
 4. **AI 驱动**：DeepSeek 大模型赋能内容理解与生成
 5. **多端触达**：企业微信 + Web Dashboard 双端同步
 
@@ -293,7 +293,7 @@ npm run build
 ```bash
 cd backend
 
-# 本地运行（需配置 TiDB 连接）
+# 本地运行（需配置 MySQL 连接）
 mvn spring-boot:run
 
 # 打包构建
@@ -316,7 +316,7 @@ VITE_API_BASE=https://ai-daily-backend.onrender.com
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://gateway01.us-west-2.prod.aws.tidbcloud.com:4000/ai_daily
+    url: jdbc:mysql://your.mysql.host:3306/ai_daily
     username: your_username
     password: your_password
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -430,14 +430,12 @@ ai-daily-bot/
 ├── backend/                        # Spring Boot 后端
 │   ├── src/main/java/com/ai/daily/ # 后端源码
 │   ├── src/main/resources/         # 后端配置
-│   ├── sql/                        # 后端数据库脚本副本
+│   ├── sql/                        # 数据库初始化与迁移脚本
 │   ├── Dockerfile
 │   └── pom.xml
 ├── automation/                     # Python 自动化任务
 │   ├── requirements.txt
 │   └── scripts/                    # 简报生成和企业微信推送脚本
-├── database/                       # 数据库初始化脚本
-│   └── sql/
 ├── deploy/                         # 平台部署配置
 │   └── render.yaml
 └── README.md
@@ -472,7 +470,7 @@ ai-daily-bot/
 ### 云服务架构
 
 - **腾讯云 SCF**：Serverless 架构，按需付费，自动扩缩容
-- **TiDB Serverless**：云原生分布式数据库，兼容 MySQL 协议
+- **MySQL**：服务器数据库，兼容现有 JDBC/MyBatis-Plus 数据访问方式
 - **GitHub Actions**：免费的 CI/CD 与定时任务调度
 - **Vercel + Render**：免费的前后端托管方案
 
@@ -529,7 +527,6 @@ ai-daily-bot/
 - [Spring Boot](https://spring.io/projects/spring-boot) - 优秀的 Java Web 框架
 - [React](https://react.dev/) - 流行的前端框架
 - [Vite](https://vitejs.dev/) - 极速的前端构建工具
-- [TiDB Cloud](https://tidbcloud.com/) - 免费云原生数据库
 - [腾讯云 SCF](https://cloud.tencent.com/product/scf) - Serverless 云函数
 - [Render](https://render.com/) - 免费后端托管
 - [Vercel](https://vercel.com/) - 免费前端托管
