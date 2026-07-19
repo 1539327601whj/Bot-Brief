@@ -55,7 +55,10 @@ export default function Subscription() {
         }
       })
       .catch(err => {
-        if (err?.response?.status === 401) return
+        if (err?.response?.status === 401) {
+          setMessage('❌ 登录状态已失效，请重新登录')
+          return
+        }
         console.error(err)
       })
       .finally(() => setLoading(false))

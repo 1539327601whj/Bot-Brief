@@ -20,11 +20,10 @@ api.interceptors.response.use(
   (resp) => resp,
   (err) => {
     if (err?.response?.status === 401) {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
-      // 若不在 /login 或 /register，跳登录
+      const token = localStorage.getItem(TOKEN_KEY)
       const p = window.location.pathname
-      if (p !== '/login' && p !== '/register') {
+      if (!token && p !== '/login' && p !== '/register') {
+        localStorage.removeItem(USER_KEY)
         window.location.href = '/login'
       }
     }

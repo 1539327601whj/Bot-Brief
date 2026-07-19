@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -23,12 +24,29 @@ public class ReportController {
     @Autowired
     private ReportService reportService;
 
+    @Value("${report.ingest-token:}")
+    private String ingestToken;
+
     /**
      * GitHub Actions 推送简报
      * POST /api/reports
      */
     @PostMapping
     public Result<String> pushReport(@Valid @RequestBody ReportPushDTO dto) {
+        return saveReport(dto);
+    }
+
+    @PostMapping("/ingest")
+    public Result<String> ingestReport(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @Valid @RequestBody ReportPushDTO dto) {
+        if (ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        return saveReport(dto);
+    }
+
+    private Result<String> saveReport(ReportPushDTO dto) {
         String summary = dto.getSummary();
         if (summary == null || summary.isBlank()) {
             // 自动截取前 100 字作为摘要
