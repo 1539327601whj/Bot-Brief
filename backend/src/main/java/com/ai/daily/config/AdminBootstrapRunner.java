@@ -2,6 +2,7 @@ package com.ai.daily.config;
 
 import com.ai.daily.entity.User;
 import com.ai.daily.service.UserService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,25 +33,31 @@ public class AdminBootstrapRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        User admin = userService.findByEmail(adminEmail);
+        String normalizedAdminEmail = adminEmail.toLowerCase();
+        User admin = userService.findByEmail(normalizedAdminEmail);
         if (admin == null) {
-            log.warn("Admin 用户 {} 不存在，创建之（请确保 ADMIN_PASSWORD 已配置）", adminEmail);
+            log.warn("Admin 用户 {} 不存在，创建之（请确保 ADMIN_PASSWORD 已配置）", normalizedAdminEmail);
             admin = new User();
-            admin.setEmail(adminEmail.toLowerCase());
+            admin.setEmail(normalizedAdminEmail);
             admin.setPasswordHash(passwordEncoder.encode(bootstrapPassword));
             admin.setDisplayName("Admin");
             admin.setRole("ADMIN");
             admin.setEnabled(true);
             userService.save(admin);
             log.info("Admin 用户已创建 id={}", admin.getId());
-            return;
-        }
-        if ("BOOTSTRAP".equals(admin.getPasswordHash())) {
+        } else if ("BOOTSTRAP".equals(admin.getPasswordHash())) {
             admin.setPasswordHash(passwordEncoder.encode(bootstrapPassword));
             admin.setRole("ADMIN");
             admin.setEnabled(true);
             userService.updateById(admin);
-            log.info("Admin 用户 {} 密码已用 ADMIN_PASSWORD 初始化", adminEmail);
+            log.info("Admin 用户 {} 密码已用 ADMIN_PASSWORD 初始化", normalizedAdminEmail);
         }
+
+        LambdaUpdateWrapper<User> w = new LambdaUpdateWrapper<>();
+        w.ne(User::getEmail, normalizedAdminEmail)
+                .isNotNull(User::getInviteCodeUsed)
+                .eq(User::getRole, "ADMIN")
+                .set(User::getRole, "USER");
+        userService.update(w);
     }
 }

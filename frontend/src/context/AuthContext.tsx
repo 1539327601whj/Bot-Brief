@@ -28,9 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [loading, setLoading] = useState(false)
 
-  // 打开 App 时若有 token，用 /me 验证一次
+  // 打开 App 时若有 token，用 /me 同步真实用户信息
   useEffect(() => {
-    if (token && !user) {
+    if (token) {
       refresh().catch(() => {})
     }
   }, [])

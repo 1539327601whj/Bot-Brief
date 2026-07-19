@@ -47,8 +47,25 @@ export default function Admin() {
     }
   }
 
-  const copy = (code: string) => {
-    navigator.clipboard.writeText(code).then(() => setMsg(`📋 已复制邀请码 ${code}`))
+  const copy = async (code: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(code)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = code
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setMsg(`📋 已复制邀请码 ${code}`)
+    } catch {
+      setMsg(`❌ 自动复制失败，请手动复制：${code}`)
+    }
   }
 
   return (
