@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: bot-brief-server-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
@@ -40,9 +44,9 @@ jobs:
             fi
 
             cd /opt/Bot-Brief
-            git fetch origin
+            git fetch origin ${{ github.event.inputs.branch || github.ref_name }}
             git checkout ${{ github.event.inputs.branch || github.ref_name }}
-            git pull --ff-only origin ${{ github.event.inputs.branch || github.ref_name }}
+            git reset --hard origin/${{ github.event.inputs.branch || github.ref_name }}
 
             cat > .env.deploy <<'EOF'
             DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}
