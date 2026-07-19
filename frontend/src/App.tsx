@@ -1,42 +1,64 @@
 import type React from 'react'
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import ReportDetail from './pages/ReportDetail'
 import Subscription from './pages/Subscription'
 import Chat from './pages/Chat'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import PushChannels from './pages/PushChannels'
+import Notifications from './pages/Notifications'
+import Admin from './pages/Admin'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
+import UserMenu from './components/UserMenu'
 import './Layout.css'
 
 // 侧边栏导航组件
 function Sidebar() {
   const location = useLocation()
-  
+  const { user } = useAuth()
+  const nav = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
+
   const menuItems = [
     { path: '/', icon: '🏠', label: '首页概览' },
     { path: '/reports', icon: '📋', label: '历史简报' },
     { path: '/subscription', icon: '📬', label: '订阅管理' },
     { path: '/chat', icon: '💬', label: 'AI 对话' },
-    { path: '/domains', icon: '🏷️', label: '领域管理' },
+    { path: '/channels', icon: '📡', label: '推送渠道' },
     { path: '/notifications', icon: '🔔', label: '通知记录' },
-    { path: '/settings', icon: '⚙️', label: '系统设置' },
+    ...(user?.role === 'ADMIN' ? [{ path: '/admin', icon: '🛠', label: '邀请码管理' }] : []),
   ]
-  
+
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
     return location.pathname.startsWith(path)
   }
-  
+
+  const handleUserClick = () => {
+    if (user) {
+      setMenuOpen(v => !v)
+    } else {
+      nav('/login')
+    }
+  }
+
+  const initial = (user?.displayName || user?.email || '?').charAt(0).toUpperCase()
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
         <span className="logo-icon">📝</span>
         <span className="logo-text">BriefMind</span>
       </div>
-      
+
       <nav className="sidebar-nav">
         {menuItems.map(item => (
-          <Link 
-            key={item.path} 
+          <Link
+            key={item.path}
             to={item.path}
             className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
           >
@@ -45,13 +67,25 @@ function Sidebar() {
           </Link>
         ))}
       </nav>
-      
-      <div className="sidebar-user">
-        <div className="user-avatar">👤</div>
-        <div className="user-info">
-          <span className="user-name">Admin</span>
-          <span className="user-role">管理员</span>
+
+      <UserMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
+      <div
+        className={`sidebar-user ${menuOpen ? 'active' : ''}`}
+        onClick={handleUserClick}
+        style={{ cursor: 'pointer' }}
+        title={user ? '点击查看账户菜单' : '点击去登录'}
+      >
+        <div className="user-avatar user-avatar-initial">
+          {user ? initial : '🔒'}
         </div>
+        <div className="user-info">
+          <span className="user-name">{user?.displayName || '未登录'}</span>
+          <span className="user-role">
+            {user ? (user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
+          </span>
+        </div>
+        {user && <span className="user-menu-caret">{menuOpen ? '▾' : '▸'}</span>}
       </div>
     </aside>
   )
@@ -71,27 +105,47 @@ function Header() {
   )
 }
 
-export default function App() {
+// 主布局（带侧边栏、顶栏），并要求登录
+function MainLayout({ children }: { children: React.ReactNode }) {
   return (
-    <BrowserRouter>
+    <ProtectedRoute>
       <div className="app-layout">
         <Sidebar />
         <div className="main-wrapper">
           <Header />
-          <main className="main-content">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/reports" element={<History />} />
-              <Route path="/report/:id" element={<ReportDetail />} />
-              <Route path="/subscription" element={<Subscription />} />
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/domains" element={<div className="page-placeholder"><h2>🏷️ 领域管理</h2><p>页面开发中...</p></div>} />
-              <Route path="/notifications" element={<div className="page-placeholder"><h2>🔔 通知记录</h2><p>页面开发中...</p></div>} />
-              <Route path="/settings" element={<div className="page-placeholder"><h2>⚙️ 系统设置</h2><p>页面开发中...</p></div>} />
-            </Routes>
-          </main>
+          <main className="main-content">{children}</main>
         </div>
       </div>
-    </BrowserRouter>
+    </ProtectedRoute>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* 登录/注册页 —— 无侧栏 */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+
+          {/* 需登录后可访问 */}
+          <Route path="/*" element={
+            <MainLayout>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/reports" element={<History />} />
+                <Route path="/report/:id" element={<ReportDetail />} />
+                <Route path="/subscription" element={<Subscription />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/channels" element={<PushChannels />} />
+                <Route path="/notifications" element={<Notifications />} />
+                <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+              </Routes>
+            </MainLayout>
+          } />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   )
 }

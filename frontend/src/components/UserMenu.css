@@ -1,0 +1,134 @@
+/* 用户菜单弹出层
+ * 位于侧边栏用户区上方，向右上方展开 */
+
+.user-menu {
+  position: absolute;
+  bottom: 74px;           /* 用户区高度 ≈ 66px，留 8px 间距 */
+  left: 12px;
+  width: 280px;
+  background: rgba(20, 25, 35, 0.98);
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 12px;
+  padding: 14px;
+  z-index: 1000;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
+              0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+              0 0 30px rgba(0, 212, 170, 0.08);
+  backdrop-filter: blur(12px);
+  animation: userMenuIn 0.15s ease-out;
+}
+
+@keyframes userMenuIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 头部：头像 + 用户信息 */
+.user-menu-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 4px 12px;
+}
+.user-menu-avatar-lg {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c4dff 0%, #00d4aa 100%);
+  color: #0a0e14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(124, 77, 255, 0.35);
+}
+.user-menu-info { flex: 1; min-width: 0; }
+.user-menu-name {
+  color: #e6edf3;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-email {
+  color: #8b949e;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.user-menu-role-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(139, 148, 158, 0.2);
+  color: #c9d1d9;
+  font-size: 11px;
+  font-weight: 500;
+}
+.user-menu-role-badge.admin {
+  background: linear-gradient(135deg, rgba(255, 195, 0, 0.2), rgba(255, 152, 0, 0.15));
+  color: #ffc542;
+  border: 1px solid rgba(255, 195, 0, 0.3);
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  margin: 4px 0 6px;
+}
+
+/* 菜单项 */
+.user-menu-item {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #c9d1d9;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.user-menu-item:hover {
+  background: rgba(0, 212, 170, 0.08);
+  border-color: rgba(0, 212, 170, 0.25);
+  color: #e6edf3;
+}
+.user-menu-item.danger:hover {
+  background: rgba(255, 90, 90, 0.1);
+  border-color: rgba(255, 90, 90, 0.3);
+  color: #ff8080;
+}
+.user-menu-item-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.user-menu-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+.user-menu-item-text span {
+  font-size: 14px;
+  font-weight: 500;
+}
+.user-menu-item-text small {
+  font-size: 11px;
+  color: #6e7681;
+}
+.user-menu-item:hover .user-menu-item-text small {
+  color: #8b949e;
+}

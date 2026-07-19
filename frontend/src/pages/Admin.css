@@ -1,0 +1,101 @@
+.admin-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+  animation: fadeIn 0.3s ease;
+}
+.admin-page .page-header { margin-bottom: 20px; }
+.admin-page h2 {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+.admin-page .page-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #8b949e;
+}
+
+.admin-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.admin-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-toolbar label span {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+.admin-toolbar input {
+  width: 100px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #e6edf3;
+  font-size: 14px;
+  outline: none;
+}
+.admin-toolbar input:focus {
+  border-color: #00ffc8;
+}
+.admin-msg {
+  color: #00d4aa;
+  font-size: 13px;
+}
+
+.code-list {
+  background: rgba(26, 31, 54, 0.6);
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.code-head, .code-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 1fr 1fr 0.6fr;
+  gap: 12px;
+  padding: 12px 20px;
+  align-items: center;
+}
+.code-head {
+  background: rgba(0, 0, 0, 0.25);
+  color: #8b949e;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.code-row {
+  border-top: 1px solid rgba(48, 54, 61, 0.5);
+  color: #e6edf3;
+  font-size: 14px;
+}
+.code-row.used { opacity: 0.6; }
+.code-value {
+  font-family: Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: #00d4aa;
+  letter-spacing: 1px;
+}
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.badge.unused { background: rgba(0, 212, 170, 0.15); color: #00d4aa; }
+.badge.used { background: rgba(139, 148, 158, 0.2); color: #8b949e; }
+.mono { font-family: Menlo, Consolas, monospace; font-size: 12px; color: #8b949e; }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #8b949e;
+}
+.empty-icon { font-size: 48px; margin-bottom: 12px; }

@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import api from '../utils/api'
 import './Subscription.css'
 
 interface SubscriptionData {
-  receiveTime: string
+  receiveTime?: string
   preferenceFields: string[]
   enabled: boolean
+  morningEnabled: boolean
+  morningTime: string   // "HH:mm"
+  eveningEnabled: boolean
+  eveningTime: string
 }
 
 const FIELD_OPTIONS = [
@@ -12,26 +18,52 @@ const FIELD_OPTIONS = [
   '安全', 'DevOps', '数据分析', '机器学习', '区块链'
 ]
 
+const toHHmm = (s?: string) => {
+  if (!s) return ''
+  // 后端可能返回 "HH:mm:ss"，剪成 "HH:mm"
+  return s.length >= 5 ? s.slice(0, 5) : s
+}
+
 export default function Subscription() {
   const [data, setData] = useState<SubscriptionData>({
-    receiveTime: 'both',
     preferenceFields: [],
-    enabled: true
+    enabled: true,
+    morningEnabled: true,
+    morningTime: '08:00',
+    eveningEnabled: true,
+    eveningTime: '20:00',
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [channelCount, setChannelCount] = useState<number | null>(null)
 
   useEffect(() => {
-    fetch('/api/subscription')
-      .then(r => r.json())
+    api.get('/subscription')
       .then(res => {
-        if (res.data) {
-          setData(res.data)
+        const d = res.data?.data
+        if (d) {
+          setData({
+            receiveTime: d.receiveTime,
+            preferenceFields: d.preferenceFields || [],
+            enabled: d.enabled ?? true,
+            morningEnabled: d.morningEnabled ?? true,
+            morningTime: toHHmm(d.morningTime) || '08:00',
+            eveningEnabled: d.eveningEnabled ?? true,
+            eveningTime: toHHmm(d.eveningTime) || '20:00',
+          })
         }
       })
-      .catch(console.error)
+      .catch(err => {
+        if (err?.response?.status === 401) return
+        console.error(err)
+      })
       .finally(() => setLoading(false))
+
+    // 拉推送渠道数量
+    api.get('/channels')
+      .then(res => setChannelCount((res.data?.data || []).length))
+      .catch(() => setChannelCount(null))
   }, [])
 
   const handleFieldToggle = (field: string) => {
@@ -47,19 +79,11 @@ export default function Subscription() {
     setSaving(true)
     setMessage('')
     try {
-      const res = await fetch('/api/subscription', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
-      const result = await res.json()
-      if (result.code === 200) {
-        setMessage('✅ 保存成功！')
-      } else {
-        setMessage('❌ 保存失败：' + result.message)
-      }
-    } catch (e) {
-      setMessage('❌ 请求失败')
+      const res = await api.put('/subscription', data)
+      if (res.data?.code === 200) setMessage('✅ 保存成功！')
+      else setMessage('❌ 保存失败：' + (res.data?.message || ''))
+    } catch (e: any) {
+      setMessage('❌ 请求失败：' + (e?.response?.data?.message || e?.message || ''))
     } finally {
       setSaving(false)
     }
@@ -71,43 +95,56 @@ export default function Subscription() {
     <div className="subscription-page">
       <div className="page-header">
         <h2>📬 订阅管理</h2>
-        <p className="page-desc">设置您的简报接收时间和偏好领域</p>
+        <p className="page-desc">设置接收时间、偏好领域，以及推送到哪里</p>
       </div>
 
-      {/* 接收时间 */}
+      {/* 早间版 */}
       <div className="section">
-        <h3>🕐 接收时间</h3>
-        <div className="radio-group">
-          <label className={data.receiveTime === 'morning' ? 'radio-card active' : 'radio-card'}>
+        <h3>🌅 早间版</h3>
+        <div className="edition-row">
+          <label className="toggle">
             <input
-              type="radio"
-              name="receiveTime"
-              value="morning"
-              checked={data.receiveTime === 'morning'}
-              onChange={() => setData({ ...data, receiveTime: 'morning' })}
+              type="checkbox"
+              checked={data.morningEnabled}
+              onChange={(e) => setData({ ...data, morningEnabled: e.target.checked })}
             />
-            🌅 仅早间版（08:00）
+            <span className="slider"></span>
+            <span className="toggle-label">{data.morningEnabled ? '已开启' : '已关闭'}</span>
           </label>
-          <label className={data.receiveTime === 'evening' ? 'radio-card active' : 'radio-card'}>
+          <div className="time-picker">
+            <span className="time-label">推送时间</span>
             <input
-              type="radio"
-              name="receiveTime"
-              value="evening"
-              checked={data.receiveTime === 'evening'}
-              onChange={() => setData({ ...data, receiveTime: 'evening' })}
+              type="time"
+              value={data.morningTime}
+              disabled={!data.morningEnabled}
+              onChange={(e) => setData({ ...data, morningTime: e.target.value })}
             />
-            🌙 仅晚间版（20:00）
-          </label>
-          <label className={data.receiveTime === 'both' ? 'radio-card active' : 'radio-card'}>
+          </div>
+        </div>
+      </div>
+
+      {/* 晚间版 */}
+      <div className="section">
+        <h3>🌙 晚间版</h3>
+        <div className="edition-row">
+          <label className="toggle">
             <input
-              type="radio"
-              name="receiveTime"
-              value="both"
-              checked={data.receiveTime === 'both'}
-              onChange={() => setData({ ...data, receiveTime: 'both' })}
+              type="checkbox"
+              checked={data.eveningEnabled}
+              onChange={(e) => setData({ ...data, eveningEnabled: e.target.checked })}
             />
-            ⏰ 早晚都要
+            <span className="slider"></span>
+            <span className="toggle-label">{data.eveningEnabled ? '已开启' : '已关闭'}</span>
           </label>
+          <div className="time-picker">
+            <span className="time-label">推送时间</span>
+            <input
+              type="time"
+              value={data.eveningTime}
+              disabled={!data.eveningEnabled}
+              onChange={(e) => setData({ ...data, eveningTime: e.target.value })}
+            />
+          </div>
         </div>
       </div>
 
@@ -127,9 +164,9 @@ export default function Subscription() {
         </div>
       </div>
 
-      {/* 启用开关 */}
+      {/* 总开关 */}
       <div className="section">
-        <h3>⚡ 订阅状态</h3>
+        <h3>⚡ 订阅总开关</h3>
         <label className="toggle">
           <input
             type="checkbox"
@@ -141,7 +178,23 @@ export default function Subscription() {
         </label>
       </div>
 
-      {/* 保存按钮 */}
+      {/* 推送渠道预览 */}
+      <div className="section">
+        <h3>📡 推送渠道</h3>
+        <div className="channel-preview">
+          <div>
+            {channelCount === null && <span style={{ color: '#8b949e' }}>请先登录查看</span>}
+            {channelCount === 0 && <span style={{ color: '#8b949e' }}>你还没配置任何渠道，简报无法推送</span>}
+            {channelCount !== null && channelCount > 0 && (
+              <span>已配置 <b style={{ color: '#00d4aa' }}>{channelCount}</b> 个推送渠道</span>
+            )}
+          </div>
+          <Link to="/notifications" className="back-btn" style={{ marginBottom: 0 }}>
+            管理推送渠道 →
+          </Link>
+        </div>
+      </div>
+
       <button className="save-btn" onClick={handleSave} disabled={saving}>
         {saving ? '保存中...' : '保存设置'}
       </button>

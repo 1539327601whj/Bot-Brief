@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import dayjs from '../utils/dayjs'
+import api from '../utils/api'
 import './ReportDetail.css'
 
 interface Report {
@@ -20,9 +21,9 @@ export default function ReportDetail() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`/api/reports/${id}`)
-      .then(r => r.json())
-      .then(r => setReport(r.data))
+    api.get(`/reports/${id}`)
+      .then(r => setReport(r.data?.data))
+      .catch(() => {/* 401 已由 interceptor 处理 */})
       .finally(() => setLoading(false))
   }, [id])
 
