@@ -44,9 +44,21 @@ jobs:
             fi
 
             cd /opt/Bot-Brief
-            git fetch origin ${{ github.event.inputs.branch || github.ref_name }}
+            git config --global http.version HTTP/1.1
+            git config --global http.postBuffer 524288000
+            for attempt in 1 2 3 4 5; do
+              if git fetch --depth=1 origin ${{ github.event.inputs.branch || github.ref_name }}; then
+                break
+              fi
+              if [ "$attempt" = "5" ]; then
+                echo "Failed to fetch latest code after 5 attempts"
+                exit 1
+              fi
+              echo "git fetch failed, retrying in 20 seconds... ($attempt/5)"
+              sleep 20
+            done
             git checkout ${{ github.event.inputs.branch || github.ref_name }}
-            git reset --hard origin/${{ github.event.inputs.branch || github.ref_name }}
+            git reset --hard FETCH_HEAD
 
             cat > .env.deploy <<'EOF'
             DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}
