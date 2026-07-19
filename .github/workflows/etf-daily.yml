@@ -1,0 +1,40 @@
+name: ETF 每日观察
+
+on:
+  # 定时触发建议继续由腾讯云 SCF 接管（北京时间 8:00、20:00）
+  # 保留手动触发用于测试和补发
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: '选择版本'
+        required: true
+        default: 'etf_morning'
+        type: choice
+        options:
+          - etf_morning
+          - etf_evening
+          - auto
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: 安装依赖
+        run: pip install -r automation/requirements.txt -q
+      - name: 生成 ETF 观察 & 推送
+        env:
+          TZ: 'Asia/Shanghai'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ETF_WECHAT_WEBHOOK: ${{ secrets.ETF_WECHAT_WEBHOOK }}
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+          REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
+          EDITION: ${{ github.event.inputs.edition || 'auto' }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python automation/scripts/etf_report.py
