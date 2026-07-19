@@ -154,11 +154,12 @@ def convert_to_wework_markdown(md_text):
 # ─── 资讯抓取 ───────────────────────────────────────────────────
 
 RSS_FEEDS = [
+    ("机器之心", "https://www.jiqizhixin.com/rss"),
+    ("量子位", "https://www.qbitai.com/feed"),
     ("Hacker News", "https://hnrss.org/frontpage"),
+    ("VentureBeat AI", "https://venturebeat.com/category/ai/feed/"),
     ("MIT Tech Review", "https://www.technologyreview.com/feed/"),
     ("TechCrunch", "https://techcrunch.com/feed/"),
-    ("VentureBeat AI", "https://venturebeat.com/category/ai/feed/"),
-    ("机器之心", "https://www.jiqizhixin.com/rss"),
 ]
 
 AI_KEYWORDS = [
@@ -167,8 +168,32 @@ AI_KEYWORDS = [
     "大模型", "人工智能", "深度学习", "langchain", "dify", "rag",
     "agent", "智能体", "embedding", "vector", "chatgpt", "deepseek",
     "copilot", "神经网络", "transformer", "diffusion", "stable diffusion",
-    "mistral", "qwen", "llama", "ollama", "vector database"
+    "mistral", "qwen", "llama", "ollama", "vector database",
+    "kimi", "moonshot", "月之暗面", "通义", "千问", "智谱", "glm",
+    "豆包", "doubao", "minimax", "阶跃星辰", "stepfun", "混元", "hunyuan",
+    "文心", "ernie", "讯飞星火", "百炼", "千帆", "开源模型", "多模态"
 ]
+
+DOMESTIC_AI_KEYWORDS = [
+    "kimi", "moonshot", "月之暗面", "deepseek", "qwen", "通义", "千问",
+    "智谱", "glm", "豆包", "doubao", "minimax", "阶跃星辰", "stepfun",
+    "混元", "hunyuan", "文心", "ernie", "讯飞星火", "百炼", "千帆"
+]
+
+HIGH_VALUE_KEYWORDS = [
+    "发布", "推出", "开源", "升级", "模型", "api", "agent", "rag", "多模态",
+    "推理", "上下文", "编程", "代码", "框架", "benchmark", "release", "launch",
+    "open source", "reasoning", "coding", "developer", "framework"
+]
+
+SOURCE_WEIGHTS = {
+    "机器之心": 5,
+    "量子位": 5,
+    "VentureBeat AI": 3,
+    "MIT Tech Review": 3,
+    "TechCrunch": 2,
+    "Hacker News": 2,
+}
 
 
 def fetch_feed(feed_url, timeout=10):
@@ -183,15 +208,71 @@ def fetch_feed(feed_url, timeout=10):
         return None
 
 
-def extract_ai_news(max_feeds=5, max_items=50):
+def normalize_title(title):
+    title = re.sub(r"[\W_]+", "", title.lower())
+    return title[:40]
+
+
+def score_news_item(source, title, summary):
+    text = f"{title} {summary}".lower()
+    score = SOURCE_WEIGHTS.get(source, 1)
+    score += sum(1 for kw in AI_KEYWORDS if kw.lower() in text)
+    score += sum(8 for kw in DOMESTIC_AI_KEYWORDS if kw.lower() in text)
+    score += sum(3 for kw in HIGH_VALUE_KEYWORDS if kw.lower() in text)
+    if source in ("机器之心", "量子位"):
+        score += 4
+    return score
+
+
+def is_domestic_item(item):
+    text = f"{item['title']} {item['summary']}".lower()
+    return item["source"] in ("机器之心", "量子位") or any(kw.lower() in text for kw in DOMESTIC_AI_KEYWORDS)
+
+
+def dedupe_news_items(items):
+    seen = set()
+    deduped = []
+    for item in sorted(items, key=lambda x: x["score"], reverse=True):
+        key = normalize_title(item["title"])
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def select_news_for_prompt(items, edition):
+    deduped = dedupe_news_items(items)
+    domestic = [item for item in deduped if is_domestic_item(item)]
+    global_items = [item for item in deduped if not is_domestic_item(item)]
+
+    if edition == "morning":
+        selected = domestic[:3] + global_items[:3]
+    else:
+        selected = domestic[:4] + global_items[:3]
+
+    selected_keys = {item["link"] or item["title"] for item in selected}
+    for item in deduped:
+        key = item["link"] or item["title"]
+        if key not in selected_keys:
+            selected.append(item)
+            selected_keys.add(key)
+        if len(selected) >= 8:
+            break
+    return selected[:8]
+
+
+def extract_ai_news(max_feeds=None, max_items=60):
     """从 RSS 源中提取 AI 相关新闻"""
     print("📡 正在抓取资讯源...")
     all_items = []
+    feeds = RSS_FEEDS if max_feeds is None else RSS_FEEDS[:max_feeds]
 
-    for name, url in RSS_FEEDS[:max_feeds]:
+    for name, url in feeds:
         xml = fetch_feed(url)
         if not xml:
             continue
+        source_count = 0
         try:
             feed = feedparser.parse(xml)
             for entry in feed.entries[:max_items]:
@@ -200,38 +281,48 @@ def extract_ai_news(max_feeds=5, max_items=50):
                 link = entry.get("link", "")
                 published = entry.get("published", "")[:16] if entry.get("published") else ""
 
-                # 清理 HTML 标签
-                summary = re.sub(r'<[^>]+>', '', summary)[:300]
+                summary = re.sub(r'<[^>]+>', '', summary)
+                summary = re.sub(r"\s+", " ", summary).strip()[:180]
 
-                # 关键词匹配（不区分大小写）
                 text = (title + " " + summary).lower()
                 if any(kw.lower() in text for kw in AI_KEYWORDS):
+                    source_count += 1
                     all_items.append({
                         "source": name,
                         "title": title.strip(),
-                        "summary": summary.strip(),
+                        "summary": summary,
                         "link": link,
                         "published": published,
-                        "score": sum(1 for kw in AI_KEYWORDS if kw.lower() in text)
+                        "score": score_news_item(name, title, summary)
                     })
-            print(f"  ✅ {name}: {len(feed.entries)} 条，抓取到 {sum(1 for i in all_items if i['source']==name)} 条 AI 相关")
+            print(f"  ✅ {name}: {len(feed.entries)} 条，抓取到 {source_count} 条 AI 相关")
         except Exception as e:
             print(f"  ⚠️ 解析失败 {name}: {e}")
 
-    # 按关键词匹配分数排序，取前 20 条
     all_items.sort(key=lambda x: x["score"], reverse=True)
-    return all_items[:20]
+    return all_items[:40]
 
 
-def format_news_for_prompt(items):
-    """把新闻格式化为给 Gemini 的文本"""
+def format_news_for_prompt(items, edition="morning"):
+    """把筛选后的新闻压缩成给 LLM 的低 token 输入"""
     today = now_beijing().strftime("%Y-%m-%d")
-    lines = [f"📅 日期：{today}\n", "=" * 40, "\n今日 AI 相关资讯（共抓取到 {} 条，选取最重要的 5 条）：\n".format(len(items))]
-    for i, item in enumerate(items[:5], 1):
-        lines.append(f"[{i}] 来源：{item['source']}")
+    selected = select_news_for_prompt(items, edition)
+    edition_focus = "昨日夜间 + 今日早晨重点" if edition == "morning" else "全天总结 + 国内热点补充，避免重复早报"
+    lines = [
+        f"日期：{today}",
+        f"版本策略：{edition_focus}",
+        f"候选资讯：共 {len(items)} 条，以下为加权去重后的 {len(selected)} 条。",
+        ""
+    ]
+    for i, item in enumerate(selected, 1):
+        domestic_mark = "国内热点" if is_domestic_item(item) else "全球动态"
+        lines.append(f"[{i}] {domestic_mark}｜{item['source']}｜score={item['score']}")
         lines.append(f"标题：{item['title']}")
-        lines.append(f"摘要：{item['summary'][:200]}")
-        lines.append(f"链接：{item['link']}")
+        lines.append(f"摘要：{item['summary']}")
+        if item.get("published"):
+            lines.append(f"时间：{item['published']}")
+        if item.get("link"):
+            lines.append(f"链接：{item['link']}")
         lines.append("")
     return "\n".join(lines)
 
@@ -337,64 +428,58 @@ def call_llm_with_retry(prompt, max_retries=3):
     raise Exception("所有 LLM 模型均不可用，请检查 API 配置或稍后重试")
 
 
-SYSTEM_PROMPT_MORNING = """你是一位资深的 AI 领域技术架构师与科技媒体主编。
-你的任务是对提供的资讯进行深度筛选和总结，为资深 Java/AI 开发者输出最有价值的 AI 行业动态。
+SYSTEM_PROMPT_MORNING = """你是一位资深 AI 技术架构师与科技媒体主编，为资深 Java/AI 开发者写早间 AI 简报。
 
-【筛选标准 - 极其重要】
-请严格按照以下标准过滤，宁缺毋滥：
-1. 拒绝水文：排除无实质技术内容的公关文、股市波动、毫无根据的未来预测
-2. 聚焦硬核技术：优先保留主流大模型（DeepSeek/OpenAI/Claude/Qwen等）的发布/版本更新、重大技术突破
-3. 关注工程落地：优先保留与 AI 应用开发框架（Spring AI/LangChain/Dify）、向量数据库、Agent 编排工具相关的更新
-4. 关注实用工具：优先保留能极大提升程序员开发效率的 AI 工具
+【早报策略】
+1. 早报偏快讯，只回答：昨日夜间到今天早晨有什么值得开发者知道。
+2. 优先选择新发布、新开源、API/模型能力变化、开发框架变化，不做全天复盘式总结。
+3. 国内大模型动态必须优先考虑：Kimi/月之暗面、DeepSeek、通义/Qwen、智谱 GLM、豆包、MiniMax、阶跃星辰、混元、文心、讯飞星火等。
+4. 国外动态只保留对开发者影响明显的模型、API、开源、框架、Agent/RAG/工具链变化。
+5. 拒绝水文、公关稿、股价新闻、泛泛预测。
 
-【输出格式 - 必须严格遵守】
-生成 4 条最核心的资讯，每条格式：
-
-## N. 标题（一句话概括核心事件）
-
-**热度评级：** 🔥 现象级 / ⭐ 值得关注
-
-**核心摘要：** 80-100字，说明发布了什么、核心功能、技术亮点
-
-**对开发者的价值：** 50-80字，说明对开发工作的具体帮助
-
-最后附上数据来源行。
-
-注意：只输出最终简报内容，每条内容要精简，总字数控制在 800 字以内。不要解释你的选择过程。"""
-
-
-SYSTEM_PROMPT_EVENING = """你是一位资深的 AI 领域技术架构师与科技媒体主编。
-你的任务是汇总当日（北京时间）全天最重要的 AI 行业动态，为资深 Java/AI 开发者输出精准的晚间总结。
-
-【筛选标准 - 极其重要】
-请严格按照以下标准过滤，宁缺毋滥：
-1. 拒绝水文：排除无实质技术内容的公关文、股市波动、毫无根据的未来预测
-2. 聚焦硬核技术：优先保留主流大模型（DeepSeek/OpenAI/Claude/Qwen等）的发布/版本更新、重大技术突破
-3. 关注工程落地：优先保留与 AI 应用开发框架（Spring AI/LangChain/Dify）、向量数据库、Agent 编排工具相关的更新
-4. 关注实用工具：优先保留能极大提升程序员开发效率的 AI 工具
-5. 【晚间版特别说明】如果资讯中提及某条是"今早发布的"，在标题前标注"[NEW]"标记
-
-【输出格式 - 必须严格遵守】
-生成 4 条最核心的资讯，每条格式：
+【输出格式】
+生成 4 条最核心资讯，尽量包含“国内大模型 / 国外模型 / 工程落地工具”三个方向。每条格式：
 
 ## N. 标题（一句话概括核心事件）
 
 **热度评级：** 🔥 现象级 / ⭐ 值得关注
 
-**核心摘要：** 80-100字，说明发布了什么、核心功能、技术亮点
+**核心摘要：** 70-90字，说明发生了什么、关键能力或技术变化。
 
-**对开发者的价值：** 50-80字，说明对开发工作的具体帮助
+**对开发者的价值：** 40-70字，说明对应用开发、架构选型或效率工具的具体影响。
 
-最后附上数据来源行。
+最后附上数据来源行。总字数控制在 800 字以内，只输出最终简报。"""
 
-注意：只输出最终简报内容，每条内容要精简，总字数控制在 800 字以内。不要解释你的选择过程。"""
+
+SYSTEM_PROMPT_EVENING = """你是一位资深 AI 技术架构师与科技媒体主编，为资深 Java/AI 开发者写晚间 AI 总结。
+
+【晚报策略】
+1. 晚报偏复盘，只回答：今天哪些真正重要，哪些对开发者有影响。
+2. 晚报不是早报重写；不要重复早报式标题，除非候选中出现新的进展、补充信息或更明确的开发者影响。
+3. 如果候选中有国内大模型热点，优先选择早报未必覆盖充分的国内动态，如 Kimi/月之暗面、DeepSeek、通义/Qwen、智谱 GLM、豆包、MiniMax、阶跃星辰、混元、文心、讯飞星火。
+4. 对和早报可能重复的通用国外资讯，要么换成工程影响/生态影响角度，要么降级不选。
+5. 重点保留当天新发布、开源、API 升级、模型能力变化、Agent/RAG/开发框架变化。
+6. 拒绝水文、公关稿、股价新闻、泛泛预测。
+
+【输出格式】
+生成 4 条最核心资讯，优先形成“国内热点补充 + 全天工程价值总结”。每条格式：
+
+## N. 标题（一句话概括核心事件）
+
+**热度评级：** 🔥 现象级 / ⭐ 值得关注
+
+**核心摘要：** 70-90字，说明发生了什么、关键能力或技术变化。
+
+**对开发者的价值：** 40-70字，说明对应用开发、架构选型或效率工具的具体影响。
+
+最后附上数据来源行。总字数控制在 800 字以内，只输出最终简报。"""
 
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_MORNING  # 默认值，后续会根据 edition 动态选择
 
 
 def build_prompt(news_text, edition="morning"):
-    """构建发给 Gemini 的完整 prompt"""
+    """构建发给 LLM 的完整 prompt"""
     system_prompt = SYSTEM_PROMPT_EVENING if edition == "evening" else SYSTEM_PROMPT_MORNING
     edition_hint = "今日晚间总结" if edition == "evening" else "今日早间简报"
     return f"""{system_prompt}
@@ -403,7 +488,7 @@ def build_prompt(news_text, edition="morning"):
 
 {news_text}
 
-请根据以上资讯，生成今日的 {edition_hint}。"""
+请根据以上候选资讯，生成{edition_hint}。优先使用候选中的高分和国内热点，但不要机械照搬候选顺序。"""
 
 
 def detect_edition():
@@ -463,7 +548,7 @@ def main():
     print(f"\n📊 共抓取到 {len(news_items)} 条 AI 相关资讯\n")
 
     # Step 2: 用 LLM 生成简报（支持多模型降级）
-    news_text = format_news_for_prompt(news_items)
+    news_text = format_news_for_prompt(news_items, edition)
     prompt = build_prompt(news_text, edition)
 
     try:
@@ -487,7 +572,9 @@ def main():
     title_text = f"【{edition_suffix}】AI 每日简报 {today}"
     # 取前 100 字作摘要
     summary_text = report[:100] + "..." if len(report) > 100 else report
-    push_to_backend(edition, title_text, header + report, summary_text, run_id)
+    if not push_to_backend(edition, title_text, header + report, summary_text, run_id):
+        print("❌ 同步到后端失败，本次日报未入库")
+        sys.exit(1)
 
     print(f"\n✅ 今日简报完成！({now_beijing().strftime('%H:%M:%S')})")
 

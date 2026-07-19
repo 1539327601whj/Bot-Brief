@@ -45,8 +45,20 @@ LLM_MODELS = [
     },
 ]
 
-BANNED_WORDS = ["稳赚", "必涨", "满仓", "梭哈", "强烈买入", "无脑买入", "一定上涨"]
-DISCLAIMER = "风险提示：本报告由公开数据和 AI 辅助生成，仅供信息参考，不构成任何投资建议或买卖依据。基金有风险，投资需谨慎。"
+A_SHARE_PICK_COUNT = 2
+A_SHARE_PAGE_SIZE = 100
+A_SHARE_MARKET_FS = "m:1+t:2,m:0+t:6,m:0+t:80"
+A_SHARE_MIN_AMOUNT = 300000000
+A_SHARE_MIN_MARKET_CAP = 10000000000
+A_SHARE_MAX_ABS_PCT_CHANGE = 6
+A_SHARE_BANNED_NAME_KEYWORDS = ["ST", "*ST", "退"]
+
+BANNED_WORDS = [
+    "稳赚", "必涨", "满仓", "梭哈", "强烈买入", "无脑买入", "一定上涨",
+    "推荐买入", "目标价", "抄底", "翻倍", "牛股", "稳赚不赔", "确定性机会",
+    "闭眼买", "无风险", "马上买入", "卖出所有", "重仓", " All in", "all in",
+]
+DISCLAIMER = "风险提示：本报告由公开数据和 AI 辅助生成，仅供信息参考，不构成任何投资建议、证券推荐或买卖依据。基金和股票均有风险，投资需谨慎。"
 
 
 def now_beijing() -> datetime:
@@ -70,14 +82,21 @@ def edition_label(edition: str) -> str:
     return "早间版" if edition == "etf_morning" else "晚间版"
 
 
-def scaled(value: Any, divisor: float) -> Optional[float]:
+def to_optional_float(value: Any) -> Optional[float]:
+    if value in (None, "", "-"):
+        return None
     try:
         n = float(value)
         if n == -1:
             return None
-        return n / divisor
+        return n
     except (TypeError, ValueError):
         return None
+
+
+def scaled(value: Any, divisor: float) -> Optional[float]:
+    n = to_optional_float(value)
+    return None if n is None else n / divisor
 
 
 def fmt_number(value: Optional[float], digits: int = 3, suffix: str = "") -> str:
@@ -291,6 +310,137 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def fetch_a_share_candidates_from_eastmoney() -> list[dict[str, Any]]:
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": 1,
+        "pz": A_SHARE_PAGE_SIZE,
+        "po": 1,
+        "np": 1,
+        "fltt": 2,
+        "invt": 2,
+        "fid": "f6",
+        "fs": A_SHARE_MARKET_FS,
+        "fields": "f12,f14,f2,f3,f4,f5,f6,f8,f9,f10,f15,f16,f17,f18,f20,f21,f23,f24,f25,f62",
+    }
+    resp = requests.get(url, params=params, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    return resp.json().get("data", {}).get("diff", []) or []
+
+
+def normalize_a_share_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": str(item.get("f12") or ""),
+        "name": str(item.get("f14") or ""),
+        "latest_price": to_optional_float(item.get("f2")),
+        "pct_change": to_optional_float(item.get("f3")),
+        "change_amount": to_optional_float(item.get("f4")),
+        "volume": to_optional_float(item.get("f5")),
+        "amount": to_optional_float(item.get("f6")),
+        "turnover_rate": to_optional_float(item.get("f8")),
+        "pe_dynamic": to_optional_float(item.get("f9")),
+        "volume_ratio": to_optional_float(item.get("f10")),
+        "high": to_optional_float(item.get("f15")),
+        "low": to_optional_float(item.get("f16")),
+        "open": to_optional_float(item.get("f17")),
+        "previous_close": to_optional_float(item.get("f18")),
+        "total_market_cap": to_optional_float(item.get("f20")),
+        "float_market_cap": to_optional_float(item.get("f21")),
+        "pb": to_optional_float(item.get("f23")),
+        "pct_change_60d": to_optional_float(item.get("f24")),
+        "pct_change_ytd": to_optional_float(item.get("f25")),
+        "main_net_inflow": to_optional_float(item.get("f62")),
+        "source": "东方财富",
+    }
+
+
+def is_a_share_candidate(stock: dict[str, Any]) -> bool:
+    name = stock["name"].upper()
+    if not stock["code"] or not stock["name"]:
+        return False
+    if any(keyword in name for keyword in A_SHARE_BANNED_NAME_KEYWORDS):
+        return False
+    latest = stock["latest_price"]
+    pct = stock["pct_change"]
+    amount = stock["amount"]
+    market_cap = stock["total_market_cap"]
+    pe = stock["pe_dynamic"]
+    pb = stock["pb"]
+    turnover = stock["turnover_rate"]
+    if latest is None or latest <= 2:
+        return False
+    if pct is None or abs(pct) > A_SHARE_MAX_ABS_PCT_CHANGE:
+        return False
+    if amount is None or amount < A_SHARE_MIN_AMOUNT:
+        return False
+    if market_cap is None or market_cap < A_SHARE_MIN_MARKET_CAP:
+        return False
+    if pe is None or pe <= 0 or pe > 80:
+        return False
+    if pb is None or pb <= 0 or pb > 10:
+        return False
+    if turnover is None or turnover < 0.3 or turnover > 8:
+        return False
+    return True
+
+
+def score_a_share_candidate(stock: dict[str, Any]) -> float:
+    amount_score = min((stock["amount"] or 0) / 2000000000, 1.0) * 30
+    market_cap_score = min((stock["total_market_cap"] or 0) / 80000000000, 1.0) * 20
+    pct = abs(stock["pct_change"] or 0)
+    stability_score = max(0, 1 - pct / A_SHARE_MAX_ABS_PCT_CHANGE) * 18
+    pe = stock["pe_dynamic"] or 80
+    pe_score = max(0, 1 - pe / 80) * 12
+    pb = stock["pb"] or 10
+    pb_score = max(0, 1 - pb / 10) * 8
+    ratio = stock["volume_ratio"] or 0
+    volume_ratio_score = 7 if 0.8 <= ratio <= 2.5 else 2
+    inflow_score = 5 if (stock["main_net_inflow"] or 0) > 0 else 0
+    trend_60d = stock["pct_change_60d"]
+    trend_score = 0
+    if trend_60d is not None:
+        if -10 <= trend_60d <= 25:
+            trend_score = 8
+        elif 25 < trend_60d <= 45:
+            trend_score = 3
+    return amount_score + market_cap_score + stability_score + pe_score + pb_score + volume_ratio_score + inflow_score + trend_score
+
+
+def build_a_share_watchlist() -> list[dict[str, Any]]:
+    try:
+        raw_items = fetch_a_share_candidates_from_eastmoney()
+        stocks = [normalize_a_share_item(item) for item in raw_items]
+        candidates = [stock for stock in stocks if is_a_share_candidate(stock)]
+        for stock in candidates:
+            stock["score"] = score_a_share_candidate(stock)
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        picks = candidates[:A_SHARE_PICK_COUNT]
+        print(f"  ✅ A 股自动筛选完成：{len(picks)} 只候选")
+        return picks
+    except Exception as e:
+        print(f"  ⚠️ A 股候选抓取失败: {e}")
+        return []
+
+
+def a_share_to_text(stock: dict[str, Any]) -> str:
+    return "\n".join([
+        f"股票：{stock['name']}（{stock['code']}）",
+        f"最新价：{fmt_number(stock['latest_price'])}",
+        f"涨跌额：{fmt_number(stock['change_amount'])}",
+        f"涨跌幅：{fmt_number(stock['pct_change'], 2, '%')}",
+        f"成交额：{fmt_amount(stock['amount'])}",
+        f"换手率：{fmt_number(stock['turnover_rate'], 2, '%')}",
+        f"动态 PE：{fmt_number(stock['pe_dynamic'], 2)}",
+        f"PB：{fmt_number(stock['pb'], 2)}",
+        f"量比：{fmt_number(stock['volume_ratio'], 2)}",
+        f"60 日涨跌幅：{fmt_number(stock['pct_change_60d'], 2, '%')}",
+        f"年初至今涨跌幅：{fmt_number(stock['pct_change_ytd'], 2, '%')}",
+        f"主力净流入：{fmt_amount(stock['main_net_inflow'])}",
+        f"机械筛选分：{fmt_number(stock.get('score'), 1)}",
+        f"数据来源：{stock['source']}",
+    ])
+
+
 def snapshot_to_text(snapshot: dict[str, Any]) -> str:
     etf = snapshot["etf"]
     quote = snapshot["quote"]
@@ -311,23 +461,42 @@ def snapshot_to_text(snapshot: dict[str, Any]) -> str:
     ])
 
 
-def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str) -> str:
+def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks: list[dict[str, Any]]) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
     label = edition_label(edition)
-    source_text = "\n\n---\n\n".join(snapshot_to_text(s) for s in snapshots)
-    return f"""你是一位谨慎、保守、重视风险控制的 ETF 投研助手。请基于我提供的行情和估值数据，生成一份企业微信 ETF 每日观察。
+    etf_text = "\n\n---\n\n".join(snapshot_to_text(s) for s in snapshots)
+    stock_text = "\n\n---\n\n".join(a_share_to_text(s) for s in stock_picks) if stock_picks else "今日 A 股候选数据暂不可用，暂不生成观察名单。"
+    edition_strategy = """
+【早报策略】
+1. 早报偏“昨日收盘 + 当前开盘初步观察 + 今日关注点”。
+2. 10 点附近行情比刚开盘稳定一些，但仍属于盘中早段，不要太早下结论。
+3. ETF 只输出观察和纪律提醒，重点提示是否需要继续等待、是否暂不追高。
+4. A 股候选只作为今日观察名单，不输出强判断。
+""" if edition == "etf_morning" else """
+【晚报策略】
+1. 晚报偏“全天表现复盘 + 明日观察点 + 是否偏离计划”。
+2. 可以总结全天涨跌、估值和成交变化，但不要做确定性预测。
+3. ETF 部分重点判断是否偏离定投/观察纪律：继续观察、等待回调、控制仓位、小额分批。
+4. A 股候选重点写观察理由和主要风险，不输出买入/卖出指令。
+"""
+    return f"""你是一位谨慎、保守、重视风险控制的 ETF 与 A 股观察助手。请基于我提供的行情和估值数据，生成一份企业微信每日观察。
+
+{edition_strategy}
 
 【重要约束】
-1. 只能使用下方提供的数据，不允许编造价格、涨跌幅、PE 或分位数。
-2. 如果 PE 或分位数是“暂不可用”，必须明确说明估值数据暂不可用，并降低判断置信度。
-3. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、无脑买入、一定上涨”等激进或承诺性表达。
-4. “是否值得加仓”只能使用保守口径，例如：可小额分批、适合定投、暂不追高、等待回调、维持观察、控制仓位。
-5. 趋势预测只能写成情景判断，必须包含风险因素。
-6. 结尾必须附上风险提示：{DISCLAIMER}
-7. 总字数控制在 900 个中文字符以内，只输出最终报告，不解释生成过程。
+1. 只能使用下方提供的数据，不允许编造价格、涨跌幅、PE、PB 或分位数。
+2. ETF 的 PE 是跟踪指数 PE；如果 PE 或分位数是“暂不可用”，必须明确说明估值数据暂不可用，并降低判断置信度。
+3. 如果 ETF 估值数据暂不可用，不要输出“值得加仓”，只能输出“估值依据不足，维持观察/按原计划执行”。
+4. A 股只能称为“观察候选”，不能称为“推荐股票”或“买入标的”。
+5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、目标价、抄底、翻倍、牛股、确定性机会”等激进或承诺性表达。
+6. ETF 的“是否值得加仓”和 A 股观察判断都只能使用保守口径，例如：可小额分批、适合定投、暂不追高、等待回调、维持观察、控制仓位。
+7. A 股部分必须说明这是基于公开行情指标的机械筛选，不包含公司基本面深度尽调；每只候选必须写观察理由和主要风险。
+8. 不给具体仓位比例，不给目标价，不给确定性预测。
+9. 结尾必须附上风险提示：{DISCLAIMER}
+10. 总字数控制在 1200 个中文字符以内，只输出最终报告，不解释生成过程。
 
 【输出格式】
-> **ETF 每日观察 · {today}（{label}）**
+> **ETF 与 A 股观察 · {today}（{label}）**
 
 ## 1. 沪深300ETF 华泰柏瑞（510300）
 - 最新价：...
@@ -345,14 +514,28 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str) -> str:
 - 加仓判断：...
 - 趋势判断：...
 
+## 3. A 股自动筛选观察
+- 候选 1：股票名（代码）
+  - 最新价：...
+  - 涨跌幅：...
+  - 成交额：...
+  - PE/PB：...
+  - 观察理由：...
+  - 主要风险：...
+- 候选 2：...
+
 ## 今日结论
 - 沪深300ETF：...
 - 纳指100ETF：...
+- A 股观察：...
 
 > 风险提示：...
 
-【原始数据】
-{source_text}
+【ETF 原始数据】
+{etf_text}
+
+【A 股候选原始数据】
+{stock_text}
 """
 
 
@@ -411,9 +594,9 @@ def call_llm_with_retry(prompt: str, max_retries: int = 3) -> str:
     raise RuntimeError("所有 LLM 模型均不可用，请检查 API 配置或稍后重试")
 
 
-def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str) -> str:
+def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str, stock_picks: Optional[list[dict[str, Any]]] = None) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
-    lines = [f"> **ETF 每日观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", ""]
+    lines = [f"> **ETF 与 A 股观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", ""]
     for index, snapshot in enumerate(snapshots, 1):
         etf = snapshot["etf"]
         quote = snapshot["quote"]
@@ -428,7 +611,23 @@ def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason:
             "- 趋势判断：暂不生成趋势预测，请结合更长周期走势和自身仓位判断。",
             "",
         ])
-    lines.append(f"> {DISCLAIMER}")
+
+    lines.extend(["## 3. A 股自动筛选观察"])
+    if stock_picks:
+        for index, stock in enumerate(stock_picks, 1):
+            lines.extend([
+                f"- 候选 {index}：{stock['name']}（{stock['code']}）",
+                f"  - 最新价：{fmt_number(stock['latest_price'])}",
+                f"  - 涨跌幅：{fmt_number(stock['pct_change'], 2, '%')}",
+                f"  - 成交额：{fmt_amount(stock['amount'])}",
+                f"  - PE/PB：{fmt_number(stock['pe_dynamic'], 2)} / {fmt_number(stock['pb'], 2)}",
+                "  - 机械筛选依据：流动性、估值、波动和资金指标相对符合保守过滤条件。",
+                "  - 主要风险：未经过公司基本面深度尽调，不宜据此直接交易。",
+            ])
+    else:
+        lines.append("- 今日 A 股候选数据暂不可用，暂不生成观察名单。")
+
+    lines.append(f"\n> {DISCLAIMER}")
     return "\n".join(lines)
 
 
@@ -526,10 +725,10 @@ def main() -> None:
     today = now_beijing().strftime("%Y-%m-%d")
     edition = detect_edition()
     label = edition_label(edition)
-    report_file = f"ETF日报_{today}（{label}）.md"
+    report_file = f"ETF与A股日报_{today}（{label}）.md"
 
     print(f"\n{'=' * 50}")
-    print(f"📈 ETF 每日观察 · {today}（{label}）")
+    print(f"📈 ETF 与 A 股观察 · {today}（{label}）")
     print(f"{'=' * 50}\n")
 
     webhook_url = os.environ.get("ETF_WECHAT_WEBHOOK", "")
@@ -545,12 +744,15 @@ def main() -> None:
         print(f"❌ ETF 行情抓取失败: {e}")
         sys.exit(1)
 
-    prompt = build_etf_prompt(snapshots, edition)
+    print("📡 正在筛选 A 股观察候选...")
+    stock_picks = build_a_share_watchlist()
+
+    prompt = build_etf_prompt(snapshots, edition, stock_picks)
     try:
         report = call_llm_with_retry(prompt)
     except Exception as e:
         print(f"⚠️ AI 分析失败，改用基础行情报告: {e}")
-        report = build_fallback_report(snapshots, edition, str(e))
+        report = build_fallback_report(snapshots, edition, str(e), stock_picks)
 
     with open(report_file, "w", encoding="utf-8") as f:
         f.write(report)
@@ -564,7 +766,7 @@ def main() -> None:
         push_to_wechat(wx_content, webhook_url)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    title = f"【ETF{label}】沪深300ETF / 纳指100ETF 每日观察 {today}"
+    title = f"【ETF{label}】沪深300ETF / 纳指100ETF / A股观察 {today}"
     push_to_backend(edition, title, report, build_summary(report), run_id)
 
     print(f"\n✅ ETF 每日观察完成！({now_beijing().strftime('%H:%M:%S')})")
