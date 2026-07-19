@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: bot-brief-backend
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      SERVER_PORT: "8081"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: bot-brief-frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: always
