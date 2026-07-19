@@ -1,4 +1,4 @@
-name: ETF 每日观察
+name: 市场观察
 
 on:
   schedule:
@@ -12,11 +12,11 @@ on:
       edition:
         description: '选择版本'
         required: true
-        default: 'etf_morning'
+        default: 'market_watch_morning'
         type: choice
         options:
-          - etf_morning
-          - etf_evening
+          - market_watch_morning
+          - market_watch_evening
           - auto
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
           python-version: '3.11'
       - name: 安装依赖
         run: pip install -r automation/requirements.txt -q
-      - name: 生成 ETF 观察 & 推送
+      - name: 生成市场观察 & 推送
         env:
           TZ: 'Asia/Shanghai'
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

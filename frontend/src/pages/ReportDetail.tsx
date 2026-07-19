@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
+import { getReportEditionInfo } from '../utils/reportEdition'
 import './ReportDetail.css'
 
 interface Report {
@@ -30,8 +31,9 @@ export default function ReportDetail() {
   if (loading) return <div className="loading">加载中...</div>
   if (!report) return <div className="loading">简报不存在</div>
 
-  const editionLabel = report.edition === 'morning' ? '🌅 早间版' : '🌙 晚间版'
-  const editionClass = report.edition === 'morning' ? 'tag tag-morning' : 'tag tag-evening'
+  const editionInfo = getReportEditionInfo(report.edition)
+  const editionLabel = `${editionInfo.icon} ${editionInfo.label}`
+  const editionClass = editionInfo.className
 
   // 格式化时间（使用北京时间）
   const formatTime = (dateStr: string) => dayjs(dateStr).format('YYYY-MM-DD HH:mm')

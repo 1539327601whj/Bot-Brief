@@ -6,10 +6,15 @@ import History from './pages/History'
 import ReportDetail from './pages/ReportDetail'
 import Subscription from './pages/Subscription'
 import Chat from './pages/Chat'
+import ContentGrowth from './pages/ContentGrowth'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import PushChannels from './pages/PushChannels'
 import Notifications from './pages/Notifications'
+import MarketWatch from './pages/MarketWatch'
+import Pricing from './pages/Pricing'
+import CreatorTools from './pages/CreatorTools'
+import ShopAnalytics from './pages/ShopAnalytics'
 import Admin from './pages/Admin'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
@@ -26,6 +31,11 @@ function Sidebar() {
   const menuItems = [
     { path: '/', icon: '🏠', label: '首页概览' },
     { path: '/reports', icon: '📋', label: '历史简报' },
+    { path: '/market-watch', icon: '市', label: '市场观察' },
+    { path: '/pricing', icon: '💎', label: '套餐权益' },
+    { path: '/creator-tools', icon: '🎬', label: '短视频分析', wip: true },
+    { path: '/content-growth', icon: '📈', label: '内容增长' },
+    { path: '/shop-analytics', icon: '🛍️', label: '店铺分析' },
     { path: '/subscription', icon: '📬', label: '订阅管理' },
     { path: '/chat', icon: '💬', label: 'AI 对话' },
     { path: '/channels', icon: '📡', label: '推送渠道' },
@@ -64,6 +74,7 @@ function Sidebar() {
           >
             <span className="nav-icon">{item.icon}</span>
             <span className="nav-label">{item.label}</span>
+            {'wip' in item && item.wip && <span className="nav-badge-wip">即将</span>}
           </Link>
         ))}
       </nav>
@@ -135,6 +146,11 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/reports" element={<History />} />
+                <Route path="/market-watch" element={<MarketWatch />} />
+                <Route path="/pricing" element={<Pricing />} />
+                <Route path="/creator-tools" element={<CreatorTools />} />
+                <Route path="/content-growth" element={<ContentGrowth />} />
+                <Route path="/shop-analytics" element={<ShopAnalytics />} />
                 <Route path="/report/:id" element={<ReportDetail />} />
                 <Route path="/subscription" element={<Subscription />} />
                 <Route path="/chat" element={<Chat />} />

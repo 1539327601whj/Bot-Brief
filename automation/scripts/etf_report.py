@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-ETF 每日观察脚本
-用于生成沪深300ETF/纳指100ETF早晚报，并推送到独立企业微信机器人。
+市场观察脚本
+用于生成 ETF 与 A 股市场观察早晚报，并推送到独立企业微信机器人。
 """
 
 import os
@@ -55,10 +55,11 @@ A_SHARE_BANNED_NAME_KEYWORDS = ["ST", "*ST", "退"]
 
 BANNED_WORDS = [
     "稳赚", "必涨", "满仓", "梭哈", "强烈买入", "无脑买入", "一定上涨",
-    "推荐买入", "目标价", "抄底", "翻倍", "牛股", "稳赚不赔", "确定性机会",
-    "闭眼买", "无风险", "马上买入", "卖出所有", "重仓", " All in", "all in",
+    "推荐买入", "买入推荐", "卖出建议", "目标价", "抄底", "翻倍", "牛股", "稳赚不赔",
+    "确定性机会", "闭眼买", "无风险", "马上买入", "卖出所有", "重仓", "投资顾问",
+    "稳健收益", "保本收益", "稳赚策略", " All in", "all in",
 ]
-DISCLAIMER = "风险提示：本报告由公开数据和 AI 辅助生成，仅供信息参考，不构成任何投资建议、证券推荐或买卖依据。基金和股票均有风险，投资需谨慎。"
+DISCLAIMER = "风险提示：本报告由公开数据和 AI 辅助生成，仅作市场观察、分析、提醒和风险提示，不构成任何投资建议、证券推荐、投资顾问意见或买卖依据。基金和股票均有风险，投资需谨慎。"
 
 
 def now_beijing() -> datetime:
@@ -68,18 +69,20 @@ def now_beijing() -> datetime:
 def detect_edition() -> str:
     manual = os.environ.get("EDITION", "auto").lower()
     mapping = {
-        "morning": "etf_morning",
-        "evening": "etf_evening",
-        "etf_morning": "etf_morning",
-        "etf_evening": "etf_evening",
+        "morning": "market_watch_morning",
+        "evening": "market_watch_evening",
+        "market_watch_morning": "market_watch_morning",
+        "market_watch_evening": "market_watch_evening",
+        "etf_morning": "market_watch_morning",
+        "etf_evening": "market_watch_evening",
     }
     if manual in mapping:
         return mapping[manual]
-    return "etf_morning" if now_beijing().hour < 12 else "etf_evening"
+    return "market_watch_morning" if now_beijing().hour < 12 else "market_watch_evening"
 
 
 def edition_label(edition: str) -> str:
-    return "早间版" if edition == "etf_morning" else "晚间版"
+    return "早间版" if edition.endswith("morning") else "晚间版"
 
 
 def to_optional_float(value: Any) -> Optional[float]:
@@ -479,7 +482,7 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
 3. ETF 部分重点判断是否偏离定投/观察纪律：继续观察、等待回调、控制仓位、小额分批。
 4. A 股候选重点写观察理由和主要风险，不输出买入/卖出指令。
 """
-    return f"""你是一位谨慎、保守、重视风险控制的 ETF 与 A 股观察助手。请基于我提供的行情和估值数据，生成一份企业微信每日观察。
+    return f"""你是一位谨慎、保守、重视风险控制的市场观察助手。请基于我提供的行情和估值数据，生成一份企业微信每日市场观察。
 
 {edition_strategy}
 
@@ -488,33 +491,22 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
 2. ETF 的 PE 是跟踪指数 PE；如果 PE 或分位数是“暂不可用”，必须明确说明估值数据暂不可用，并降低判断置信度。
 3. 如果 ETF 估值数据暂不可用，不要输出“值得加仓”，只能输出“估值依据不足，维持观察/按原计划执行”。
 4. A 股只能称为“观察候选”，不能称为“推荐股票”或“买入标的”。
-5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、目标价、抄底、翻倍、牛股、确定性机会”等激进或承诺性表达。
-6. ETF 的“是否值得加仓”和 A 股观察判断都只能使用保守口径，例如：可小额分批、适合定投、暂不追高、等待回调、维持观察、控制仓位。
+5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、买入推荐、卖出建议、目标价、抄底、翻倍、牛股、确定性机会、投资顾问”等激进、承诺性或投顾表达。
+6. 市场观察判断都只能使用保守口径，例如：适合定投观察、暂不追高、等待回调观察、维持观察、控制仓位、风险偏高。
 7. A 股部分必须说明这是基于公开行情指标的机械筛选，不包含公司基本面深度尽调；每只候选必须写观察理由和主要风险。
 8. 不给具体仓位比例，不给目标价，不给确定性预测。
-9. 结尾必须附上风险提示：{DISCLAIMER}
-10. 总字数控制在 1200 个中文字符以内，只输出最终报告，不解释生成过程。
+9. 必须包含“估值提醒”“波动提醒”“行业热度分析”“风险提示”四类内容。
+10. 结尾必须附上风险提示：{DISCLAIMER}
+11. 总字数控制在 1200 个中文字符以内，只输出最终报告，不解释生成过程。
 
 【输出格式】
-> **ETF 与 A 股观察 · {today}（{label}）**
+> **市场观察 · {today}（{label}）**
 
-## 1. 沪深300ETF 华泰柏瑞（510300）
-- 最新价：...
-- 涨跌幅：...
-- 跟踪指数 PE：...
-- 估值位置：...
-- 加仓判断：...
-- 趋势判断：...
+## 1. ETF 观察
+- 沪深300ETF 华泰柏瑞（510300）：最新价、涨跌幅、跟踪指数 PE、估值位置、观察结论
+- 纳指100ETF 国泰（513100）：最新价、涨跌幅、跟踪指数 PE、估值位置、观察结论
 
-## 2. 纳指100ETF 国泰（513100）
-- 最新价：...
-- 涨跌幅：...
-- 跟踪指数 PE：...
-- 估值位置：...
-- 加仓判断：...
-- 趋势判断：...
-
-## 3. A 股自动筛选观察
+## 2. A 股观察候选
 - 候选 1：股票名（代码）
   - 最新价：...
   - 涨跌幅：...
@@ -524,10 +516,17 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
   - 主要风险：...
 - 候选 2：...
 
-## 今日结论
-- 沪深300ETF：...
-- 纳指100ETF：...
-- A 股观察：...
+## 3. 估值提醒
+- ...
+
+## 4. 波动提醒
+- ...
+
+## 5. 行业热度分析
+- 仅基于今日候选和公开行情指标观察，不做行业配置建议。
+
+## 今日风险提示
+- ...
 
 > 风险提示：...
 
@@ -596,7 +595,7 @@ def call_llm_with_retry(prompt: str, max_retries: int = 3) -> str:
 
 def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str, stock_picks: Optional[list[dict[str, Any]]] = None) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
-    lines = [f"> **ETF 与 A 股观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", ""]
+    lines = [f"> **市场观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", ""]
     for index, snapshot in enumerate(snapshots, 1):
         etf = snapshot["etf"]
         quote = snapshot["quote"]
@@ -725,10 +724,10 @@ def main() -> None:
     today = now_beijing().strftime("%Y-%m-%d")
     edition = detect_edition()
     label = edition_label(edition)
-    report_file = f"ETF与A股日报_{today}（{label}）.md"
+    report_file = f"市场观察_{today}（{label}）.md"
 
     print(f"\n{'=' * 50}")
-    print(f"📈 ETF 与 A 股观察 · {today}（{label}）")
+    print(f"📈 市场观察 · {today}（{label}）")
     print(f"{'=' * 50}\n")
 
     webhook_url = os.environ.get("ETF_WECHAT_WEBHOOK", "")
@@ -766,10 +765,10 @@ def main() -> None:
         push_to_wechat(wx_content, webhook_url)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    title = f"【ETF{label}】沪深300ETF / 纳指100ETF / A股观察 {today}"
+    title = f"【市场观察{label}】沪深300ETF / 纳指100ETF / A股观察 {today}"
     push_to_backend(edition, title, report, build_summary(report), run_id)
 
-    print(f"\n✅ ETF 每日观察完成！({now_beijing().strftime('%H:%M:%S')})")
+    print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
 
 
 if __name__ == "__main__":

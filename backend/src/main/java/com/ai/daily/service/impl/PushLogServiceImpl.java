@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -30,6 +31,7 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
         log.setChannelId(channelId);
         log.setChannelType(channelType);
         log.setStatus(success ? "success" : "failed");
+        log.setPushedAt(LocalDateTime.now());
         if (errorMessage != null && errorMessage.length() > 1000) {
             errorMessage = errorMessage.substring(0, 1000);
         }

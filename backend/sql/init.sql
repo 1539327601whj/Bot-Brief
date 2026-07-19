@@ -8,7 +8,7 @@ USE ai_daily;
 
 CREATE TABLE IF NOT EXISTS reports (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
-    edition VARCHAR(20) NOT NULL COMMENT '版本：morning / evening',
+    edition VARCHAR(40) NOT NULL COMMENT '版本：morning/evening/etf_morning/etf_evening/market_watch_morning/market_watch_evening',
     title VARCHAR(255) NOT NULL COMMENT '简报标题',
     content LONGTEXT NOT NULL COMMENT '简报正文（Markdown）',
     summary VARCHAR(500) DEFAULT NULL COMMENT '摘要（列表展示用）',

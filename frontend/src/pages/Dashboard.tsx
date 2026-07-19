@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
+import { getReportEditionInfo } from '../utils/reportEdition'
 import './Dashboard.css'
 
 interface Report {
@@ -14,63 +15,93 @@ interface Report {
   createdAt: string
 }
 
-function TodayCard({ edition }: { edition: 'morning' | 'evening' }) {
-  const [report, setReport] = useState<Report | null>(null)
-  const [loading, setLoading] = useState(true)
+interface DashboardStats {
+  todayCount: number
+  totalCount: number
+  hotTags: string[]
+  nextPushAt: string
+}
+
+interface Subscription {
+  enabled: boolean
+  receiveTime?: string
+  preferenceFields?: string[]
+  morningEnabled: boolean
+  morningTime: string
+  eveningEnabled: boolean
+  eveningTime: string
+}
+
+interface PushLog {
+  id: number
+  reportId: number
+  channelId: number
+  channelType: string
+  status: 'success' | 'failed'
+  errorMessage: string | null
+  pushedAt: string
+}
+
+type EditionKey = 'morning' | 'evening' | 'etf_morning' | 'etf_evening'
+type ReportMap = Record<EditionKey, Report | null>
+
+const emptyReports: ReportMap = {
+  morning: null,
+  evening: null,
+  etf_morning: null,
+  etf_evening: null,
+}
+
+function isToday(date?: string) {
+  return !!date && dayjs(date).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD')
+}
+
+function toHHmm(value?: string) {
+  if (!value) return '--:--'
+  return value.length >= 5 ? value.slice(0, 5) : value
+}
+
+async function safeGet<T>(url: string, config?: Record<string, unknown>): Promise<T | null> {
+  try {
+    const res = await api.get(url, config)
+    if (res.data?.code === 200) return res.data.data as T
+    return null
+  } catch {
+    return null
+  }
+}
+
+function ReportMiniCard({ report, edition }: { report: Report | null; edition: EditionKey }) {
   const [expanded, setExpanded] = useState(false)
-
-  useEffect(() => {
-    api.get('/reports/latest', { params: { edition } })
-      .then(res => {
-        if (res.data?.code === 200 && res.data.data) setReport(res.data.data)
-      })
-      .catch(() => {/* ignore */})
-      .finally(() => setLoading(false))
-  }, [edition])
-
-  const editionInfo = edition === 'morning'
-    ? { icon: '🌅', name: '早间版', pushHint: '每日 08:00 自动推送', accent: 'today-card-morning' }
-    : { icon: '🌙', name: '晚间版', pushHint: '每日 20:00 自动推送', accent: 'today-card-evening' }
-
-  // 判断简报新旧
-  const today = dayjs().format('YYYY-MM-DD')
+  const info = getReportEditionInfo(edition)
+  const fresh = isToday(report?.createdAt)
   const reportDate = report ? dayjs(report.createdAt).format('YYYY-MM-DD') : ''
-  const isToday = report && reportDate === today
-  const daysAgo = report ? dayjs(today).diff(dayjs(reportDate), 'day') : 0
-
-  // 卡片标题：有今天的就"今日 X 版"；只有旧的就"最近一期 X 版"
-  const cardLabel = !report
-    ? `今日${editionInfo.name}`
-    : isToday
-      ? `今日${editionInfo.name}`
-      : `最近${editionInfo.name}（${daysAgo} 天前）`
 
   return (
-    <div className={`today-card ${editionInfo.accent}`}>
-      <div className="today-card-header">
-        <div className="today-card-title">
-          <span className="today-card-icon">{editionInfo.icon}</span>
-          <span>{cardLabel}</span>
+    <div className={`overview-card report-mini-card ${fresh ? 'is-fresh' : ''}`}>
+      <div className="overview-card-header">
+        <div className="overview-card-title">
+          <span>{info.icon}</span>
+          <span>{info.label}</span>
         </div>
-        {report && (
-          <Link to={`/report/${report.id}`} className="today-card-link">详情 →</Link>
-        )}
+        {report && <Link to={`/report/${report.id}`} className="section-link">详情 →</Link>}
       </div>
 
-      {loading ? (
-        <div className="today-card-empty">加载中…</div>
-      ) : !report ? (
-        <div className="today-card-empty">
-          <span className="today-card-empty-title">尚未生成任何简报</span>
-          <span className="today-card-empty-sub">{editionInfo.pushHint}</span>
+      {!report ? (
+        <div className="overview-empty">
+          <span>今日暂无内容</span>
+          <small>预计 {info.expectedLabel} 推送</small>
         </div>
       ) : (
         <>
-          <h3 className="today-card-report-title">{report.title}</h3>
-          {!isToday && (
-            <div className="today-card-stale-hint">
-              ⚠️ 今日 {editionInfo.name}尚未生成，以下为最近一期（{reportDate}）
-            </div>
+          <div className="report-card-meta">
+            <span className={info.className}>{info.shortLabel}</span>
+            <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+            {!fresh && <span className="stale-badge">最近一期</span>}
+          </div>
+          <h3 className="overview-report-title">{report.title}</h3>
+          {!fresh && (
+            <div className="today-card-stale-hint">今日尚未生成，当前展示 {reportDate} 的最近一期</div>
           )}
           <div className={`today-card-body ${expanded ? 'expanded' : ''}`}>
             <ReactMarkdown>{expanded ? (report.content || report.summary) : report.summary}</ReactMarkdown>
@@ -84,201 +115,271 @@ function TodayCard({ edition }: { edition: 'morning' | 'evening' }) {
   )
 }
 
-interface PageData {
-  records: Report[]
-  total: number
-  current: number
-  size: number
+function FocusCard({ report }: { report: Report | null }) {
+  if (!report) {
+    return (
+      <div className="overview-card focus-card">
+        <div className="overview-card-title">🎯 今日重点</div>
+        <div className="overview-empty">暂无可展示重点，等待今日报告生成</div>
+      </div>
+    )
+  }
+
+  const info = getReportEditionInfo(report.edition)
+  return (
+    <div className="overview-card focus-card">
+      <div className="overview-card-header">
+        <div className="overview-card-title">🎯 今日重点</div>
+        <Link to={`/report/${report.id}`} className="section-link">查看详情 →</Link>
+      </div>
+      <div className="report-card-meta">
+        <span className={info.className}>{info.label}</span>
+        <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+        {!isToday(report.createdAt) && <span className="stale-badge">最近一期</span>}
+      </div>
+      <h2 className="focus-title">{report.title}</h2>
+      <p className="focus-summary">{report.summary}</p>
+    </div>
+  )
 }
 
-interface DashboardStats {
-  todayCount: number
-  totalCount: number
-  hotTags: string[]
-  nextPushAt: string
+function SubscriptionCard({ subscription }: { subscription: Subscription | null }) {
+  if (!subscription) {
+    return (
+      <div className="overview-card">
+        <div className="overview-card-header">
+          <div className="overview-card-title">📬 我的订阅</div>
+          <Link to="/subscription" className="section-link">去设置 →</Link>
+        </div>
+        <div className="overview-empty">登录后查看订阅状态</div>
+      </div>
+    )
+  }
+
+  const fields = subscription.preferenceFields || []
+  return (
+    <div className="overview-card">
+      <div className="overview-card-header">
+        <div className="overview-card-title">📬 我的订阅</div>
+        <Link to="/subscription" className="section-link">管理 →</Link>
+      </div>
+      <div className="status-list">
+        <div className="status-row">
+          <span>总开关</span>
+          <span className={`sub-status ${subscription.enabled ? 'active' : 'inactive'}`}>{subscription.enabled ? '已开启' : '已关闭'}</span>
+        </div>
+        <div className="status-row">
+          <span>早间推送</span>
+          <span>{subscription.morningEnabled ? toHHmm(subscription.morningTime) : '未开启'}</span>
+        </div>
+        <div className="status-row">
+          <span>晚间推送</span>
+          <span>{subscription.eveningEnabled ? toHHmm(subscription.eveningTime) : '未开启'}</span>
+        </div>
+      </div>
+      <div className="preference-tags">
+        {fields.length > 0 ? fields.map(field => <span key={field} className="preference-tag">{field}</span>) : <span className="overview-muted">暂未设置关注领域</span>}
+      </div>
+    </div>
+  )
+}
+
+function PushStatusCard({ logs }: { logs: PushLog[] }) {
+  const todayLogs = logs.filter(log => isToday(log.pushedAt))
+  const failed = todayLogs.filter(log => log.status === 'failed')
+  const latest = todayLogs[0]
+
+  return (
+    <div className="overview-card">
+      <div className="overview-card-header">
+        <div className="overview-card-title">🔔 今日推送状态</div>
+        <Link to="/notifications" className="section-link">记录 →</Link>
+      </div>
+      <div className="push-summary-grid">
+        <div><strong>{todayLogs.length}</strong><span>今日推送</span></div>
+        <div><strong>{todayLogs.length - failed.length}</strong><span>成功</span></div>
+        <div className={failed.length > 0 ? 'danger-text' : ''}><strong>{failed.length}</strong><span>失败</span></div>
+      </div>
+      {latest ? (
+        <p className="overview-muted">最近一次：{dayjs(latest.pushedAt).format('HH:mm')} · {latest.channelType}</p>
+      ) : (
+        <p className="overview-muted">今日暂无推送记录</p>
+      )}
+      {failed[0]?.errorMessage && <div className="alert-line danger">{failed[0].errorMessage}</div>}
+    </div>
+  )
+}
+
+function SuggestionCard({ suggestions }: { suggestions: string[] }) {
+  return (
+    <div className="overview-card suggestion-card">
+      <div className="overview-card-title">🤖 AI 建议卡片</div>
+      <ul className="suggestion-list">
+        {suggestions.map(item => <li key={item}>{item}</li>)}
+      </ul>
+    </div>
+  )
+}
+
+function AlertsCard({ alerts }: { alerts: string[] }) {
+  return (
+    <div className={`overview-card ${alerts.length > 0 ? 'alert-card' : 'ok-card'}`}>
+      <div className="overview-card-title">🧭 数据异常提醒</div>
+      {alerts.length > 0 ? (
+        <ul className="suggestion-list">
+          {alerts.map(item => <li key={item}>{item}</li>)}
+        </ul>
+      ) : (
+        <div className="overview-empty">今日关键数据暂未发现异常</div>
+      )}
+    </div>
+  )
 }
 
 export default function Dashboard() {
-  const [pageData, setPageData] = useState<PageData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [edition, setEdition] = useState<string>('')
+  const [reports, setReports] = useState<ReportMap>(emptyReports)
+  const [recentReports, setRecentReports] = useState<Report[]>([])
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [pushLogs, setPushLogs] = useState<PushLog[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
-    setLoading(true)
-    try {
-      const params: Record<string, string | number> = { page, size: 10 }
-      if (edition) params.edition = edition
-      const res = await api.get('/reports', { params })
-      setPageData(res.data?.data)
-    } catch (e) {
-      console.error(e)
-    } finally {
+  useEffect(() => {
+    let mounted = true
+
+    async function loadOverview() {
+      setLoading(true)
+      const [morning, evening, etfMorning, etfEvening, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
+        safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }),
+        safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }),
+        safeGet<Report>('/reports/latest', { params: { edition: 'etf_morning' } }),
+        safeGet<Report>('/reports/latest', { params: { edition: 'etf_evening' } }),
+        safeGet<DashboardStats>('/stats/dashboard'),
+        safeGet<Subscription>('/subscription'),
+        safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),
+        safeGet<{ records: Report[] }>('/reports', { params: { page: 1, size: 6 } }),
+      ])
+
+      if (!mounted) return
+      setReports({ morning, evening, etf_morning: etfMorning, etf_evening: etfEvening })
+      setStats(statsData)
+      setSubscription(subscriptionData)
+      setPushLogs(pushLogData || [])
+      setRecentReports(recentData?.records || [])
       setLoading(false)
     }
-  }
 
-  useEffect(() => {
-    fetchData()
-  }, [page, edition])
-
-  useEffect(() => {
-    api.get('/stats/dashboard')
-      .then(res => {
-        if (res.data?.code === 200 && res.data.data) setStats(res.data.data)
-      })
-      .catch(() => {/* ignore */})
+    loadOverview()
+    return () => { mounted = false }
   }, [])
 
-  const nextPushLabel = stats?.nextPushAt
-    ? dayjs(stats.nextPushAt).format('MM-DD HH:mm')
-    : '--:--'
+  const todayReports = useMemo(() => Object.values(reports).filter((report): report is Report => !!report && isToday(report.createdAt)), [reports])
+  const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.etf_morning || reports.etf_evening
+  const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
+  const failedLogs = todayLogs.filter(log => log.status === 'failed')
+  const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '--:--'
 
-  const editionLabel = (e: string) => e === 'morning' ? '🌅 早间版' : '🌙 晚间版'
-  const editionTagClass = (e: string) => e === 'morning' ? 'tag tag-morning' : 'tag tag-evening'
+  const alerts = useMemo(() => {
+    const now = dayjs()
+    const items: string[] = []
+    if ((stats?.todayCount ?? todayReports.length) === 0) items.push('今日暂无任何报告入库')
+    if (now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('AI 早间简报尚未生成')
+    if (now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('AI 晚间简报尚未生成')
+    if (now.hour() >= 11 && !isToday(reports.etf_morning?.createdAt)) items.push('ETF/A股早间观察尚未生成')
+    if (now.hour() >= 18 && !isToday(reports.etf_evening?.createdAt)) items.push('ETF/A股晚间观察尚未生成')
+    if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
+    if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) items.push('订阅已开启，但今日暂无推送记录')
+    return items
+  }, [stats, todayReports.length, reports, failedLogs.length, subscription, todayLogs.length])
+
+  const suggestions = useMemo(() => {
+    if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
+    if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
+    if (subscription && (!subscription.preferenceFields || subscription.preferenceFields.length === 0)) return ['完善关注领域，让后续内容更贴合你的偏好。']
+    if (!isToday(reports.morning?.createdAt) || !isToday(reports.evening?.createdAt)) return ['今日 AI 简报未完全生成，建议检查 GitHub Actions 运行记录。']
+    if (isToday(reports.etf_morning?.createdAt) || isToday(reports.etf_evening?.createdAt)) return ['ETF/A股观察已更新，可以结合今日重点查看市场变化。']
+    return ['今日数据状态正常，建议先查看今日重点和近期热点。']
+  }, [failedLogs.length, subscription, reports])
 
   if (loading) return <div className="loading">加载中...</div>
 
   return (
     <div className="dashboard-new">
-      {/* 欢迎横幅 */}
-      <div className="welcome-banner">
-        <div className="welcome-content">
-          <h1 className="welcome-title">👋 欢迎使用 BriefMind</h1>
-          <p className="welcome-subtitle">智能聚合多源资讯，生成个性化每日简报</p>
-          <div className="feature-tags">
-            <span className="feature-tag">🤖 AI 智能搜集</span>
-            <span className="feature-tag">⏰ 定时推送</span>
-            <span className="feature-tag">🔍 RAG 智能问答</span>
-          </div>
+      <div className="overview-hero">
+        <div>
+          <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
+          <h1 className="welcome-title">今日概览</h1>
+          <p className="welcome-subtitle">集中查看 AI 简报、ETF/A股观察、订阅和推送状态</p>
         </div>
-        <div className="welcome-image">
-          <img src="/ai-robot.svg" alt="AI Assistant" onError={(e) => e.currentTarget.style.display = 'none'} />
+        <div className="overview-hero-stats">
+          <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
+          <div><strong>{failedLogs.length}</strong><span>推送异常</span></div>
+          <div><strong>{nextPushLabel}</strong><span>下次推送</span></div>
         </div>
       </div>
 
-      {/* 今日简报 */}
-      <div className="today-grid">
-        <TodayCard edition="morning" />
-        <TodayCard edition="evening" />
+      <div className="overview-main-grid">
+        <FocusCard report={focusReport} />
+        <SuggestionCard suggestions={suggestions} />
+        <AlertsCard alerts={alerts} />
       </div>
 
-      {/* 功能卡片区 */}
-      <div className="cards-grid">
-        <div className="stat-card">
-          <div className="stat-icon">📄</div>
-          <div className="stat-info">
-            <span className="stat-value">{stats?.todayCount ?? '—'}</span>
-            <span className="stat-label">今日新增</span>
+      <div className="overview-section-header">
+        <h2>今日 AI 简报</h2>
+        <Link to="/reports" className="section-link">历史简报 →</Link>
+      </div>
+      <div className="overview-two-grid">
+        <ReportMiniCard report={reports.morning} edition="morning" />
+        <ReportMiniCard report={reports.evening} edition="evening" />
+      </div>
+
+      <div className="overview-section-header">
+        <h2>ETF / A股观察</h2>
+      </div>
+      <div className="overview-two-grid">
+        <ReportMiniCard report={reports.etf_morning} edition="etf_morning" />
+        <ReportMiniCard report={reports.etf_evening} edition="etf_evening" />
+      </div>
+
+      <div className="overview-main-grid">
+        <SubscriptionCard subscription={subscription} />
+        <PushStatusCard logs={pushLogs} />
+        <div className="overview-card">
+          <div className="overview-card-title">🔥 近期热点</div>
+          <div className="preference-tags">
+            {stats?.hotTags?.length ? stats.hotTags.slice(0, 8).map(tag => <span key={tag} className="preference-tag hot">{tag}</span>) : <span className="overview-muted">暂无热点标签</span>}
           </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon">📚</div>
-          <div className="stat-info">
-            <span className="stat-value">{stats?.totalCount ?? pageData?.total ?? 0}</span>
-            <span className="stat-label">累计简报</span>
-          </div>
-        </div>
-        <div className="stat-card stat-card-tags">
-          <div className="stat-icon">🔥</div>
-          <div className="stat-info">
-            <span className="stat-value stat-value-tags">
-              {stats?.hotTags && stats.hotTags.length > 0
-                ? stats.hotTags.slice(0, 3).join(' · ')
-                : '暂无'}
-            </span>
-            <span className="stat-label">本周热词</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon">⏰</div>
-          <div className="stat-info">
-            <span className="stat-value stat-value-time">{nextPushLabel}</span>
-            <span className="stat-label">下次推送</span>
-          </div>
+          <p className="overview-muted">累计报告：{stats?.totalCount ?? '—'} 份</p>
         </div>
       </div>
 
-      {/* 历史简报 */}
       <div className="section">
         <div className="section-header">
-          <h2 className="section-title">📋 历史简报</h2>
-          <div className="filter-bar">
-            <button
-              className={edition === '' ? 'filter-btn active' : 'filter-btn'}
-              onClick={() => setEdition('')}
-            >全部</button>
-            <button
-              className={edition === 'morning' ? 'filter-btn active' : 'filter-btn'}
-              onClick={() => setEdition('morning')}
-            >🌅 早间版</button>
-            <button
-              className={edition === 'evening' ? 'filter-btn active' : 'filter-btn'}
-              onClick={() => setEdition('evening')}
-            >🌙 晚间版</button>
-          </div>
+          <h2 className="section-title">📋 最近报告</h2>
+          <Link to="/reports" className="section-link">查看全部 →</Link>
         </div>
-        
         <div className="report-list">
-          {pageData?.records?.length === 0 ? (
-            <div className="empty">暂无简报</div>
+          {recentReports.length === 0 ? (
+            <div className="empty">暂无报告</div>
           ) : (
             <div className="list">
-              {pageData?.records?.map(report => (
-                <div key={report.id} className="report-item">
-                  <div className="item-left">
-                    <span className={editionTagClass(report.edition)}>{editionLabel(report.edition)}</span>
-                    <span className="item-time">{
-                      dayjs(report.createdAt).format('MM-DD HH:mm')
-                    }</span>
+              {recentReports.map(report => {
+                const info = getReportEditionInfo(report.edition)
+                return (
+                  <div key={report.id} className="report-item">
+                    <div className="item-left">
+                      <span className={info.className}>{info.shortLabel}</span>
+                      <span className="item-time">{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+                    </div>
+                    <div className="item-right">
+                      <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>
+                      <p className="item-summary">{report.summary}</p>
+                    </div>
                   </div>
-                  <div className="item-right">
-                    <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>
-                    <p className="item-summary">{report.summary}</p>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
-        </div>
-
-        {/* 分页 */}
-        {pageData && pageData.total > 10 && (
-          <div className="pagination">
-            <button disabled={page === 1} onClick={() => setPage(p => p - 1)}>上一页</button>
-            <span>第 {page} / {Math.ceil(pageData.total / 10)} 页</span>
-            <button
-              disabled={page >= Math.ceil(pageData.total / 10)}
-              onClick={() => setPage(p => p + 1)}
-            >下一页</button>
-          </div>
-        )}
-      </div>
-
-      {/* 订阅概览 */}
-      <div className="section">
-        <div className="section-header">
-          <h2 className="section-title">📬 订阅概览</h2>
-          <Link to="/subscription" className="section-link">管理订阅 →</Link>
-        </div>
-        <div className="subscription-cards">
-          <div className="subscription-card">
-            <div className="sub-icon">🌅</div>
-            <div className="sub-info">
-              <span className="sub-label">早间版</span>
-              <span className="sub-time">每日 08:00</span>
-            </div>
-            <span className="sub-status active">已启用</span>
-          </div>
-          <div className="subscription-card">
-            <div className="sub-icon">🌙</div>
-            <div className="sub-info">
-              <span className="sub-label">晚间版</span>
-              <span className="sub-time">每日 20:00</span>
-            </div>
-            <span className="sub-status active">已启用</span>
-          </div>
         </div>
       </div>
     </div>

@@ -11,6 +11,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -72,12 +75,24 @@ public class ReportController {
     public Result<Map<String, Object>> listReports(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String edition) {
+            @RequestParam(required = false) String edition,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String keyword) {
 
         Page<Report> pageObj = new Page<>(page, size);
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(edition != null, Report::getEdition, edition)
-               .orderByDesc(Report::getCreatedAt);
+        wrapper.eq(edition != null && !edition.isBlank(), Report::getEdition, edition);
+        if (startDate != null && !startDate.isBlank()) {
+            wrapper.ge(Report::getCreatedAt, LocalDateTime.of(LocalDate.parse(startDate), LocalTime.MIN));
+        }
+        if (endDate != null && !endDate.isBlank()) {
+            wrapper.le(Report::getCreatedAt, LocalDateTime.of(LocalDate.parse(endDate), LocalTime.MAX));
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.and(w -> w.like(Report::getTitle, keyword).or().like(Report::getSummary, keyword));
+        }
+        wrapper.orderByDesc(Report::getCreatedAt);
 
         Page<Report> result = reportService.page(pageObj, wrapper);
 

@@ -5,6 +5,7 @@ import type { Dayjs } from 'dayjs'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
+import { getReportEditionInfo } from '../utils/reportEdition'
 import './History.css'
 
 const { RangePicker } = DatePicker
@@ -26,7 +27,7 @@ export default function History() {
   const navigate = useNavigate()
   const [pageData, setPageData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [edition, setEdition] = useState<'' | 'morning' | 'evening'>('')
+  const [edition, setEdition] = useState('')
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [keyword, setKeyword] = useState('')
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
@@ -57,7 +58,6 @@ export default function History() {
       .finally(() => setLoading(false))
   }, [queryString])
 
-  const isMorning = (e: string) => e === 'morning'
   const reports = pageData?.records ?? []
   const total = pageData?.total ?? 0
 
@@ -105,6 +105,14 @@ export default function History() {
               className={`history-chip ${edition === 'evening' ? 'active' : ''}`}
               onClick={() => setEdition('evening')}
             >🌙 晚间版</button>
+            <button
+              className={`history-chip ${edition === 'market_watch_morning' ? 'active' : ''}`}
+              onClick={() => setEdition('market_watch_morning')}
+            >早间观察</button>
+            <button
+              className={`history-chip ${edition === 'market_watch_evening' ? 'active' : ''}`}
+              onClick={() => setEdition('market_watch_evening')}
+            >晚间观察</button>
           </div>
 
           <RangePicker
@@ -139,28 +147,29 @@ export default function History() {
           </div>
         ) : (
           <div className="reports-list">
-            {reports.map(report => (
-              <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
-                <div className="report-icon">
-                  {isMorning(report.edition) ? '🌅' : '🌙'}
-                </div>
-                <div className="report-content">
-                  <div className="report-meta">
-                    <span className="report-category" style={{ borderColor: '#00d4aa' }}>
-                      {isMorning(report.edition) ? '早间版' : '晚间版'}
-                    </span>
-                    <span className="report-version">AI 简报</span>
+            {reports.map(report => {
+              const editionInfo = getReportEditionInfo(report.edition)
+              return (
+                <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
+                  <div className="report-icon">{editionInfo.icon}</div>
+                  <div className="report-content">
+                    <div className="report-meta">
+                      <span className="report-category" style={{ borderColor: '#00d4aa' }}>
+                        {editionInfo.label}
+                      </span>
+                      <span className="report-version">{editionInfo.version}</span>
+                    </div>
+                    <h3 className="report-title">{report.title}</h3>
+                    <p className="report-summary">{report.summary}</p>
+                    <div className="report-footer">
+                      <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
+                      <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
+                    </div>
                   </div>
-                  <h3 className="report-title">{report.title}</h3>
-                  <p className="report-summary">{report.summary}</p>
-                  <div className="report-footer">
-                    <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
-                    <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
-                  </div>
+                  <div className="report-arrow">→</div>
                 </div>
-                <div className="report-arrow">→</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
