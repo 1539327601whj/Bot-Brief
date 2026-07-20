@@ -74,7 +74,18 @@ export default function History() {
       locale={zhCN}
       theme={{
         algorithm: theme.darkAlgorithm,
-        token: { colorPrimary: '#00d4aa', colorBgContainer: '#161b22', colorBorder: '#30363d' }
+        token: {
+          colorPrimary: '#8b9cff',
+          colorPrimaryHover: '#a8b2ff',
+          colorBgBase: '#05070d',
+          colorBgContainer: '#0d111b',
+          colorBgElevated: '#111620',
+          colorBorder: 'rgba(255, 255, 255, 0.14)',
+          colorText: '#f4f7fb',
+          colorTextSecondary: '#9aa4b5',
+          colorTextPlaceholder: '#667085',
+          borderRadius: 12,
+        }
       }}
     >
       <div className="history-page">
@@ -154,7 +165,7 @@ export default function History() {
                   <div className="report-icon">{editionInfo.icon}</div>
                   <div className="report-content">
                     <div className="report-meta">
-                      <span className="report-category" style={{ borderColor: '#00d4aa' }}>
+                      <span className="report-category">
                         {editionInfo.label}
                       </span>
                       <span className="report-version">{editionInfo.version}</span>

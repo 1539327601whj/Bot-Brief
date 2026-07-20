@@ -30,6 +30,56 @@ export interface ContentWork {
   status: 'hot' | 'normal' | 'declining'
 }
 
+export interface AccountPayload {
+  platform: string
+  accountName: string
+  homepageUrl?: string
+  avatarUrl?: string
+  followerCount: number
+  accountPositioning?: string
+}
+
+export interface WorkPayload {
+  accountId: number
+  platform: string
+  title: string
+  coverUrl?: string
+  workUrl?: string
+  publishTime?: string
+  playCount: number
+  likeCount: number
+  commentCount: number
+  collectCount: number
+  shareCount: number
+  followerGain: number
+  contentType: string
+}
+
+export interface WorkImportRow extends Omit<WorkPayload, 'accountId'> {
+  rowNumber: number
+}
+
+export interface WorkImportError {
+  rowNumber: number
+  field?: string
+  message: string
+}
+
+export interface WorkImportResult {
+  total: number
+  created: number
+  updated: number
+  skipped: number
+  failed: number
+  errors: WorkImportError[]
+}
+
+export interface WorkImportRequest {
+  accountId: number
+  conflictStrategy: 'UPDATE' | 'SKIP'
+  rows: WorkImportRow[]
+}
+
 export interface CompetitorAccount {
   id: number
   platform: string
@@ -77,14 +127,15 @@ export const platformLabel = (platform?: string) => {
 }
 
 export const getAccounts = () => api.get('/content-growth/accounts')
-export const createAccount = (data: Partial<ContentAccount>) => api.post('/content-growth/accounts', data)
-export const updateAccount = (id: number, data: Partial<ContentAccount>) => api.put(`/content-growth/accounts/${id}`, data)
+export const createAccount = (data: AccountPayload) => api.post('/content-growth/accounts', data)
+export const updateAccount = (id: number, data: AccountPayload) => api.put(`/content-growth/accounts/${id}`, data)
 export const deleteAccount = (id: number) => api.delete(`/content-growth/accounts/${id}`)
 
 export const getWorks = (params: { accountId?: number; page?: number; size?: number }) => api.get('/content-growth/works', { params })
-export const createWork = (data: Partial<ContentWork>) => api.post('/content-growth/works', data)
-export const updateWork = (id: number, data: Partial<ContentWork>) => api.put(`/content-growth/works/${id}`, data)
+export const createWork = (data: WorkPayload) => api.post('/content-growth/works', data)
+export const updateWork = (id: number, data: WorkPayload) => api.put(`/content-growth/works/${id}`, data)
 export const deleteWork = (id: number) => api.delete(`/content-growth/works/${id}`)
+export const importWorks = (data: WorkImportRequest) => api.post('/content-growth/works/import', data)
 
 export const getOverview = (accountId?: number) => api.get('/content-growth/overview', { params: accountId ? { accountId } : {} })
 

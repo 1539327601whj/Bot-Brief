@@ -14,11 +14,18 @@ import com.ai.daily.service.ContentGrowthService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.text.Normalizer;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -51,12 +58,18 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
     @Override
     public ContentAccount updateAccount(Long userId, Long id, ContentGrowthDTO.AccountRequest request) {
         ContentAccount account = requireAccount(userId, id);
+        String platform = account.getPlatform();
+        if (!platform.equals(request.getPlatform())) {
+            throw new IllegalArgumentException("已创建账号不能修改平台");
+        }
         fillAccount(account, request);
+        account.setPlatform(platform);
         contentAccountMapper.updateById(account);
         return account;
     }
 
     @Override
+    @Transactional
     public boolean deleteAccount(Long userId, Long id) {
         requireAccount(userId, id);
         contentWorkMapper.delete(new LambdaQueryWrapper<ContentWork>()
@@ -78,10 +91,11 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
 
     @Override
     public ContentWork createWork(Long userId, ContentGrowthDTO.WorkRequest request) {
-        requireAccount(userId, request.getAccountId());
+        ContentAccount account = requireAccount(userId, request.getAccountId());
+        requireMatchingPlatform(account, request.getPlatform());
         ContentWork work = new ContentWork();
         work.setUserId(userId);
-        fillWork(work, request);
+        fillWork(work, request, account.getPlatform());
         contentWorkMapper.insert(work);
         return work;
     }
@@ -89,8 +103,9 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
     @Override
     public ContentWork updateWork(Long userId, Long id, ContentGrowthDTO.WorkRequest request) {
         ContentWork work = requireWork(userId, id);
-        requireAccount(userId, request.getAccountId());
-        fillWork(work, request);
+        ContentAccount account = requireAccount(userId, request.getAccountId());
+        requireMatchingPlatform(account, request.getPlatform());
+        fillWork(work, request, account.getPlatform());
         contentWorkMapper.updateById(work);
         return work;
     }
@@ -99,6 +114,84 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
     public boolean deleteWork(Long userId, Long id) {
         requireWork(userId, id);
         return contentWorkMapper.deleteById(id) > 0;
+    }
+
+    @Override
+    public ContentGrowthDTO.WorkImportResult importWorks(Long userId, ContentGrowthDTO.WorkImportRequest request) {
+        ContentAccount account = requireAccount(userId, request.getAccountId());
+        String strategy = request.getConflictStrategy() == null || request.getConflictStrategy().isBlank()
+                ? "UPDATE" : request.getConflictStrategy().toUpperCase(Locale.ROOT);
+        List<ContentGrowthDTO.WorkImportRow> rows = request.getRows();
+
+        List<ContentWork> existingWorks = contentWorkMapper.selectList(workWrapper(userId, account.getId()));
+        Map<String, ContentWork> urlIndex = new HashMap<>();
+        Map<String, ContentWork> titleTimeIndex = new HashMap<>();
+        for (ContentWork work : existingWorks) {
+            indexWork(work, urlIndex, titleTimeIndex);
+        }
+
+        Map<String, Integer> seenKeys = new HashMap<>();
+        ContentGrowthDTO.WorkImportResult result = new ContentGrowthDTO.WorkImportResult();
+        result.setTotal(rows.size());
+        result.setCreated(0);
+        result.setUpdated(0);
+        result.setSkipped(0);
+        result.setFailed(0);
+        result.setErrors(new java.util.ArrayList<>());
+
+        for (int i = 0; i < rows.size(); i++) {
+            ContentGrowthDTO.WorkImportRow row = rows.get(i);
+            int rowNumber = row.getRowNumber() == null ? i + 2 : row.getRowNumber();
+            String error = validateImportRow(row, account.getPlatform());
+            if (error != null) {
+                failImportRow(result, rowNumber, null, error);
+                continue;
+            }
+
+            String key = importKey(row);
+            if (key != null && seenKeys.containsKey(key)) {
+                result.setSkipped(result.getSkipped() + 1);
+                result.getErrors().add(new ContentGrowthDTO.WorkImportError(
+                        rowNumber, null, "与第 " + seenKeys.get(key) + " 行重复，已跳过"));
+                continue;
+            }
+            if (key != null) seenKeys.put(key, rowNumber);
+
+            ContentWork existing = findExisting(row, urlIndex, titleTimeIndex);
+            if (existing != null && "SKIP".equals(strategy)) {
+                result.setSkipped(result.getSkipped() + 1);
+                result.getErrors().add(new ContentGrowthDTO.WorkImportError(rowNumber, null, "作品已存在，已按策略跳过"));
+                continue;
+            }
+
+            try {
+                ContentGrowthDTO.WorkRequest workRequest = toWorkRequest(account, row);
+                if (existing == null) {
+                    ContentWork work = new ContentWork();
+                    work.setUserId(userId);
+                    fillWork(work, workRequest, account.getPlatform());
+                    contentWorkMapper.insert(work);
+                    indexWork(work, urlIndex, titleTimeIndex);
+                    result.setCreated(result.getCreated() + 1);
+                } else {
+                    ContentWork original = copyWork(existing);
+                    removeFromIndexes(existing, urlIndex, titleTimeIndex);
+                    try {
+                        fillWork(existing, workRequest, account.getPlatform());
+                        contentWorkMapper.updateById(existing);
+                        indexWork(existing, urlIndex, titleTimeIndex);
+                        result.setUpdated(result.getUpdated() + 1);
+                    } catch (DataAccessException e) {
+                        restoreWork(existing, original);
+                        indexWork(existing, urlIndex, titleTimeIndex);
+                        throw e;
+                    }
+                }
+            } catch (DataAccessException e) {
+                failImportRow(result, rowNumber, null, "写入数据库失败");
+            }
+        }
+        return result;
     }
 
     @Override
@@ -225,28 +318,168 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
     }
 
     private void fillAccount(ContentAccount account, ContentGrowthDTO.AccountRequest request) {
-        account.setPlatform(request.getPlatform());
-        account.setAccountName(request.getAccountName());
-        account.setHomepageUrl(request.getHomepageUrl());
-        account.setAvatarUrl(request.getAvatarUrl());
-        account.setFollowerCount(nonNegative(request.getFollowerCount()));
-        account.setAccountPositioning(request.getAccountPositioning());
+        account.setPlatform(trimToNull(request.getPlatform()));
+        account.setAccountName(trimToNull(request.getAccountName()));
+        account.setHomepageUrl(trimToNull(request.getHomepageUrl()));
+        account.setAvatarUrl(trimToNull(request.getAvatarUrl()));
+        account.setFollowerCount(safe(request.getFollowerCount()));
+        account.setAccountPositioning(trimToNull(request.getAccountPositioning()));
     }
 
-    private void fillWork(ContentWork work, ContentGrowthDTO.WorkRequest request) {
+    private void fillWork(ContentWork work, ContentGrowthDTO.WorkRequest request, String accountPlatform) {
         work.setAccountId(request.getAccountId());
-        work.setPlatform(request.getPlatform());
-        work.setTitle(request.getTitle());
-        work.setCoverUrl(request.getCoverUrl());
-        work.setWorkUrl(request.getWorkUrl());
+        work.setPlatform(accountPlatform);
+        work.setTitle(trimToNull(request.getTitle()));
+        work.setCoverUrl(trimToNull(request.getCoverUrl()));
+        work.setWorkUrl(trimToNull(request.getWorkUrl()));
         work.setPublishTime(request.getPublishTime());
-        work.setPlayCount(nonNegative(request.getPlayCount()));
-        work.setLikeCount(nonNegative(request.getLikeCount()));
-        work.setCommentCount(nonNegative(request.getCommentCount()));
-        work.setCollectCount(nonNegative(request.getCollectCount()));
-        work.setShareCount(nonNegative(request.getShareCount()));
-        work.setFollowerGain(nonNegative(request.getFollowerGain()));
-        work.setContentType(request.getContentType() == null || request.getContentType().isBlank() ? "video" : request.getContentType());
+        work.setPlayCount(safe(request.getPlayCount()));
+        work.setLikeCount(safe(request.getLikeCount()));
+        work.setCommentCount(safe(request.getCommentCount()));
+        work.setCollectCount(safe(request.getCollectCount()));
+        work.setShareCount(safe(request.getShareCount()));
+        work.setFollowerGain(safe(request.getFollowerGain()));
+        work.setContentType(request.getContentType() == null || request.getContentType().isBlank() ? "video" : request.getContentType().trim());
+    }
+
+    private ContentGrowthDTO.WorkRequest toWorkRequest(ContentAccount account, ContentGrowthDTO.WorkImportRow row) {
+        ContentGrowthDTO.WorkRequest request = new ContentGrowthDTO.WorkRequest();
+        request.setAccountId(account.getId());
+        request.setPlatform(account.getPlatform());
+        request.setTitle(row.getTitle());
+        request.setCoverUrl(row.getCoverUrl());
+        request.setWorkUrl(row.getWorkUrl());
+        request.setPublishTime(row.getPublishTime());
+        request.setPlayCount(row.getPlayCount());
+        request.setLikeCount(row.getLikeCount());
+        request.setCommentCount(row.getCommentCount());
+        request.setCollectCount(row.getCollectCount());
+        request.setShareCount(row.getShareCount());
+        request.setFollowerGain(row.getFollowerGain());
+        request.setContentType(row.getContentType());
+        return request;
+    }
+
+    private String validateImportRow(ContentGrowthDTO.WorkImportRow row, String accountPlatform) {
+        if (row == null) return "数据行不能为空";
+        if (trimToNull(row.getTitle()) == null) return "作品标题不能为空";
+        if (row.getTitle().trim().length() > 500) return "作品标题不能超过 500 个字符";
+        if (row.getPlatform() != null && !row.getPlatform().isBlank() && !accountPlatform.equals(row.getPlatform().trim())) {
+            return "作品平台必须与目标账号平台一致";
+        }
+        if (tooLong(row.getWorkUrl(), 1000) || tooLong(row.getCoverUrl(), 1000)) return "作品或封面链接不能超过 1000 个字符";
+        if (tooLong(row.getContentType(), 40)) return "内容类型不能超过 40 个字符";
+        if (hasNegative(row.getPlayCount(), row.getLikeCount(), row.getCommentCount(), row.getCollectCount(),
+                row.getShareCount(), row.getFollowerGain())) return "数据指标不能为负数";
+        return null;
+    }
+
+    private ContentWork findExisting(ContentGrowthDTO.WorkImportRow row,
+                                     Map<String, ContentWork> urlIndex,
+                                     Map<String, ContentWork> titleTimeIndex) {
+        String urlKey = urlKey(row.getWorkUrl());
+        if (urlKey != null) return urlIndex.get(urlKey);
+        String titleKey = titleTimeKey(row.getTitle(), row.getPublishTime());
+        return titleKey == null ? null : titleTimeIndex.get(titleKey);
+    }
+
+    private String importKey(ContentGrowthDTO.WorkImportRow row) {
+        String urlKey = urlKey(row.getWorkUrl());
+        if (urlKey != null) return "url:" + urlKey;
+        String titleKey = titleTimeKey(row.getTitle(), row.getPublishTime());
+        return titleKey == null ? null : "title:" + titleKey;
+    }
+
+    private void indexWork(ContentWork work, Map<String, ContentWork> urlIndex, Map<String, ContentWork> titleTimeIndex) {
+        String urlKey = urlKey(work.getWorkUrl());
+        if (urlKey != null) urlIndex.put(urlKey, work);
+        String titleKey = titleTimeKey(work.getTitle(), work.getPublishTime());
+        if (titleKey != null) titleTimeIndex.put(titleKey, work);
+    }
+
+    private void removeFromIndexes(ContentWork work,
+                                   Map<String, ContentWork> urlIndex,
+                                   Map<String, ContentWork> titleTimeIndex) {
+        String urlKey = urlKey(work.getWorkUrl());
+        if (urlKey != null) urlIndex.remove(urlKey);
+        String titleKey = titleTimeKey(work.getTitle(), work.getPublishTime());
+        if (titleKey != null) titleTimeIndex.remove(titleKey);
+    }
+
+    private ContentWork copyWork(ContentWork work) {
+        ContentWork copy = new ContentWork();
+        copy.setAccountId(work.getAccountId());
+        copy.setPlatform(work.getPlatform());
+        copy.setTitle(work.getTitle());
+        copy.setCoverUrl(work.getCoverUrl());
+        copy.setWorkUrl(work.getWorkUrl());
+        copy.setPublishTime(work.getPublishTime());
+        copy.setPlayCount(work.getPlayCount());
+        copy.setLikeCount(work.getLikeCount());
+        copy.setCommentCount(work.getCommentCount());
+        copy.setCollectCount(work.getCollectCount());
+        copy.setShareCount(work.getShareCount());
+        copy.setFollowerGain(work.getFollowerGain());
+        copy.setContentType(work.getContentType());
+        return copy;
+    }
+
+    private void restoreWork(ContentWork target, ContentWork source) {
+        target.setAccountId(source.getAccountId());
+        target.setPlatform(source.getPlatform());
+        target.setTitle(source.getTitle());
+        target.setCoverUrl(source.getCoverUrl());
+        target.setWorkUrl(source.getWorkUrl());
+        target.setPublishTime(source.getPublishTime());
+        target.setPlayCount(source.getPlayCount());
+        target.setLikeCount(source.getLikeCount());
+        target.setCommentCount(source.getCommentCount());
+        target.setCollectCount(source.getCollectCount());
+        target.setShareCount(source.getShareCount());
+        target.setFollowerGain(source.getFollowerGain());
+        target.setContentType(source.getContentType());
+    }
+
+    private String urlKey(String url) {
+        String value = trimToNull(url);
+        if (value == null) return null;
+        int fragment = value.indexOf('#');
+        if (fragment >= 0) value = value.substring(0, fragment);
+        return value.trim();
+    }
+
+    private String titleTimeKey(String title, LocalDateTime publishTime) {
+        if (publishTime == null || trimToNull(title) == null) return null;
+        String normalized = Normalizer.normalize(title.trim(), Normalizer.Form.NFKC)
+                .replaceAll("\\s+", " ");
+        return normalized + "|" + publishTime.truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    private void failImportRow(ContentGrowthDTO.WorkImportResult result, int rowNumber, String field, String message) {
+        result.setFailed(result.getFailed() + 1);
+        result.getErrors().add(new ContentGrowthDTO.WorkImportError(rowNumber, field, message));
+    }
+
+    private String trimToNull(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+        return value.trim();
+    }
+
+    private boolean tooLong(String value, int max) {
+        return value != null && value.length() > max;
+    }
+
+    private boolean hasNegative(Long... values) {
+        for (Long value : values) {
+            if (value != null && value < 0) return true;
+        }
+        return false;
+    }
+
+    private void requireMatchingPlatform(ContentAccount account, String platform) {
+        if (!account.getPlatform().equals(platform)) {
+            throw new IllegalArgumentException("作品平台必须与所属账号平台一致");
+        }
     }
 
     private ContentAccount requireAccount(Long userId, Long id) {

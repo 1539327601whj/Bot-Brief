@@ -35,6 +35,53 @@ public class ContentGrowthDTO {
     }
 
     @Data
+    public static class WorkImportRequest {
+        private Long accountId;
+        private String conflictStrategy;
+        private List<WorkImportRow> rows;
+    }
+
+    @Data
+    public static class WorkImportRow {
+        private Integer rowNumber;
+        private String platform;
+        private String title;
+        private String coverUrl;
+        private String workUrl;
+        private LocalDateTime publishTime;
+        private Long playCount;
+        private Long likeCount;
+        private Long commentCount;
+        private Long collectCount;
+        private Long shareCount;
+        private Long followerGain;
+        private String contentType;
+    }
+
+    @Data
+    public static class WorkImportResult {
+        private Integer total;
+        private Integer created;
+        private Integer updated;
+        private Integer skipped;
+        private Integer failed;
+        private List<WorkImportError> errors;
+    }
+
+    @Data
+    public static class WorkImportError {
+        private Integer rowNumber;
+        private String field;
+        private String message;
+
+        public WorkImportError(Integer rowNumber, String field, String message) {
+            this.rowNumber = rowNumber;
+            this.field = field;
+            this.message = message;
+        }
+    }
+
+    @Data
     public static class CompetitorRequest {
         private String platform;
         private String accountName;

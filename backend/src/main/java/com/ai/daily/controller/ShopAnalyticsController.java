@@ -8,6 +8,8 @@ import com.ai.daily.service.ShopAnalyticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/shop/analytics")
 @RequiredArgsConstructor
@@ -56,6 +58,30 @@ public class ShopAnalyticsController {
         if (userId == null) return Result.error(401, "未登录");
         try {
             return Result.ok(shopAnalyticsService.getLatestAiReport(userId, storeId));
+        } catch (IllegalArgumentException e) {
+            return Result.error(404, e.getMessage());
+        }
+    }
+
+    @GetMapping("/ai-report/history")
+    public Result<Map<String, Object>> getAiReportHistory(@RequestParam Long storeId,
+                                                          @RequestParam(defaultValue = "1") int page,
+                                                          @RequestParam(defaultValue = "10") int size) {
+        Long userId = SecurityUtils.currentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+        try {
+            return Result.ok(shopAnalyticsService.getAiReportHistory(userId, storeId, page, size));
+        } catch (IllegalArgumentException e) {
+            return Result.error(404, e.getMessage());
+        }
+    }
+
+    @GetMapping("/ai-report/{id}")
+    public Result<ShopAiReportDTO> getAiReport(@PathVariable Long id, @RequestParam Long storeId) {
+        Long userId = SecurityUtils.currentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+        try {
+            return Result.ok(shopAnalyticsService.getAiReport(userId, storeId, id));
         } catch (IllegalArgumentException e) {
             return Result.error(404, e.getMessage());
         }

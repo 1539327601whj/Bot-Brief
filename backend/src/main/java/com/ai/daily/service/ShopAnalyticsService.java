@@ -3,6 +3,8 @@ package com.ai.daily.service;
 import com.ai.daily.dto.ShopAiReportDTO;
 import com.ai.daily.dto.ShopOverviewDTO;
 
+import java.util.Map;
+
 public interface ShopAnalyticsService {
     void generateDemoData(Long userId, Long storeId);
 
@@ -11,4 +13,8 @@ public interface ShopAnalyticsService {
     ShopAiReportDTO generateAiReport(Long userId, Long storeId);
 
     ShopAiReportDTO getLatestAiReport(Long userId, Long storeId);
+
+    Map<String, Object> getAiReportHistory(Long userId, Long storeId, int page, int size);
+
+    ShopAiReportDTO getAiReport(Long userId, Long storeId, Long reportId);
 }

@@ -21,6 +21,9 @@ public class ShopStoreController {
     public Result<List<ShopStoreDTO>> listStores() {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
+        if (shopStoreService.listForUser(userId).isEmpty()) {
+            shopStoreService.getOrCreateDefault(userId);
+        }
         return Result.ok(shopStoreService.listForUser(userId).stream().map(this::toDTO).toList());
     }
 

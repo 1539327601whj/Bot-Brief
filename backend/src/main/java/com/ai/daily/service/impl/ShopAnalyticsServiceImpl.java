@@ -6,11 +6,12 @@ import com.ai.daily.mapper.*;
 import com.ai.daily.service.ShopAnalyticsService;
 import com.ai.daily.service.ShopStoreService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -34,6 +35,7 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     private final ObjectMapper objectMapper;
 
     @Override
+    @Transactional
     public void generateDemoData(Long userId, Long storeId) {
         ShopStore store = requireStore(userId, storeId);
         List<ShopProduct> products = ensureDemoProducts(userId, store);
@@ -66,15 +68,15 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     @Override
     public ShopOverviewDTO getOverview(Long userId, Long storeId, int range) {
         ShopStore store = requireStore(userId, storeId);
-        int safeRange = Math.max(7, Math.min(range, 30));
-        LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(safeRange - 1L);
+        int safeRange = range == 30 ? 30 : 7;
+        LocalDate analysisDate = findAnalysisDate(userId, store.getId());
+        LocalDate startDate = analysisDate.minusDays(safeRange - 1L);
 
         List<ShopSalesDaily> sales = salesDailyMapper.selectList(new LambdaQueryWrapper<ShopSalesDaily>()
                 .eq(ShopSalesDaily::getUserId, userId)
                 .eq(ShopSalesDaily::getStoreId, store.getId())
                 .ge(ShopSalesDaily::getStatDate, startDate)
-                .le(ShopSalesDaily::getStatDate, today)
+                .le(ShopSalesDaily::getStatDate, analysisDate)
                 .orderByAsc(ShopSalesDaily::getStatDate));
         List<ShopProduct> products = productMapper.selectList(new LambdaQueryWrapper<ShopProduct>()
                 .eq(ShopProduct::getUserId, userId)
@@ -83,26 +85,30 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
                 .eq(ShopProductSalesDaily::getUserId, userId)
                 .eq(ShopProductSalesDaily::getStoreId, store.getId())
                 .ge(ShopProductSalesDaily::getStatDate, startDate)
-                .le(ShopProductSalesDaily::getStatDate, today));
+                .le(ShopProductSalesDaily::getStatDate, analysisDate));
         ShopCustomerSummary customer = customerSummaryMapper.selectOne(new LambdaQueryWrapper<ShopCustomerSummary>()
                 .eq(ShopCustomerSummary::getUserId, userId)
                 .eq(ShopCustomerSummary::getStoreId, store.getId())
-                .eq(ShopCustomerSummary::getStatDate, today)
+                .eq(ShopCustomerSummary::getStatDate, analysisDate)
                 .last("LIMIT 1"));
 
+        int effectiveDays = (int) sales.stream().map(ShopSalesDaily::getStatDate).distinct().count();
         List<ShopProductRankDTO> hotProducts = buildHotProducts(products, productSales);
-        List<ShopProductRankDTO> slowProducts = buildSlowProducts(products, productSales);
-        List<ShopReplenishmentSuggestionDTO> replenishment = buildReplenishment(products, productSales);
+        List<ShopProductRankDTO> slowProducts = buildSlowProducts(products, productSales, safeRange);
+        List<ShopReplenishmentSuggestionDTO> replenishment = buildReplenishment(products, productSales, analysisDate);
         ShopCustomerProfileDTO customerProfile = buildCustomerProfile(customer);
 
         ShopOverviewDTO dto = new ShopOverviewDTO();
-        dto.setToday(buildTodayMetrics(sales, customerProfile));
+        dto.setAnalysisDate(analysisDate);
+        dto.setRequestedRange(safeRange);
+        dto.setEffectiveDays(effectiveDays);
+        dto.setToday(buildTodayMetrics(sales, customerProfile, analysisDate));
         dto.setHotProducts(hotProducts);
         dto.setSlowProducts(slowProducts);
         dto.setCustomers(customerProfile);
-        dto.setSalesTrend(buildSalesTrend(sales));
+        dto.setSalesTrend(buildSalesTrend(sales, startDate, analysisDate));
         dto.setReplenishmentSuggestions(replenishment);
-        dto.setActivitySuggestions(buildActivitySuggestions(dto.getToday(), hotProducts, slowProducts, replenishment));
+        dto.setActivitySuggestions(buildActivitySuggestions(dto.getToday(), hotProducts, slowProducts, replenishment, safeRange));
         dto.setAiReport(getLatestAiReport(userId, store.getId()));
         return dto;
     }
@@ -111,20 +117,20 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     public ShopAiReportDTO generateAiReport(Long userId, Long storeId) {
         ShopStore store = requireStore(userId, storeId);
         ShopOverviewDTO overview = getOverview(userId, store.getId(), 7);
-        LocalDate today = LocalDate.now();
-        String title = today + " 店铺经营日报";
+        LocalDate analysisDate = overview.getAnalysisDate();
+        String title = analysisDate + " 店铺经营日报";
         String content = buildReportContent(title, overview);
         String summary = buildReportSummary(overview);
 
         ShopAiReport existing = aiReportMapper.selectOne(new LambdaQueryWrapper<ShopAiReport>()
                 .eq(ShopAiReport::getUserId, userId)
                 .eq(ShopAiReport::getStoreId, store.getId())
-                .eq(ShopAiReport::getReportDate, today)
+                .eq(ShopAiReport::getReportDate, analysisDate)
                 .last("LIMIT 1"));
         ShopAiReport report = existing == null ? new ShopAiReport() : existing;
         report.setUserId(userId);
         report.setStoreId(store.getId());
-        report.setReportDate(today);
+        report.setReportDate(analysisDate);
         report.setTitle(title);
         report.setSummary(summary);
         report.setContent(content);
@@ -149,10 +155,52 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         return report == null ? null : toAiReportDTO(report);
     }
 
+    @Override
+    public Map<String, Object> getAiReportHistory(Long userId, Long storeId, int page, int size) {
+        ShopStore store = requireStore(userId, storeId);
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 50));
+        Page<ShopAiReport> result = aiReportMapper.selectPage(new Page<>(safePage, safeSize),
+                new LambdaQueryWrapper<ShopAiReport>()
+                        .eq(ShopAiReport::getUserId, userId)
+                        .eq(ShopAiReport::getStoreId, store.getId())
+                        .orderByDesc(ShopAiReport::getReportDate)
+                        .orderByDesc(ShopAiReport::getCreatedAt));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("records", result.getRecords().stream().map(this::toAiReportDTO).toList());
+        data.put("total", result.getTotal());
+        data.put("pages", result.getPages());
+        data.put("current", result.getCurrent());
+        data.put("size", result.getSize());
+        return data;
+    }
+
+    @Override
+    public ShopAiReportDTO getAiReport(Long userId, Long storeId, Long reportId) {
+        ShopStore store = requireStore(userId, storeId);
+        ShopAiReport report = aiReportMapper.selectOne(new LambdaQueryWrapper<ShopAiReport>()
+                .eq(ShopAiReport::getUserId, userId)
+                .eq(ShopAiReport::getStoreId, store.getId())
+                .eq(ShopAiReport::getId, reportId)
+                .last("LIMIT 1"));
+        if (report == null) throw new IllegalArgumentException("经营日报不存在");
+        return toAiReportDTO(report);
+    }
+
     private ShopStore requireStore(Long userId, Long storeId) {
         ShopStore store = storeId == null ? shopStoreService.getOrCreateDefault(userId) : shopStoreService.getForUser(userId, storeId);
         if (store == null) throw new IllegalArgumentException("店铺不存在");
         return store;
+    }
+
+    private LocalDate findAnalysisDate(Long userId, Long storeId) {
+        ShopSalesDaily latest = salesDailyMapper.selectOne(new LambdaQueryWrapper<ShopSalesDaily>()
+                .eq(ShopSalesDaily::getUserId, userId)
+                .eq(ShopSalesDaily::getStoreId, storeId)
+                .le(ShopSalesDaily::getStatDate, LocalDate.now())
+                .orderByDesc(ShopSalesDaily::getStatDate)
+                .last("LIMIT 1"));
+        return latest == null ? LocalDate.now() : latest.getStatDate();
     }
 
     private List<ShopProduct> ensureDemoProducts(Long userId, ShopStore store) {
@@ -255,36 +303,39 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         if (row.getId() == null) customerSummaryMapper.insert(row); else customerSummaryMapper.updateById(row);
     }
 
-    private ShopTodayMetricsDTO buildTodayMetrics(List<ShopSalesDaily> sales, ShopCustomerProfileDTO customer) {
-        LocalDate today = LocalDate.now();
+    private ShopTodayMetricsDTO buildTodayMetrics(List<ShopSalesDaily> sales, ShopCustomerProfileDTO customer, LocalDate analysisDate) {
         Map<LocalDate, ShopSalesDaily> byDate = sales.stream().collect(Collectors.toMap(ShopSalesDaily::getStatDate, Function.identity()));
-        ShopSalesDaily todayRow = byDate.get(today);
-        ShopSalesDaily yesterdayRow = byDate.get(today.minusDays(1));
+        ShopSalesDaily currentRow = byDate.get(analysisDate);
+        ShopSalesDaily previousRow = byDate.get(analysisDate.minusDays(1));
 
-        BigDecimal salesAmount = todayRow == null ? ZERO : nvl(todayRow.getSalesAmount());
-        int orderCount = todayRow == null ? 0 : nvl(todayRow.getOrderCount());
-        int buyerCount = todayRow == null ? 0 : nvl(todayRow.getBuyerCount());
+        BigDecimal salesAmount = currentRow == null ? ZERO : nvl(currentRow.getSalesAmount());
+        int orderCount = currentRow == null ? 0 : nvl(currentRow.getOrderCount());
+        int buyerCount = currentRow == null ? 0 : nvl(currentRow.getBuyerCount());
 
         ShopTodayMetricsDTO dto = new ShopTodayMetricsDTO();
         dto.setSalesAmount(salesAmount);
         dto.setOrderCount(orderCount);
         dto.setBuyerCount(buyerCount);
         dto.setAverageOrderValue(orderCount == 0 ? ZERO : salesAmount.divide(BigDecimal.valueOf(orderCount), 2, RoundingMode.HALF_UP));
-        dto.setSalesChangeRate(changeRate(salesAmount, yesterdayRow == null ? ZERO : nvl(yesterdayRow.getSalesAmount())));
-        dto.setOrderChangeRate(changeRate(BigDecimal.valueOf(orderCount), BigDecimal.valueOf(yesterdayRow == null ? 0 : nvl(yesterdayRow.getOrderCount()))));
+        dto.setSalesChangeRate(changeRate(salesAmount, previousRow == null ? ZERO : nvl(previousRow.getSalesAmount())));
+        dto.setOrderChangeRate(changeRate(BigDecimal.valueOf(orderCount), BigDecimal.valueOf(previousRow == null ? 0 : nvl(previousRow.getOrderCount()))));
         dto.setRepeatCustomerCount(customer.getRepeatCustomerCount());
         return dto;
     }
 
-    private List<ShopSalesTrendDTO> buildSalesTrend(List<ShopSalesDaily> sales) {
-        return sales.stream().map(row -> {
+    private List<ShopSalesTrendDTO> buildSalesTrend(List<ShopSalesDaily> sales, LocalDate startDate, LocalDate analysisDate) {
+        Map<LocalDate, ShopSalesDaily> byDate = sales.stream().collect(Collectors.toMap(ShopSalesDaily::getStatDate, Function.identity()));
+        List<ShopSalesTrendDTO> result = new ArrayList<>();
+        for (LocalDate date = startDate; !date.isAfter(analysisDate); date = date.plusDays(1)) {
+            ShopSalesDaily row = byDate.get(date);
             ShopSalesTrendDTO dto = new ShopSalesTrendDTO();
-            dto.setDate(row.getStatDate());
-            dto.setSalesAmount(nvl(row.getSalesAmount()));
-            dto.setOrderCount(nvl(row.getOrderCount()));
-            dto.setBuyerCount(nvl(row.getBuyerCount()));
-            return dto;
-        }).toList();
+            dto.setDate(date);
+            dto.setSalesAmount(row == null ? ZERO : nvl(row.getSalesAmount()));
+            dto.setOrderCount(row == null ? 0 : nvl(row.getOrderCount()));
+            dto.setBuyerCount(row == null ? 0 : nvl(row.getBuyerCount()));
+            result.add(dto);
+        }
+        return result;
     }
 
     private List<ShopProductRankDTO> buildHotProducts(List<ShopProduct> products, List<ShopProductSalesDaily> productSales) {
@@ -299,15 +350,16 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
                 .toList();
     }
 
-    private List<ShopProductRankDTO> buildSlowProducts(List<ShopProduct> products, List<ShopProductSalesDaily> productSales) {
+    private List<ShopProductRankDTO> buildSlowProducts(List<ShopProduct> products, List<ShopProductSalesDaily> productSales, int range) {
         Map<Long, ShopProduct> productMap = products.stream().collect(Collectors.toMap(ShopProduct::getId, Function.identity()));
         return productSales.stream()
                 .collect(Collectors.groupingBy(ShopProductSalesDaily::getProductId))
                 .entrySet().stream()
-                .map(e -> toProductRank(productMap.get(e.getKey()), e.getValue(), "库存较高，近 7 日销量偏低"))
+                .map(e -> toProductRank(productMap.get(e.getKey()), e.getValue(), null))
                 .filter(Objects::nonNull)
-                .filter(dto -> dto.getStock() != null && dto.getStock() > 50 && dto.getQuantitySold() <= 15)
-                .sorted(Comparator.comparing(ShopProductRankDTO::getQuantitySold))
+                .filter(dto -> dto.getStock() != null && dto.getStock() > 50 && dto.getAvgDailySales().compareTo(new BigDecimal("2.50")) <= 0)
+                .peek(dto -> dto.setReason("近 " + range + " 日有 " + dto.getDataDays() + " 个数据日，日均销量 " + dto.getAvgDailySales() + " 件，当前库存 " + dto.getStock() + " 件"))
+                .sorted(Comparator.comparing(ShopProductRankDTO::getAvgDailySales))
                 .limit(5)
                 .toList();
     }
@@ -316,11 +368,11 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         if (product == null) return null;
         int sold = rows.stream().mapToInt(row -> nvl(row.getQuantitySold())).sum();
         int orders = rows.stream().mapToInt(row -> nvl(row.getOrderCount())).sum();
+        int dataDays = (int) rows.stream().map(ShopProductSalesDaily::getStatDate).distinct().count();
         BigDecimal sales = rows.stream().map(row -> nvl(row.getSalesAmount())).reduce(ZERO, BigDecimal::add);
+        BigDecimal avgDailySales = dataDays == 0 ? ZERO : BigDecimal.valueOf(sold).divide(BigDecimal.valueOf(dataDays), 2, RoundingMode.HALF_UP);
         int stock = rows.stream().max(Comparator.comparing(ShopProductSalesDaily::getStatDate)).map(row -> nvl(row.getStock())).orElse(nvl(product.getStock()));
-        BigDecimal firstAvg = avgSold(rows, 7, 4);
-        BigDecimal lastAvg = avgSold(rows, 3, 0);
-        BigDecimal trendRate = changeRate(lastAvg, firstAvg);
+        BigDecimal trendRate = calculateTrendRate(rows);
 
         ShopProductRankDTO dto = new ShopProductRankDTO();
         dto.setProductId(product.getId());
@@ -331,14 +383,29 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         dto.setStock(stock);
         dto.setTrend(trendRate.compareTo(new BigDecimal("20")) > 0 ? "up" : trendRate.compareTo(new BigDecimal("-20")) < 0 ? "down" : "stable");
         dto.setTrendRate(trendRate);
+        dto.setDataDays(dataDays);
+        dto.setAvgDailySales(avgDailySales);
         dto.setReason(reason);
         return dto;
     }
 
-    private BigDecimal avgSold(List<ShopProductSalesDaily> rows, int days, int skipLatest) {
-        List<ShopProductSalesDaily> sorted = rows.stream().sorted(Comparator.comparing(ShopProductSalesDaily::getStatDate).reversed()).toList();
-        int sum = sorted.stream().skip(skipLatest).limit(days).mapToInt(row -> nvl(row.getQuantitySold())).sum();
-        return BigDecimal.valueOf(sum).divide(BigDecimal.valueOf(days), 2, RoundingMode.HALF_UP);
+    private BigDecimal calculateTrendRate(List<ShopProductSalesDaily> rows) {
+        Map<LocalDate, Integer> dailySales = rows.stream().collect(Collectors.groupingBy(
+                ShopProductSalesDaily::getStatDate,
+                Collectors.summingInt(row -> nvl(row.getQuantitySold()))));
+        List<Map.Entry<LocalDate, Integer>> sorted = dailySales.entrySet().stream()
+                .sorted(Map.Entry.<LocalDate, Integer>comparingByKey().reversed())
+                .toList();
+        int window = Math.min(3, sorted.size() / 2);
+        if (window < 2) return ZERO;
+        BigDecimal current = averageQuantity(sorted.subList(0, window));
+        BigDecimal previous = averageQuantity(sorted.subList(window, window * 2));
+        return changeRate(current, previous);
+    }
+
+    private BigDecimal averageQuantity(List<Map.Entry<LocalDate, Integer>> rows) {
+        int sum = rows.stream().mapToInt(Map.Entry::getValue).sum();
+        return BigDecimal.valueOf(sum).divide(BigDecimal.valueOf(rows.size()), 2, RoundingMode.HALF_UP);
     }
 
     private ShopCustomerProfileDTO buildCustomerProfile(ShopCustomerSummary customer) {
@@ -363,9 +430,11 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         }
     }
 
-    private List<ShopReplenishmentSuggestionDTO> buildReplenishment(List<ShopProduct> products, List<ShopProductSalesDaily> productSales) {
+    private List<ShopReplenishmentSuggestionDTO> buildReplenishment(List<ShopProduct> products, List<ShopProductSalesDaily> productSales, LocalDate analysisDate) {
+        LocalDate startDate = analysisDate.minusDays(6);
         Map<Long, ShopProduct> productMap = products.stream().collect(Collectors.toMap(ShopProduct::getId, Function.identity()));
         return productSales.stream()
+                .filter(row -> !row.getStatDate().isBefore(startDate) && !row.getStatDate().isAfter(analysisDate))
                 .collect(Collectors.groupingBy(ShopProductSalesDaily::getProductId))
                 .entrySet().stream()
                 .map(e -> toReplenishment(productMap.get(e.getKey()), e.getValue()))
@@ -379,7 +448,8 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     private ShopReplenishmentSuggestionDTO toReplenishment(ShopProduct product, List<ShopProductSalesDaily> rows) {
         if (product == null) return null;
         int sold = rows.stream().mapToInt(row -> nvl(row.getQuantitySold())).sum();
-        BigDecimal avg = BigDecimal.valueOf(sold).divide(BigDecimal.valueOf(7), 2, RoundingMode.HALF_UP);
+        int dataDays = (int) rows.stream().map(ShopProductSalesDaily::getStatDate).distinct().count();
+        BigDecimal avg = dataDays == 0 ? ZERO : BigDecimal.valueOf(sold).divide(BigDecimal.valueOf(dataDays), 2, RoundingMode.HALF_UP);
         int stock = rows.stream().max(Comparator.comparing(ShopProductSalesDaily::getStatDate)).map(row -> nvl(row.getStock())).orElse(nvl(product.getStock()));
         BigDecimal daysLeft = avg.compareTo(ZERO) == 0 ? new BigDecimal("999.00") : BigDecimal.valueOf(stock).divide(avg, 2, RoundingMode.HALF_UP);
         int suggested = avg.multiply(BigDecimal.valueOf(14)).subtract(BigDecimal.valueOf(stock)).setScale(0, RoundingMode.CEILING).max(BigDecimal.ZERO).intValue();
@@ -392,15 +462,15 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         dto.setEstimatedDaysLeft(daysLeft);
         dto.setSuggestedReplenishment(suggested);
         dto.setPriority(daysLeft.compareTo(new BigDecimal("3")) <= 0 ? "high" : daysLeft.compareTo(new BigDecimal("7")) <= 0 ? "medium" : "low");
-        dto.setReason("近 7 日日均销量 " + avg + " 件，预计可售 " + daysLeft + " 天");
+        dto.setReason("近 7 日有 " + dataDays + " 个数据日，日均销量 " + avg + " 件，预计可售 " + daysLeft + " 天");
         return dto;
     }
 
-    private List<ShopActivitySuggestionDTO> buildActivitySuggestions(ShopTodayMetricsDTO today, List<ShopProductRankDTO> hotProducts, List<ShopProductRankDTO> slowProducts, List<ShopReplenishmentSuggestionDTO> replenishment) {
+    private List<ShopActivitySuggestionDTO> buildActivitySuggestions(ShopTodayMetricsDTO today, List<ShopProductRankDTO> hotProducts, List<ShopProductRankDTO> slowProducts, List<ShopReplenishmentSuggestionDTO> replenishment, int range) {
         List<ShopActivitySuggestionDTO> suggestions = new ArrayList<>();
         if (!hotProducts.isEmpty()) {
             ShopProductRankDTO hot = hotProducts.get(0);
-            suggestions.add(activity("promotion", "围绕爆款商品做搭配购", "「" + hot.getProductName() + "」近 7 日表现突出，可搭配低动销商品提升连带率。", "medium"));
+            suggestions.add(activity("promotion", "围绕爆款商品做搭配购", "「" + hot.getProductName() + "」近 " + range + " 日表现突出，可搭配低动销商品提升连带率。", "medium"));
         }
         if (replenishment.stream().anyMatch(item -> "high".equals(item.getPriority()))) {
             suggestions.add(activity("stock", "先补货再放量投放", "部分商品预计 3 天内售罄，建议先补货再加大活动曝光。", "high"));
@@ -434,8 +504,8 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         String activity = overview.getActivitySuggestions().isEmpty() ? "保持当前经营节奏，继续观察商品转化。" : overview.getActivitySuggestions().get(0).getDescription();
 
         return "# " + title + "\n\n"
-                + "## 今日经营概览\n"
-                + "今日销售额 ¥" + today.getSalesAmount() + "，订单数 " + today.getOrderCount() + " 单，客单价 ¥" + today.getAverageOrderValue() + "。\n\n"
+                + "## 经营概览\n"
+                + "分析日销售额 ¥" + today.getSalesAmount() + "，订单数 " + today.getOrderCount() + " 单，客单价 ¥" + today.getAverageOrderValue() + "。\n\n"
                 + "## 商品表现\n"
                 + "爆款商品：" + hot + "。滞销商品：" + slow + "。\n\n"
                 + "## 客户表现\n"
@@ -447,7 +517,7 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     }
 
     private String buildReportSummary(ShopOverviewDTO overview) {
-        return "今日销售额 ¥" + overview.getToday().getSalesAmount()
+        return overview.getAnalysisDate() + " 销售额 ¥" + overview.getToday().getSalesAmount()
                 + "，订单数 " + overview.getToday().getOrderCount()
                 + " 单，补货建议 " + overview.getReplenishmentSuggestions().size()
                 + " 条。";

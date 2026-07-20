@@ -12,11 +12,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/content-growth")
 @RequiredArgsConstructor
 public class ContentGrowthController {
+
+    private static final Set<String> SUPPORTED_PLATFORMS = Set.of("douyin", "xiaohongshu", "kuaishou", "bilibili");
 
     private final ContentGrowthService contentGrowthService;
 
@@ -109,6 +112,25 @@ public class ContentGrowthController {
         }
     }
 
+    @PostMapping("/works/import")
+    public Result<ContentGrowthDTO.WorkImportResult> importWorks(@RequestBody ContentGrowthDTO.WorkImportRequest request) {
+        Long userId = currentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+        if (request == null || request.getAccountId() == null) return Result.error(400, "目标账号不能为空");
+        if (request.getRows() == null || request.getRows().isEmpty()) return Result.error(400, "导入数据不能为空");
+        if (request.getRows().size() > 500) return Result.error(400, "单次最多导入 500 条作品");
+        String strategy = request.getConflictStrategy();
+        if (strategy != null && !strategy.isBlank()
+                && !"UPDATE".equalsIgnoreCase(strategy) && !"SKIP".equalsIgnoreCase(strategy)) {
+            return Result.error(400, "重复处理策略只允许 UPDATE 或 SKIP");
+        }
+        try {
+            return Result.ok(contentGrowthService.importWorks(userId, request));
+        } catch (IllegalArgumentException e) {
+            return Result.error(404, e.getMessage());
+        }
+    }
+
     @GetMapping("/overview")
     public Result<ContentGrowthDTO.Overview> overview(@RequestParam(required = false) Long accountId) {
         Long userId = currentUserId();
@@ -185,7 +207,12 @@ public class ContentGrowthController {
     private String validateAccount(ContentGrowthDTO.AccountRequest request) {
         if (request == null) return "请求不能为空";
         if (blank(request.getPlatform())) return "平台不能为空";
+        if (!SUPPORTED_PLATFORMS.contains(request.getPlatform().trim())) return "不支持的内容平台";
         if (blank(request.getAccountName())) return "账号名不能为空";
+        if (request.getAccountName().trim().length() > 120) return "账号名不能超过 120 个字符";
+        if (tooLong(request.getHomepageUrl(), 1000) || tooLong(request.getAvatarUrl(), 1000)) return "链接不能超过 1000 个字符";
+        if (tooLong(request.getAccountPositioning(), 500)) return "账号定位不能超过 500 个字符";
+        if (request.getFollowerCount() != null && request.getFollowerCount() < 0) return "粉丝数不能为负数";
         return null;
     }
 
@@ -193,8 +220,25 @@ public class ContentGrowthController {
         if (request == null) return "请求不能为空";
         if (request.getAccountId() == null) return "账号不能为空";
         if (blank(request.getPlatform())) return "平台不能为空";
+        if (!SUPPORTED_PLATFORMS.contains(request.getPlatform().trim())) return "不支持的内容平台";
         if (blank(request.getTitle())) return "作品标题不能为空";
+        if (request.getTitle().trim().length() > 500) return "作品标题不能超过 500 个字符";
+        if (tooLong(request.getWorkUrl(), 1000) || tooLong(request.getCoverUrl(), 1000)) return "链接不能超过 1000 个字符";
+        if (tooLong(request.getContentType(), 40)) return "内容类型不能超过 40 个字符";
+        if (hasNegative(request.getPlayCount(), request.getLikeCount(), request.getCommentCount(), request.getCollectCount(),
+                request.getShareCount(), request.getFollowerGain())) return "数据指标不能为负数";
         return null;
+    }
+
+    private boolean tooLong(String value, int max) {
+        return value != null && value.length() > max;
+    }
+
+    private boolean hasNegative(Long... values) {
+        for (Long value : values) {
+            if (value != null && value < 0) return true;
+        }
+        return false;
     }
 
     private boolean blank(String value) {

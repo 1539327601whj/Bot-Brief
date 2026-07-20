@@ -31,6 +31,8 @@ export interface ShopProductRank {
   stock: number
   trend: 'up' | 'down' | 'stable'
   trendRate: number
+  dataDays: number
+  avgDailySales: number
   reason?: string
 }
 
@@ -82,6 +84,9 @@ export interface ShopAiReport {
 }
 
 export interface ShopOverview {
+  analysisDate: string
+  requestedRange: number
+  effectiveDays: number
   today: ShopTodayMetrics
   hotProducts: ShopProductRank[]
   slowProducts: ShopProductRank[]
@@ -112,7 +117,66 @@ export async function generateShopDemoData(storeId?: number) {
   return res.data
 }
 
+export type ShopImportType = 'PRODUCT' | 'STORE_DAILY' | 'PRODUCT_DAILY'
+
+export interface ShopImportError {
+  row: number
+  field: string
+  message: string
+}
+
+export interface ShopImportPreview {
+  type: ShopImportType
+  fileHash: string
+  totalRows: number
+  validRows: number
+  errors: ShopImportError[]
+  previewRows: Record<string, string>[]
+}
+
+export interface ShopAiReportPage {
+  records: ShopAiReport[]
+  total: number
+  pages: number
+  current: number
+  size: number
+}
+
 export async function generateShopAiReport(storeId?: number) {
   const res = await api.post('/shop/analytics/ai-report/generate', null, { params: { storeId } })
+  return res.data
+}
+
+export async function previewShopCsv(storeId: number, type: ShopImportType, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await api.post('/shop/import/preview', form, { params: { storeId, type } })
+  return res.data
+}
+
+export async function confirmShopCsv(storeId: number, type: ShopImportType, fileHash: string, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await api.post('/shop/import/confirm', form, { params: { storeId, type, fileHash } })
+  return res.data
+}
+
+export async function downloadShopCsvTemplate(type: ShopImportType) {
+  const res = await api.get(`/shop/import/templates/${type}`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `shop_${type.toLowerCase()}_template.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function fetchShopAiReportHistory(storeId: number, page = 1, size = 10) {
+  const res = await api.get('/shop/analytics/ai-report/history', { params: { storeId, page, size } })
+  return res.data
+}
+
+export async function fetchShopAiReport(storeId: number, reportId: number) {
+  const res = await api.get(`/shop/analytics/ai-report/${reportId}`, { params: { storeId } })
   return res.data
 }

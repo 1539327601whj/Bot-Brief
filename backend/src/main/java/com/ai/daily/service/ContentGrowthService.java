@@ -26,6 +26,8 @@ public interface ContentGrowthService {
 
     boolean deleteWork(Long userId, Long id);
 
+    ContentGrowthDTO.WorkImportResult importWorks(Long userId, ContentGrowthDTO.WorkImportRequest request);
+
     ContentGrowthDTO.Overview getOverview(Long userId, Long accountId);
 
     ContentGrowthDTO.AiTextResponse analyzeHotWork(Long userId, ContentGrowthDTO.HotAnalysisRequest request);

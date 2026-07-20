@@ -14,5 +14,7 @@ public class ShopProductRankDTO {
     private Integer stock;
     private String trend;
     private BigDecimal trendRate;
+    private Integer dataDays;
+    private BigDecimal avgDailySales;
     private String reason;
 }
