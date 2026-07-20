@@ -18,6 +18,20 @@ CREATE TABLE IF NOT EXISTS reports (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 简报表';
 
+CREATE TABLE IF NOT EXISTS market_valuation_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    index_code VARCHAR(32) NOT NULL COMMENT '指数代码',
+    index_name VARCHAR(100) NOT NULL COMMENT '指数名称',
+    pe_ttm DECIMAL(12, 4) DEFAULT NULL COMMENT 'PE TTM',
+    pe_percentile DECIMAL(8, 4) DEFAULT NULL COMMENT 'PE 分位',
+    valuation_level VARCHAR(20) DEFAULT NULL COMMENT '估值状态',
+    trade_date DATE NOT NULL COMMENT '交易日期',
+    source VARCHAR(100) DEFAULT NULL COMMENT '数据来源',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    UNIQUE KEY uk_index_trade_date (index_code, trade_date),
+    INDEX idx_index_trade_date (index_code, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='市场估值历史表';
+
 CREATE TABLE IF NOT EXISTS subscription (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
     receive_time VARCHAR(20) NOT NULL DEFAULT 'both' COMMENT '接收时间：morning / evening / both',

@@ -12,12 +12,11 @@ on:
       edition:
         description: '选择版本'
         required: true
-        default: 'market_watch_morning'
+        default: 'morning'
         type: choice
         options:
-          - market_watch_morning
-          - market_watch_evening
-          - auto
+          - morning
+          - evening
 
 jobs:
   build:

@@ -43,6 +43,8 @@ public class SecurityConfig {
                         // 放行：认证端点、GitHub Actions 上报（自己校验 X-Ingest-Token）、健康检查、预检
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/reports/ingest").permitAll()
+                        .requestMatchers("/api/market-valuations/ingest").permitAll()
+                        .requestMatchers("/api/market-valuations/*/latest").permitAll()
                         .requestMatchers("/api/health").permitAll()
                         .requestMatchers("/api/push/wechat").permitAll() // 老 webhook 接口保留（兼容旧 GH Actions）
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()

@@ -52,6 +52,7 @@ A_SHARE_MIN_AMOUNT = 300000000
 A_SHARE_MIN_MARKET_CAP = 10000000000
 A_SHARE_MAX_ABS_PCT_CHANGE = 6
 A_SHARE_BANNED_NAME_KEYWORDS = ["ST", "*ST", "退"]
+ADD_POSITION_LINE = 60
 
 BANNED_WORDS = [
     "稳赚", "必涨", "满仓", "梭哈", "强烈买入", "无脑买入", "一定上涨",
@@ -305,11 +306,130 @@ def fetch_valuation(etf: dict[str, str]) -> dict[str, Any]:
         return fetch_valuation_from_env(etf)
 
 
+def valuation_action(percentile_value: Optional[float]) -> str:
+    if percentile_value is None:
+        return "维持观察，估值依据不足"
+    if percentile_value < 30:
+        return "低估观察，可关注额外资金"
+    if percentile_value < ADD_POSITION_LINE:
+        return "正常定投，可继续观察"
+    if percentile_value <= 70:
+        return "正常定投，暂不额外加仓"
+    return "正常定投，不额外加仓"
+
+
+def distance_to_add_line(percentile_value: Optional[float]) -> str:
+    if percentile_value is None:
+        return "估值数据不足"
+    diff = percentile_value - ADD_POSITION_LINE
+    if diff > 0:
+        return f"还差 {diff:.0f} 个百分点"
+    if diff < 0:
+        return f"已低于加仓线 {abs(diff):.0f} 个百分点"
+    return "已到加仓观察线"
+
+
+def format_pe_history(history: list[dict[str, Any]], current_percentile: Optional[float]) -> str:
+    values = []
+    seen_dates = set()
+    for item in history:
+        trade_date = str(item.get("tradeDate") or item.get("trade_date") or "")
+        percentile = to_optional_float(item.get("pePercentile") or item.get("pe_percentile"))
+        if percentile is None:
+            continue
+        values.append(f"{percentile:.0f}%")
+        if trade_date:
+            seen_dates.add(trade_date)
+    today = now_beijing().strftime("%Y-%m-%d")
+    if current_percentile is not None and today not in seen_dates:
+        values.insert(0, f"{current_percentile:.0f}%")
+    return " / ".join(values[:7]) if values else "历史数据累计中"
+
+
+def format_pe_trend(history: list[dict[str, Any]], current_percentile: Optional[float]) -> str:
+    values = []
+    seen_dates = set()
+    for item in history:
+        trade_date = str(item.get("tradeDate") or item.get("trade_date") or "")
+        percentile = to_optional_float(item.get("pePercentile") or item.get("pe_percentile"))
+        if percentile is None:
+            continue
+        values.append(percentile)
+        if trade_date:
+            seen_dates.add(trade_date)
+    today = now_beijing().strftime("%Y-%m-%d")
+    if current_percentile is not None and today not in seen_dates:
+        values.insert(0, current_percentile)
+    values = values[:7]
+    if len(values) < 2:
+        return "历史数据累计中"
+    diff = values[0] - values[-1]
+    if abs(diff) < 0.5:
+        return "一周基本持平"
+    direction = "上升" if diff > 0 else "下降"
+    return f"一周{direction} {abs(diff):.0f} 个百分点"
+
+
+def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return []
+    try:
+        resp = requests.get(
+            f"{backend_url}/api/market-valuations/{etf['valuation_index_code']}/latest",
+            params={"limit": 7},
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            print(f"  ⚠️ {etf['index_name']} 估值历史查询失败: {resp.status_code}")
+            return []
+        return resp.json().get("data") or []
+    except Exception as e:
+        print(f"  ⚠️ {etf['index_name']} 估值历史查询失败: {e}")
+        return []
+
+
+def push_valuation_history(snapshot: dict[str, Any]) -> bool:
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    etf = snapshot["etf"]
+    valuation = snapshot["valuation"]
+    payload = {
+        "indexCode": etf["valuation_index_code"],
+        "indexName": valuation["index_name"],
+        "peTtm": valuation["pe_ttm"],
+        "pePercentile": valuation["pe_percentile"],
+        "valuationLevel": valuation["valuation_level"],
+        "tradeDate": now_beijing().strftime("%Y-%m-%d"),
+        "source": valuation["source"],
+    }
+    try:
+        resp = requests.post(
+            f"{backend_url}/api/market-valuations/ingest",
+            json=payload,
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            print(f"  ✅ {etf['index_name']} 估值历史已同步")
+            return True
+        print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {resp.status_code} {resp.text}")
+    except Exception as e:
+        print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {e}")
+    return False
+
+
 def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
+    valuation = fetch_valuation(etf)
     return {
         "etf": etf,
         "quote": fetch_etf_quote(etf),
-        "valuation": fetch_valuation(etf),
+        "valuation": valuation,
+        "pe_history": fetch_valuation_history(etf),
     }
 
 
@@ -448,19 +568,17 @@ def snapshot_to_text(snapshot: dict[str, Any]) -> str:
     etf = snapshot["etf"]
     quote = snapshot["quote"]
     valuation = snapshot["valuation"]
+    percentile = valuation["pe_percentile"]
     return "\n".join([
         f"标的：{etf['name']}（{etf['code']}）",
-        f"跟踪指数：{valuation['index_name']}",
         f"最新价：{fmt_number(quote['latest_price'])}",
-        f"涨跌额：{fmt_number(quote['change_amount'])}",
         f"涨跌幅：{fmt_number(quote['pct_change'], 2, '%')}",
-        f"开盘/最高/最低/昨收：{fmt_number(quote['open'])} / {fmt_number(quote['high'])} / {fmt_number(quote['low'])} / {fmt_number(quote['previous_close'])}",
-        f"成交额：{fmt_amount(quote['amount'])}",
-        f"行情时间：{quote['data_time']}（{quote['source']}）",
-        f"跟踪指数 PE：{fmt_number(valuation['pe_ttm'], 2)}",
-        f"PE 分位：{fmt_number(valuation['pe_percentile'], 1, '%')}",
-        f"估值状态：{valuation['valuation_level']}",
-        f"估值来源：{valuation['source']}",
+        f"PE 分位：{fmt_number(percentile, 0, '%')}",
+        f"状态：{valuation['valuation_level']}",
+        f"今日动作：{valuation_action(percentile)}",
+        f"近一周 PE：{format_pe_history(snapshot.get('pe_history', []), percentile)}",
+        f"趋势：{format_pe_trend(snapshot.get('pe_history', []), percentile)}",
+        f"距离加仓线 {ADD_POSITION_LINE}%：{distance_to_add_line(percentile)}",
     ])
 
 
@@ -469,71 +587,55 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
     label = edition_label(edition)
     etf_text = "\n\n---\n\n".join(snapshot_to_text(s) for s in snapshots)
     stock_text = "\n\n---\n\n".join(a_share_to_text(s) for s in stock_picks) if stock_picks else "今日 A 股候选数据暂不可用，暂不生成观察名单。"
-    edition_strategy = """
-【早报策略】
-1. 早报偏“昨日收盘 + 当前开盘初步观察 + 今日关注点”。
-2. 10 点附近行情比刚开盘稳定一些，但仍属于盘中早段，不要太早下结论。
-3. ETF 只输出观察和纪律提醒，重点提示是否需要继续等待、是否暂不追高。
-4. A 股候选只作为今日观察名单，不输出强判断。
-""" if edition == "etf_morning" else """
-【晚报策略】
-1. 晚报偏“全天表现复盘 + 明日观察点 + 是否偏离计划”。
-2. 可以总结全天涨跌、估值和成交变化，但不要做确定性预测。
-3. ETF 部分重点判断是否偏离定投/观察纪律：继续观察、等待回调、控制仓位、小额分批。
-4. A 股候选重点写观察理由和主要风险，不输出买入/卖出指令。
-"""
-    return f"""你是一位谨慎、保守、重视风险控制的市场观察助手。请基于我提供的行情和估值数据，生成一份企业微信每日市场观察。
+    edition_strategy = "早间偏今日观察，避免盘中早段下定论。" if edition.endswith("morning") else "晚间偏全天复盘和明日观察点。"
+    return f"""你是一位谨慎、保守、重视风险控制的市场观察助手。请基于我提供的数据，生成一份 500-700 字以内的企业微信每日市场观察。
 
+【版本策略】
 {edition_strategy}
 
-【重要约束】
+【硬性约束】
 1. 只能使用下方提供的数据，不允许编造价格、涨跌幅、PE、PB 或分位数。
-2. ETF 的 PE 是跟踪指数 PE；如果 PE 或分位数是“暂不可用”，必须明确说明估值数据暂不可用，并降低判断置信度。
-3. 如果 ETF 估值数据暂不可用，不要输出“值得加仓”，只能输出“估值依据不足，维持观察/按原计划执行”。
-4. A 股只能称为“观察候选”，不能称为“推荐股票”或“买入标的”。
-5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、买入推荐、卖出建议、目标价、抄底、翻倍、牛股、确定性机会、投资顾问”等激进、承诺性或投顾表达。
-6. 市场观察判断都只能使用保守口径，例如：适合定投观察、暂不追高、等待回调观察、维持观察、控制仓位、风险偏高。
-7. A 股部分必须说明这是基于公开行情指标的机械筛选，不包含公司基本面深度尽调；每只候选必须写观察理由和主要风险。
-8. 不给具体仓位比例，不给目标价，不给确定性预测。
-9. 必须包含“估值提醒”“波动提醒”“行业热度分析”“风险提示”四类内容。
-10. 结尾必须附上风险提示：{DISCLAIMER}
-11. 总字数控制在 1200 个中文字符以内，只输出最终报告，不解释生成过程。
+2. 结论先行，避免重复表达；每个 ETF 必须包含：状态、今日动作、PE 分位、近一周 PE、趋势、距离加仓线。
+3. “近一周 PE”必须保持输入中的顺序：今天 / 昨天 / 前天 / 3天前 / 4天前 / 5天前 / 6天前。
+4. A 股只能称为“观察候选”，每只只写一句观察理由和一句主要风险。
+5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、买入推荐、卖出建议、目标价、抄底、翻倍、牛股、确定性机会、投资顾问”等表达。
+6. 不给具体仓位比例，不给目标价，不给确定性预测。
+7. 结尾必须附上风险提示：{DISCLAIMER}
 
 【输出格式】
 > **市场观察 · {today}（{label}）**
 
-## 1. ETF 观察
-- 沪深300ETF 华泰柏瑞（510300）：最新价、涨跌幅、跟踪指数 PE、估值位置、观察结论
-- 纳指100ETF 国泰（513100）：最新价、涨跌幅、跟踪指数 PE、估值位置、观察结论
+## 今日总览
+- 沪深300ETF：状态，今日动作。
+- 纳指100ETF：状态，今日动作。
+- A股观察：只观察，不追涨。
 
-## 2. A 股观察候选
-- 候选 1：股票名（代码）
-  - 最新价：...
-  - 涨跌幅：...
-  - 成交额：...
-  - PE/PB：...
-  - 观察理由：...
-  - 主要风险：...
-- 候选 2：...
+## 沪深300ETF
+- 状态：...
+- 今日动作：...
+- PE分位：...
+- 近一周 PE：... / ... / ...
+- 趋势：...
+- 距离加仓线 60%：...
 
-## 3. 估值提醒
-- ...
+## 纳指100ETF
+- 状态：...
+- 今日动作：...
+- PE分位：...
+- 近一周 PE：... / ... / ...
+- 趋势：...
+- 距离加仓线 60%：...
 
-## 4. 波动提醒
-- ...
-
-## 5. 行业热度分析
-- 仅基于今日候选和公开行情指标观察，不做行业配置建议。
-
-## 今日风险提示
-- ...
+## A股观察
+- 股票A：观察理由；主要风险。
+- 股票B：观察理由；主要风险。
 
 > 风险提示：...
 
-【ETF 原始数据】
+【ETF 数据】
 {etf_text}
 
-【A 股候选原始数据】
+【A 股候选数据】
 {stock_text}
 """
 
@@ -595,34 +697,35 @@ def call_llm_with_retry(prompt: str, max_retries: int = 3) -> str:
 
 def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str, stock_picks: Optional[list[dict[str, Any]]] = None) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
-    lines = [f"> **市场观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", ""]
-    for index, snapshot in enumerate(snapshots, 1):
+    lines = [f"> **市场观察 · {today}（{edition_label(edition)}）**", "", f"> AI 分析暂不可用：{reason}", "", "## 今日总览"]
+    for snapshot in snapshots:
+        etf = snapshot["etf"]
+        valuation = snapshot["valuation"]
+        percentile = valuation["pe_percentile"]
+        lines.append(f"- {etf['name']}：{valuation['valuation_level']}，{valuation_action(percentile)}。")
+    lines.append("- A股观察：只观察，不追涨。")
+
+    for snapshot in snapshots:
         etf = snapshot["etf"]
         quote = snapshot["quote"]
         valuation = snapshot["valuation"]
+        percentile = valuation["pe_percentile"]
         lines.extend([
-            f"## {index}. {etf['name']}（{etf['code']}）",
-            f"- 最新价：{fmt_number(quote['latest_price'])}",
-            f"- 涨跌幅：{fmt_number(quote['pct_change'], 2, '%')}",
-            f"- 跟踪指数 PE：{fmt_number(valuation['pe_ttm'], 2)}",
-            f"- 估值位置：{valuation['valuation_level']}",
-            "- 加仓判断：AI 分析暂不可用，建议先维持观察，避免仅凭单日波动追涨杀跌。",
-            "- 趋势判断：暂不生成趋势预测，请结合更长周期走势和自身仓位判断。",
             "",
+            f"## {etf['name']}",
+            f"- 状态：{valuation['valuation_level']}",
+            f"- 今日动作：{valuation_action(percentile)}",
+            f"- PE分位：{fmt_number(percentile, 0, '%')}",
+            f"- 近一周 PE：{format_pe_history(snapshot.get('pe_history', []), percentile)}",
+            f"- 趋势：{format_pe_trend(snapshot.get('pe_history', []), percentile)}",
+            f"- 距离加仓线 {ADD_POSITION_LINE}%：{distance_to_add_line(percentile)}",
+            f"- 涨跌幅：{fmt_number(quote['pct_change'], 2, '%')}",
         ])
 
-    lines.extend(["## 3. A 股自动筛选观察"])
+    lines.extend(["", "## A股观察"])
     if stock_picks:
-        for index, stock in enumerate(stock_picks, 1):
-            lines.extend([
-                f"- 候选 {index}：{stock['name']}（{stock['code']}）",
-                f"  - 最新价：{fmt_number(stock['latest_price'])}",
-                f"  - 涨跌幅：{fmt_number(stock['pct_change'], 2, '%')}",
-                f"  - 成交额：{fmt_amount(stock['amount'])}",
-                f"  - PE/PB：{fmt_number(stock['pe_dynamic'], 2)} / {fmt_number(stock['pb'], 2)}",
-                "  - 机械筛选依据：流动性、估值、波动和资金指标相对符合保守过滤条件。",
-                "  - 主要风险：未经过公司基本面深度尽调，不宜据此直接交易。",
-            ])
+        for stock in stock_picks:
+            lines.append(f"- {stock['name']}（{stock['code']}）：流动性和估值过滤后进入观察；风险是未做基本面深度尽调。")
     else:
         lines.append("- 今日 A 股候选数据暂不可用，暂不生成观察名单。")
 
@@ -742,6 +845,10 @@ def main() -> None:
     except Exception as e:
         print(f"❌ ETF 行情抓取失败: {e}")
         sys.exit(1)
+
+    print("📡 正在同步估值历史...")
+    for snapshot in snapshots:
+        push_valuation_history(snapshot)
 
     print("📡 正在筛选 A 股观察候选...")
     stock_picks = build_a_share_watchlist()
