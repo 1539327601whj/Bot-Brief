@@ -1,12 +1,7 @@
 name: 市场观察
 
 on:
-  schedule:
-    # 北京时间 10:00，对应 UTC 02:00
-    - cron: '0 2 * * *'
-    # 北京时间 17:00，对应 UTC 09:00
-    - cron: '0 9 * * *'
-
+  # 定时由腾讯云 SCF 负责，避免 GitHub schedule 延迟或重复推送
   workflow_dispatch:
     inputs:
       edition:
