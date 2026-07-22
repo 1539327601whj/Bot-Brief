@@ -110,6 +110,10 @@ def fmt_number(value: Optional[float], digits: int = 3, suffix: str = "") -> str
     return f"{value:.{digits}f}{suffix}"
 
 
+def fmt_price(value: Optional[float]) -> str:
+    return "暂不可用" if value is None else f"{value:.3f} 元"
+
+
 def fmt_amount(value: Optional[float]) -> str:
     if value is None:
         return "暂不可用"
@@ -261,6 +265,9 @@ def build_price_context(quote: dict[str, Any], daily_prices: list[dict[str, Any]
         "high": max(current_values),
         "low": min(current_values),
     }])[-20:]
+    previous_close = to_optional_float(quote.get("previous_close"))
+    if previous_close is None and completed:
+        previous_close = completed[-1]["close"]
     week_baseline = completed[-5]["close"] if len(completed) >= 5 else None
     month_baseline = completed[-20]["close"] if len(completed) >= 20 else None
     month_high = max((item["high"] for item in recent_month), default=None)
@@ -269,6 +276,9 @@ def build_price_context(quote: dict[str, Any], daily_prices: list[dict[str, Any]
     if current is not None and month_high is not None and month_low is not None and month_high > month_low:
         range_position = (current - month_low) / (month_high - month_low) * 100
     return {
+        "previous_close": previous_close,
+        "week_baseline": week_baseline,
+        "month_baseline": month_baseline,
         "week_pct_change": pct_return(current, week_baseline),
         "month_pct_change": pct_return(current, month_baseline),
         "month_high": month_high,
@@ -288,6 +298,9 @@ def fetch_price_context(etf: dict[str, str], quote: dict[str, Any]) -> dict[str,
     except Exception as e:
         print(f"  ⚠️ {etf['name']} 价格趋势抓取失败: {e}")
         return {
+            "previous_close": to_optional_float(quote.get("previous_close")),
+            "week_baseline": None,
+            "month_baseline": None,
             "week_pct_change": None,
             "month_pct_change": None,
             "month_high": None,
@@ -986,12 +999,16 @@ def build_programmatic_report(
     for snapshot in snapshots:
         quote = snapshot["quote"]
         context = snapshot["price_context"]
-        lines.append(
-            f"- **{etf_short_name(snapshot)}**：{fmt_number(quote['latest_price'])} 元｜"
-            f"今日 {fmt_change_pct(quote['pct_change'])}｜"
-            f"近一周 {fmt_change_pct(context['week_pct_change'])}｜"
-            f"近一月 {fmt_change_pct(context['month_pct_change'])}"
-        )
+        current_price = fmt_price(quote["latest_price"])
+        lines.extend([
+            f"### {etf_short_name(snapshot)}",
+            f"- 当前价格 {current_price}｜昨日收盘 {fmt_price(context.get('previous_close'))}｜"
+            f"今日　 {fmt_change_pct(quote['pct_change'])}",
+            f"- 当前价格 {current_price}｜一周前价 {fmt_price(context.get('week_baseline'))}｜"
+            f"近一周 {fmt_change_pct(context['week_pct_change'])}",
+            f"- 当前价格 {current_price}｜一月前价 {fmt_price(context.get('month_baseline'))}｜"
+            f"近一月 {fmt_change_pct(context['month_pct_change'])}",
+        ])
 
     lines.extend(["", "## 估值观察"])
     for snapshot in snapshots:
