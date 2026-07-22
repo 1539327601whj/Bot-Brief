@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo } from '../utils/reportEdition'
@@ -52,7 +52,7 @@ export default function ReportDetail() {
         </header>
 
         <div className="article-content">
-          <ReactMarkdown>{report.content}</ReactMarkdown>
+          <MarketMarkdown>{report.content}</MarketMarkdown>
         </div>
 
         {report.runId && (

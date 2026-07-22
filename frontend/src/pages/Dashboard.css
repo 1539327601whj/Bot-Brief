@@ -934,6 +934,10 @@
   overflow: hidden;
 }
 
+.focus-summary p {
+  margin: 0;
+}
+
 .report-card-meta {
   display: flex;
   flex-wrap: wrap;

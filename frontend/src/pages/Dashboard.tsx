@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo } from '../utils/reportEdition'
@@ -104,7 +104,7 @@ function ReportMiniCard({ report, edition }: { report: Report | null; edition: E
             <div className="today-card-stale-hint">今日尚未生成，当前展示 {reportDate} 的最近一期</div>
           )}
           <div className={`today-card-body ${expanded ? 'expanded' : ''}`}>
-            <ReactMarkdown>{expanded ? (report.content || report.summary) : report.summary}</ReactMarkdown>
+            <MarketMarkdown>{expanded ? (report.content || report.summary) : report.summary}</MarketMarkdown>
           </div>
           <button className="today-card-toggle" onClick={() => setExpanded(v => !v)}>
             {expanded ? '收起' : '展开阅读'}
@@ -138,7 +138,7 @@ function FocusCard({ report }: { report: Report | null }) {
         {!isToday(report.createdAt) && <span className="stale-badge">最近一期</span>}
       </div>
       <h2 className="focus-title">{report.title}</h2>
-      <p className="focus-summary">{report.summary}</p>
+      <div className="focus-summary"><MarketMarkdown>{report.summary}</MarketMarkdown></div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -76,7 +76,7 @@ function LatestWatchCard({ config }: { config: WatchCardConfig }) {
             <div className="market-watch-stale">当前展示最近一期：{reportDate}</div>
           )}
           <div className={`market-watch-markdown ${expanded ? 'expanded' : ''}`}>
-            <ReactMarkdown>{expanded ? (report.content || report.summary) : report.summary}</ReactMarkdown>
+            <MarketMarkdown>{expanded ? (report.content || report.summary) : report.summary}</MarketMarkdown>
           </div>
           <button className="market-watch-toggle" onClick={() => setExpanded(v => !v)}>
             {expanded ? '收起' : '展开阅读'}

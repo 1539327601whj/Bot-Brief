@@ -1,0 +1,18 @@
+.market-change {
+  display: inline-block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.market-change-up {
+  color: #e5484d;
+}
+
+.market-change-down {
+  color: #2f9e64;
+}
+
+.market-change-flat {
+  color: #8b949e;
+}

@@ -452,33 +452,47 @@ def fetch_valuation(etf: dict[str, str]) -> dict[str, Any]:
         return fetch_valuation_from_env(etf)
 
 
-def valuation_action(percentile_value: Optional[float]) -> str:
+def valuation_decision(percentile_value: Optional[float]) -> dict[str, str]:
     if percentile_value is None:
-        return "维持观察，估值依据不足"
+        return {"category": "insufficient", "action": "维持观察，估值依据不足"}
     if percentile_value < 30:
-        return "低估观察，可关注额外资金"
+        return {"category": "low", "action": "低估观察，可关注额外资金"}
     if percentile_value < ADD_POSITION_LINE:
-        return "正常定投，可继续观察"
+        return {"category": "watch", "action": "正常定投，继续观察"}
     if percentile_value <= 70:
-        return "正常定投，暂不额外加仓"
-    return "正常定投，不额外加仓"
+        return {"category": "hold", "action": "正常定投，暂不额外加仓"}
+    return {"category": "high", "action": "正常定投，不额外加仓"}
 
 
-def distance_to_add_line(percentile_value: Optional[float]) -> str:
+def valuation_action(percentile_value: Optional[float]) -> str:
+    return valuation_decision(percentile_value)["action"]
+
+
+def distance_to_watch_line(percentile_value: Optional[float]) -> str:
     if percentile_value is None:
         return "估值数据不足"
     diff = percentile_value - ADD_POSITION_LINE
     if diff > 0:
-        return f"还差 {diff:.0f} 个百分点"
+        return f"高于观察线 {diff:.0f} 个百分点"
     if diff < 0:
-        return f"已低于加仓线 {abs(diff):.0f} 个百分点"
-    return "已到加仓观察线"
+        return f"低于观察线 {abs(diff):.0f} 个百分点"
+    return "位于观察线"
 
 
 def fmt_signed_pct(value: Optional[float]) -> str:
     if value is None:
         return "暂不可用"
     return f"{value:+.2f}%"
+
+
+def fmt_change_pct(value: Optional[float]) -> str:
+    if value is None:
+        return "暂不可用"
+    if value > 0:
+        return f"↑ {value:+.2f}%"
+    if value < 0:
+        return f"↓ {value:.2f}%"
+    return "— 0.00%"
 
 
 def format_premium(premium: dict[str, Any]) -> str:
@@ -751,7 +765,7 @@ def snapshot_to_text(snapshot: dict[str, Any]) -> str:
         f"今日动作：{valuation_action(percentile)}",
         f"近一周 PE 分位：{format_pe_history(snapshot)}",
         f"趋势：{format_pe_trend(snapshot)}",
-        f"距离加仓线 {ADD_POSITION_LINE}%：{distance_to_add_line(percentile)}",
+        f"距离观察线 {ADD_POSITION_LINE}%：{distance_to_watch_line(percentile)}",
     ])
 
 
@@ -768,7 +782,7 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
 
 【硬性约束】
 1. 只能使用下方提供的数据，不允许编造价格、涨跌幅、PE、PB 或分位数。
-2. 结论先行，避免重复表达；每个 ETF 必须包含：状态、今日动作、PE 分位、近一周 PE、趋势、距离加仓线。
+2. 结论先行，避免重复表达；每个 ETF 必须包含：状态、今日动作、PE 分位、近一周 PE、趋势、距离观察线。
 3. “近一周 PE”必须保持输入中的顺序：今天 / 昨天 / 前天 / 3天前 / 4天前 / 5天前 / 6天前。
 4. A 股只能称为“观察候选”，每只只写一句观察理由和一句主要风险。
 5. 不得输出“稳赚、必涨、满仓、梭哈、强烈买入、推荐买入、买入推荐、卖出建议、目标价、抄底、翻倍、牛股、确定性机会、投资顾问”等表达。
@@ -789,7 +803,7 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
 - PE分位：...
 - 近一周 PE：... / ... / ...
 - 趋势：...
-- 距离加仓线 60%：...
+- 距离观察线 60%：...
 
 ## 纳指100ETF
 - 状态：...
@@ -797,7 +811,7 @@ def build_etf_prompt(snapshots: list[dict[str, Any]], edition: str, stock_picks:
 - PE分位：...
 - 近一周 PE：... / ... / ...
 - 趋势：...
-- 距离加仓线 60%：...
+- 距离观察线 60%：...
 
 ## A股观察
 - 股票A：观察理由；主要风险。
@@ -896,6 +910,58 @@ def fallback_stock_observations(stock_picks: list[dict[str, Any]]) -> str:
     )
 
 
+def etf_short_name(snapshot: dict[str, Any]) -> str:
+    return snapshot["etf"]["name"].split()[0]
+
+
+def build_add_position_conclusion(snapshots: list[dict[str, Any]]) -> str:
+    low_names = []
+    insufficient_names = []
+    for snapshot in snapshots:
+        decision = valuation_decision(snapshot["valuation"]["pe_percentile"])
+        name = etf_short_name(snapshot)
+        if decision["category"] == "low":
+            low_names.append(name)
+        elif decision["category"] == "insufficient":
+            insufficient_names.append(name)
+
+    if low_names:
+        conclusion = f"{'、'.join(low_names)}进入低估观察，可关注额外资金"
+        if insufficient_names:
+            conclusion += f"；{'、'.join(insufficient_names)}估值依据不足"
+        return conclusion + "。"
+    if insufficient_names:
+        return f"今日暂不新增资金；{'、'.join(insufficient_names)}估值依据不足。"
+    return "今日不额外加仓，两只ETF维持正常定投或观察。"
+
+
+def build_market_direction_summary(snapshots: list[dict[str, Any]]) -> str:
+    changes = [to_optional_float(snapshot["quote"].get("pct_change")) for snapshot in snapshots]
+    if any(value is None for value in changes):
+        return "部分行情数据暂不可用，暂不归纳短期方向。"
+    if all(value > 0 for value in changes):
+        return "今日两只ETF同步上涨。"
+    if all(value < 0 for value in changes):
+        return "今日两只ETF同步回落。"
+    if changes[0] * changes[1] < 0:
+        return "今日两只ETF表现分化。"
+    return "今日两只ETF整体波动有限。"
+
+
+def build_next_watch_point(snapshots: list[dict[str, Any]]) -> str:
+    categories = {
+        valuation_decision(snapshot["valuation"]["pe_percentile"])["category"]
+        for snapshot in snapshots
+    }
+    if "low" in categories:
+        return "继续观察低估状态能否延续，以及场内溢价是否扩大。"
+    if categories & {"hold", "high"}:
+        return f"关注PE分位是否回落到{ADD_POSITION_LINE}%观察线以下，以及场内溢价是否扩大。"
+    if "watch" in categories:
+        return "关注PE分位是否进一步回落到30%以下低估区。"
+    return "等待估值数据恢复，并继续观察场内溢价。"
+
+
 def build_programmatic_report(
     snapshots: list[dict[str, Any]],
     edition: str,
@@ -903,39 +969,52 @@ def build_programmatic_report(
     ai_note: Optional[str] = None,
 ) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
-    lines = [f"> **市场观察 · {today}（{edition_label(edition)}）**", "", "## 今日总览"]
+    lines = [
+        f"> **市场观察 · {today}（{edition_label(edition)}）**",
+        "",
+        "## 先看结论",
+        f"- **额外加仓判断：{build_add_position_conclusion(snapshots)}**",
+    ]
     for snapshot in snapshots:
-        etf = snapshot["etf"]
         valuation = snapshot["valuation"]
-        lines.append(f"- {etf['name']}：{valuation['valuation_level']}，{valuation_action(valuation['pe_percentile'])}。")
-    lines.append("- A股观察：只观察，不追涨。")
-    if ai_note:
-        lines.extend(["", f"> A 股分析暂不可用：{ai_note}"])
+        percentile = valuation["pe_percentile"]
+        lines.append(
+            f"- {etf_short_name(snapshot)}：{valuation_action(percentile)}（PE分位 {fmt_number(percentile, 0, '%')}）。"
+        )
 
+    lines.extend(["", "## 两只ETF变化"])
     for snapshot in snapshots:
-        etf = snapshot["etf"]
         quote = snapshot["quote"]
         context = snapshot["price_context"]
+        lines.append(
+            f"- **{etf_short_name(snapshot)}**：{fmt_number(quote['latest_price'])} 元｜"
+            f"今日 {fmt_change_pct(quote['pct_change'])}｜"
+            f"近一周 {fmt_change_pct(context['week_pct_change'])}｜"
+            f"近一月 {fmt_change_pct(context['month_pct_change'])}"
+        )
+
+    lines.extend(["", "## 估值观察"])
+    for snapshot in snapshots:
         premium = snapshot["premium"]
         valuation = snapshot["valuation"]
         percentile = valuation["pe_percentile"]
         lines.extend([
-            "",
-            f"## {etf['name']}",
-            f"- 当前价：{fmt_number(quote['latest_price'])} 元（今日 {fmt_signed_pct(quote['pct_change'])}）",
-            f"- 近一周：{fmt_signed_pct(context['week_pct_change'])}；近一月：{fmt_signed_pct(context['month_pct_change'])}",
-            f"- 距离近一月高点：{fmt_signed_pct(context['distance_from_month_high'])}",
-            f"- 场内溢价率：{format_premium(premium)}",
-            f"- 状态：{valuation['valuation_level']}",
-            f"- 今日动作：{valuation_action(percentile)}",
-            f"- PE分位：{fmt_number(percentile, 0, '%')}",
-            f"- 近一周 PE 分位：{format_pe_history(snapshot)}",
-            f"- 趋势：{format_pe_trend(snapshot)}",
-            f"- 距离加仓线 {ADD_POSITION_LINE}%：{distance_to_add_line(percentile)}",
-            f"- 估值数据日期：{valuation_trade_date(valuation)}",
+            f"- **{etf_short_name(snapshot)}**：{valuation['valuation_level']}，PE分位 {fmt_number(percentile, 0, '%')}；"
+            f"近一周 {format_pe_history(snapshot)}。",
+            f"  趋势：{format_pe_trend(snapshot)}；场内溢价率：{format_premium(premium)}；"
+            f"数据日期：{valuation_trade_date(valuation)}。",
         ])
 
-    lines.extend(["", "## A股观察", stock_observations, "", f"> {DISCLAIMER}"])
+    lines.extend(["", "## A股观察", stock_observations])
+    if ai_note:
+        lines.extend(["", f"> A股分析暂不可用：{ai_note}"])
+
+    lines.extend([
+        "",
+        "## 今日总结",
+        f"- {build_market_direction_summary(snapshots)}",
+        f"- 下一观察点：{build_next_watch_point(snapshots)}",
+    ])
     return sanitize_report("\n".join(lines))
 
 
@@ -948,40 +1027,70 @@ def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason:
     )
 
 
+def colorize_wework_changes(text: str) -> str:
+    text = re.sub(
+        r"↑ \+\d+(?:\.\d+)?%",
+        lambda match: f'<font color="warning">{match.group(0)}</font>',
+        text,
+    )
+    text = re.sub(
+        r"↓ -\d+(?:\.\d+)?%",
+        lambda match: f'<font color="info">{match.group(0)}</font>',
+        text,
+    )
+    return re.sub(
+        r"— 0(?:\.0+)?%",
+        lambda match: f'<font color="comment">{match.group(0)}</font>',
+        text,
+    )
+
+
 def convert_to_wework_markdown(md_text: str) -> str:
-    lines = md_text.split("\n")
     out = []
-    for line in lines:
+    for line in md_text.split("\n"):
         stripped = line.strip()
         if not stripped:
             out.append("")
             continue
         if stripped.startswith("### "):
-            out.append(f"**{stripped[4:]}**")
+            converted = f"**{stripped[4:]}**"
         elif stripped.startswith("## "):
-            out.append(f"> **{stripped[3:]}**")
+            converted = f"> **{stripped[3:]}**"
         elif stripped.startswith("# "):
-            out.append(f"> **{stripped[2:]}**")
+            converted = f"> **{stripped[2:]}**"
         elif stripped.startswith("|") and stripped.endswith("|"):
             continue
         else:
-            out.append(stripped)
+            converted = stripped
+        out.append(colorize_wework_changes(converted))
 
     result = "\n".join(out)
     max_bytes = 3800
-    encoded = result.encode("utf-8")
-    if len(encoded) <= max_bytes:
+    if len(result.encode("utf-8")) <= max_bytes:
         return result
 
+    summary_index = next(
+        (index for index, line in enumerate(out) if line == "> **今日总结**"),
+        len(out),
+    )
+    tail = out[summary_index:]
+    marker = "> ...(内容已截断)"
+    suffix = [marker, "", *tail]
+    suffix_bytes = len("\n".join(suffix).encode("utf-8"))
+    prefix = []
     current_bytes = 0
-    truncated = []
-    for line in out:
+    for line in out[:summary_index]:
         line_bytes = len(line.encode("utf-8")) + 1
-        if current_bytes + line_bytes > max_bytes - 120:
+        if current_bytes + line_bytes + suffix_bytes > max_bytes:
             break
-        truncated.append(line)
+        prefix.append(line)
         current_bytes += line_bytes
-    return "\n".join(truncated) + f"\n\n> ...(内容已截断)\n> {DISCLAIMER}"
+
+    truncated = "\n".join([*prefix, *suffix])
+    while len(truncated.encode("utf-8")) > max_bytes and prefix:
+        prefix.pop()
+        truncated = "\n".join([*prefix, *suffix])
+    return truncated
 
 
 def push_to_wechat(content: str, webhook_url: str) -> bool:
@@ -1032,10 +1141,12 @@ def push_to_backend(edition: str, title: str, content: str, summary: str, run_id
     return False
 
 
-def build_summary(report: str) -> str:
-    text = re.sub(r"[#>*`\-]", "", report)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:100] + "..." if len(text) > 100 else text
+def build_summary(snapshots: list[dict[str, Any]]) -> str:
+    changes = "；".join(
+        f"{etf_short_name(snapshot)}今日 {fmt_change_pct(snapshot['quote']['pct_change'])}"
+        for snapshot in snapshots
+    )
+    return f"额外加仓判断：{build_add_position_conclusion(snapshots)}{changes}。"
 
 
 def main() -> None:
@@ -1094,7 +1205,7 @@ def main() -> None:
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【市场观察{label}】沪深300ETF / 纳指100ETF / A股观察 {today}"
-    push_to_backend(edition, title, report, build_summary(report), run_id)
+    push_to_backend(edition, title, report, build_summary(snapshots), run_id)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
 
