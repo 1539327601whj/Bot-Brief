@@ -6,7 +6,7 @@ interface MarketMarkdownProps {
   children: string
 }
 
-const changePattern = /(↑ \+\d+(?:\.\d+)?%|↓ -\d+(?:\.\d+)?%|— 0(?:\.0+)?%)/g
+const changePattern = /(↑ \+\d+(?:\.\d+)?(?:%| 个百分点)|↓ -\d+(?:\.\d+)?(?:%| 个百分点)|— 0(?:\.0+)?(?:%| 个百分点))/g
 
 function renderMarketChanges(node: ReactNode): ReactNode {
   if (typeof node === 'string') {

@@ -526,6 +526,7 @@ def pe_history_values(
     history: list[dict[str, Any]],
     current_percentile: Optional[float],
     current_trade_date: str,
+    limit: int = 7,
 ) -> list[float]:
     by_date: dict[str, float] = {}
     for item in history:
@@ -535,7 +536,7 @@ def pe_history_values(
             by_date[trade_date] = percentile
     if current_percentile is not None:
         by_date[current_trade_date] = current_percentile
-    return [by_date[date] for date in sorted(by_date, reverse=True)[:7]]
+    return [by_date[date] for date in sorted(by_date, reverse=True)[:limit]]
 
 
 def format_pe_history(snapshot: dict[str, Any]) -> str:
@@ -567,6 +568,38 @@ def format_pe_trend(snapshot: dict[str, Any]) -> str:
     return f"近 {count} 个交易日{direction} {abs(diff):.0f} 个百分点"
 
 
+def fmt_pe_percentile(value: Optional[float]) -> str:
+    return "暂不可用" if value is None else f"{value:.0f}%"
+
+
+def fmt_pe_change(current: Optional[float], baseline: Optional[float]) -> str:
+    if current is None or baseline is None:
+        return "暂不可用"
+    diff = current - baseline
+    if diff > 0:
+        return f"↑ +{diff:.0f} 个百分点"
+    if diff < 0:
+        return f"↓ {diff:.0f} 个百分点"
+    return "— 0 个百分点"
+
+
+def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Optional[float]]:
+    valuation = snapshot["valuation"]
+    values = pe_history_values(
+        snapshot.get("pe_history", []),
+        valuation["pe_percentile"],
+        valuation_trade_date(valuation),
+        limit=30,
+    )
+    current = values[0] if values else None
+    return {
+        "current": current,
+        "previous": values[1] if len(values) >= 2 else None,
+        "week_baseline": values[5] if len(values) >= 6 else None,
+        "month_baseline": values[20] if len(values) >= 21 else None,
+    }
+
+
 def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
@@ -575,7 +608,7 @@ def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
     try:
         resp = requests.get(
             f"{backend_url}/api/market-valuations/{etf['valuation_index_code']}/latest",
-            params={"limit": 7},
+            params={"limit": 30},
             headers={"X-Ingest-Token": ingest_token},
             timeout=20,
         )
@@ -1010,16 +1043,21 @@ def build_programmatic_report(
             f"近一月 {fmt_change_pct(context['month_pct_change'])}",
         ])
 
-    lines.extend(["", "## 估值观察"])
+    lines.extend(["", "## PE分位变化"])
     for snapshot in snapshots:
         premium = snapshot["premium"]
         valuation = snapshot["valuation"]
-        percentile = valuation["pe_percentile"]
+        pe_context = build_pe_context(snapshot)
+        current_pe = fmt_pe_percentile(pe_context["current"])
         lines.extend([
-            f"- **{etf_short_name(snapshot)}**：{valuation['valuation_level']}，PE分位 {fmt_number(percentile, 0, '%')}；"
-            f"近一周 {format_pe_history(snapshot)}。",
-            f"  趋势：{format_pe_trend(snapshot)}；场内溢价率：{format_premium(premium)}；"
-            f"数据日期：{valuation_trade_date(valuation)}。",
+            f"### {etf_short_name(snapshot)}（{valuation['valuation_level']}）",
+            f"- 当前PE分位 {current_pe}｜昨日分位 {fmt_pe_percentile(pe_context['previous'])}｜"
+            f"今日　 {fmt_pe_change(pe_context['current'], pe_context['previous'])}",
+            f"- 当前PE分位 {current_pe}｜一周前分位 {fmt_pe_percentile(pe_context['week_baseline'])}｜"
+            f"近一周 {fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}",
+            f"- 当前PE分位 {current_pe}｜一月前分位 {fmt_pe_percentile(pe_context['month_baseline'])}｜"
+            f"近一月 {fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
+            f"- 场内溢价率：{format_premium(premium)}；数据日期：{valuation_trade_date(valuation)}。",
         ])
 
     lines.extend(["", "## A股观察", stock_observations])
@@ -1046,17 +1084,17 @@ def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason:
 
 def colorize_wework_changes(text: str) -> str:
     text = re.sub(
-        r"↑ \+\d+(?:\.\d+)?%",
+        r"↑ \+\d+(?:\.\d+)?(?:%| 个百分点)",
         lambda match: f'<font color="warning">{match.group(0)}</font>',
         text,
     )
     text = re.sub(
-        r"↓ -\d+(?:\.\d+)?%",
+        r"↓ -\d+(?:\.\d+)?(?:%| 个百分点)",
         lambda match: f'<font color="info">{match.group(0)}</font>',
         text,
     )
     return re.sub(
-        r"— 0(?:\.0+)?%",
+        r"— 0(?:\.0+)?(?:%| 个百分点)",
         lambda match: f'<font color="comment">{match.group(0)}</font>',
         text,
     )
