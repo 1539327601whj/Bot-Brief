@@ -142,6 +142,13 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.history-page .history-chip:focus-visible,
+.history-page .history-reset:focus-visible,
+.history-page .history-error button:focus-visible {
+  outline: 2px solid rgba(139, 156, 255, 0.88);
+  outline-offset: 2px;
+}
+
 .history-page .history-range {
   min-width: 240px;
 }
@@ -209,6 +216,75 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.history-page .history-pagination {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 24px 0 0;
+}
+
+.history-page .history-pagination .ant-pagination-item,
+.history-page .history-pagination .ant-pagination-prev,
+.history-page .history-pagination .ant-pagination-next {
+  min-width: 36px;
+  height: 36px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.history-page .history-pagination .ant-pagination-prev,
+.history-page .history-pagination .ant-pagination-next {
+  min-width: 72px;
+}
+
+.history-page .history-pagination .ant-pagination-item a,
+.history-page .history-pagination .ant-pagination-prev button,
+.history-page .history-pagination .ant-pagination-next button {
+  min-width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--text-muted);
+}
+
+.history-page .history-pagination .ant-pagination-item:hover,
+.history-page .history-pagination .ant-pagination-prev:not(.ant-pagination-disabled):hover,
+.history-page .history-pagination .ant-pagination-next:not(.ant-pagination-disabled):hover {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.history-page .history-pagination .ant-pagination-item:hover a,
+.history-page .history-pagination .ant-pagination-prev:not(.ant-pagination-disabled):hover button,
+.history-page .history-pagination .ant-pagination-next:not(.ant-pagination-disabled):hover button {
+  color: var(--text);
+}
+
+.history-page .history-pagination .ant-pagination-item-active {
+  border-color: rgba(139, 156, 255, 0.46);
+  background: var(--accent-soft);
+}
+
+.history-page .history-pagination .ant-pagination-item-active a {
+  color: #dce1ff;
+  font-weight: 650;
+}
+
+.history-page .history-pagination .ant-pagination-disabled {
+  opacity: 0.42;
+}
+
+.history-page .history-pagination a:focus-visible,
+.history-page .history-pagination button:focus-visible {
+  outline: 2px solid rgba(139, 156, 255, 0.88);
+  outline-offset: 2px;
 }
 
 .history-page .report-card {
@@ -322,7 +398,8 @@
 }
 
 .history-page .loading-spinner,
-.history-page .empty-state {
+.history-page .empty-state,
+.history-page .history-error {
   min-height: 300px;
   display: flex;
   flex-direction: column;
@@ -334,6 +411,27 @@
   background: rgba(12, 15, 24, 0.54);
   color: var(--text-muted);
   text-align: center;
+}
+
+.history-page .history-error p {
+  margin: 0;
+  color: #ffb4b4;
+}
+
+.history-page .history-error button {
+  min-height: 38px;
+  padding: 8px 16px;
+  border: 1px solid rgba(139, 156, 255, 0.36);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: #dce1ff;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.history-page .history-error button:hover {
+  border-color: rgba(139, 156, 255, 0.6);
+  background: rgba(139, 156, 255, 0.16);
 }
 
 .history-page .spinner {
@@ -400,6 +498,30 @@
 
   .history-page .history-toolbar {
     flex-direction: column;
+  }
+
+  .history-page .history-pagination {
+    gap: 3px;
+    margin-top: 20px;
+  }
+
+  .history-page .history-pagination .ant-pagination-item,
+  .history-page .history-pagination .ant-pagination-prev,
+  .history-page .history-pagination .ant-pagination-next {
+    min-width: 32px;
+    height: 34px;
+  }
+
+  .history-page .history-pagination .ant-pagination-prev,
+  .history-page .history-pagination .ant-pagination-next {
+    min-width: 64px;
+  }
+
+  .history-page .history-pagination .ant-pagination-item a,
+  .history-page .history-pagination .ant-pagination-prev button,
+  .history-page .history-pagination .ant-pagination-next button {
+    padding: 0 7px;
+    font-size: 12px;
   }
 
   .history-page .report-card {
