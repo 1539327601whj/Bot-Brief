@@ -4,12 +4,14 @@
 用于生成 ETF 与 A 股市场观察早晚报，并推送到独立企业微信机器人。
 """
 
+import calendar
 import json
 import os
 import re
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from bisect import bisect_left, bisect_right, insort
+from datetime import date, datetime, timezone, timedelta
 from typing import Any, Optional
 
 import requests
@@ -54,6 +56,9 @@ A_SHARE_MIN_MARKET_CAP = 10000000000
 A_SHARE_MAX_ABS_PCT_CHANGE = 6
 A_SHARE_BANNED_NAME_KEYWORDS = ["ST", "*ST", "退"]
 ADD_POSITION_LINE = 60
+CSI300_PE_WINDOW_YEARS = 10
+CURRENT_VALUATION_MAX_STALENESS_DAYS = 15
+VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/master/json/{date}.json"
 
 BANNED_WORDS = [
     "稳赚", "必涨", "满仓", "梭哈", "强烈买入", "无脑买入", "一定上涨",
@@ -252,24 +257,77 @@ def pct_return(current: Optional[float], baseline: Optional[float]) -> Optional[
     return (current / baseline - 1) * 100
 
 
+def parse_iso_date(value: Any) -> Optional[date]:
+    text = str(value or "")[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def subtract_calendar_month(value: date) -> date:
+    year = value.year - (1 if value.month == 1 else 0)
+    month = 12 if value.month == 1 else value.month - 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def is_fresh_date(value: Any, reference_date: date, max_staleness_days: int) -> bool:
+    parsed = parse_iso_date(value)
+    return (
+        parsed is not None
+        and parsed <= reference_date
+        and (reference_date - parsed).days <= max_staleness_days
+    )
+
+
+def latest_observation_on_or_before(
+    observations: list[dict[str, Any]],
+    target_date: date,
+    date_key: str = "date",
+    max_staleness_days: Optional[int] = None,
+) -> Optional[dict[str, Any]]:
+    candidates = []
+    for item in observations:
+        item_date = parse_iso_date(item.get(date_key))
+        if item_date is None or item_date > target_date:
+            continue
+        if max_staleness_days is not None and (target_date - item_date).days > max_staleness_days:
+            continue
+        candidates.append((item_date, item))
+    return max(candidates, key=lambda pair: pair[0])[1] if candidates else None
+
+
 def build_price_context(quote: dict[str, Any], daily_prices: list[dict[str, Any]]) -> dict[str, Any]:
     current = quote["latest_price"]
-    quote_date = str(quote.get("data_time") or "")[:10]
-    completed = [item for item in daily_prices if item["date"] < quote_date]
+    quote_date_text = str(quote.get("data_time") or "")[:10]
+    quote_date = parse_iso_date(quote_date_text)
+    if quote_date is None:
+        raise RuntimeError("实时行情日期格式异常")
+    completed = [item for item in daily_prices if item["date"] < quote_date_text]
     current_values = [value for value in (current, quote.get("high"), quote.get("low")) if value is not None]
     if not current_values:
         raise RuntimeError("实时价格暂不可用")
     recent_month = (completed + [{
-        "date": quote_date,
+        "date": quote_date_text,
         "close": current,
         "high": max(current_values),
         "low": min(current_values),
     }])[-20:]
+    previous_item = latest_observation_on_or_before(
+        completed, quote_date - timedelta(days=1), max_staleness_days=15
+    )
+    week_item = latest_observation_on_or_before(
+        completed, quote_date - timedelta(days=7), max_staleness_days=15
+    )
+    month_item = latest_observation_on_or_before(
+        completed, subtract_calendar_month(quote_date), max_staleness_days=15
+    )
     previous_close = to_optional_float(quote.get("previous_close"))
-    if previous_close is None and completed:
-        previous_close = completed[-1]["close"]
-    week_baseline = completed[-5]["close"] if len(completed) >= 5 else None
-    month_baseline = completed[-20]["close"] if len(completed) >= 20 else None
+    if previous_close is None and previous_item:
+        previous_close = previous_item["close"]
+    week_baseline = week_item["close"] if week_item else None
+    month_baseline = month_item["close"] if month_item else None
     month_high = max((item["high"] for item in recent_month), default=None)
     month_low = min((item["low"] for item in recent_month), default=None)
     range_position = None
@@ -277,8 +335,11 @@ def build_price_context(quote: dict[str, Any], daily_prices: list[dict[str, Any]
         range_position = (current - month_low) / (month_high - month_low) * 100
     return {
         "previous_close": previous_close,
+        "previous_date": previous_item["date"] if previous_item else None,
         "week_baseline": week_baseline,
+        "week_baseline_date": week_item["date"] if week_item else None,
         "month_baseline": month_baseline,
+        "month_baseline_date": month_item["date"] if month_item else None,
         "week_pct_change": pct_return(current, week_baseline),
         "month_pct_change": pct_return(current, month_baseline),
         "month_high": month_high,
@@ -299,8 +360,11 @@ def fetch_price_context(etf: dict[str, str], quote: dict[str, Any]) -> dict[str,
         print(f"  ⚠️ {etf['name']} 价格趋势抓取失败: {e}")
         return {
             "previous_close": to_optional_float(quote.get("previous_close")),
+            "previous_date": None,
             "week_baseline": None,
+            "week_baseline_date": None,
             "month_baseline": None,
+            "month_baseline_date": None,
             "week_pct_change": None,
             "month_pct_change": None,
             "month_high": None,
@@ -325,36 +389,77 @@ def premium_level(premium_rate: Optional[float]) -> str:
 
 
 def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, Any]:
+    board = "b:MK0023" if etf["code"] == "513100" else "b:MK0021"
     try:
-        resp = requests.get(
-            f"https://fundgz.1234567.com.cn/js/{etf['code']}.js",
-            timeout=12,
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
-        )
-        resp.raise_for_status()
-        match = re.search(r"jsonpgz\((.*)\);?", resp.text)
-        if not match:
-            raise RuntimeError("基金估值格式异常")
-        data = json.loads(match.group(1))
-        estimated_nav = to_optional_float(data.get("gsz"))
-        nav_time = str(data.get("gztime") or "")
-        quote_date = str(quote.get("data_time") or "")[:10]
-        nav_date = nav_time[:10]
-        if estimated_nav is None or nav_date != quote_date:
+        data = None
+        for page in range(1, 16):
+            resp = requests.get(
+                "https://push2.eastmoney.com/api/qt/clist/get",
+                params={
+                    "pn": page,
+                    "pz": 100,
+                    "po": 1,
+                    "np": 1,
+                    "fltt": 2,
+                    "invt": 2,
+                    "fid": "f12",
+                    "fs": board,
+                    "fields": "f2,f12,f14,f124,f402,f441",
+                },
+                timeout=15,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+            )
+            resp.raise_for_status()
+            response_data = resp.json().get("data") or {}
+            items = response_data.get("diff") or []
+            data = next((item for item in items if str(item.get("f12")) == etf["code"]), None)
+            if data:
+                break
+            if page * 100 >= int(response_data.get("total") or 0):
+                break
+        if not data:
+            raise RuntimeError("东方财富ETF列表未找到目标基金")
+        ts = data.get("f124")
+        data_time = "暂不可用"
+        premium_date = None
+        if ts:
+            premium_datetime = datetime.fromtimestamp(int(ts), BEIJING_TZ)
+            premium_date = premium_datetime.date()
+            data_time = premium_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        quote_date = parse_iso_date(quote.get("data_time"))
+        if premium_date is None or quote_date is None or premium_date != quote_date:
             return {
                 "premium_rate": None,
-                "level": "净值估算未与行情同步",
-                "estimated_nav": estimated_nav,
-                "data_time": nav_time or "暂不可用",
-                "source": "东方财富基金估值",
+                "level": "IOPV未与行情同步",
+                "estimated_nav": None,
+                "data_time": data_time,
+                "source": "东方财富ETF实时IOPV",
+                "reference_only": etf["code"] == "513100",
             }
-        premium_rate = pct_return(quote["latest_price"], estimated_nav)
+        estimated_nav = to_optional_float(data.get("f441"))
+        listed_rate = None
+        try:
+            raw_listed_rate = data.get("f402")
+            listed_rate = float(raw_listed_rate) if raw_listed_rate not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            listed_rate = None
+        latest_price = to_optional_float(data.get("f2")) or to_optional_float(quote.get("latest_price"))
+        calculated_rate = pct_return(latest_price, estimated_nav)
+        premium_rate = calculated_rate if calculated_rate is not None else (
+            -listed_rate if listed_rate is not None else None
+        )
+        if listed_rate is not None and calculated_rate is not None and abs(listed_rate + calculated_rate) > 0.2:
+            print(
+                f"  ⚠️ {etf['name']} 折价率字段与IOPV计算差异 "
+                f"{abs(listed_rate + calculated_rate):.2f} 个百分点"
+            )
         return {
             "premium_rate": premium_rate,
             "level": premium_level(premium_rate),
             "estimated_nav": estimated_nav,
-            "data_time": nav_time,
-            "source": "东方财富基金估值",
+            "data_time": data_time,
+            "source": "东方财富ETF实时IOPV",
+            "reference_only": etf["code"] == "513100",
         }
     except Exception as e:
         print(f"  ⚠️ {etf['name']} 溢价率抓取失败: {e}")
@@ -364,6 +469,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "estimated_nav": None,
             "data_time": "暂不可用",
             "source": "暂不可用",
+            "reference_only": False,
         }
 
 
@@ -385,48 +491,280 @@ def normalize_percentile(value: Any) -> Optional[float]:
     return n * 100 if n <= 1 else n
 
 
-def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
-    url = "https://danjuanfunds.com/djapi/index_eva/dj"
-    headers = {
-        "User-Agent": "Mozilla/5.0",
+def danjuan_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
         "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Referer": "https://danjuanfunds.com/djmodule/value-center",
     }
-    resp = requests.get(url, timeout=12, headers=headers)
-    resp.raise_for_status()
-    items = resp.json().get("data", {}).get("items", [])
-    target_code = etf["valuation_index_code"].upper()
-    for item in items:
-        if str(item.get("index_code", "")).upper() != target_code:
-            continue
-        pe_value = item.get("pe")
+
+
+def valuation_from_danjuan_item(
+    etf: dict[str, str],
+    item: dict[str, Any],
+    source: str = "蛋卷基金指数估值",
+) -> dict[str, Any]:
+    pe_value = to_optional_float(item.get("pe"))
+    percentile_value = normalize_percentile(item.get("pe_percentile"))
+    ts = item.get("ts")
+    updated_at = None
+    if ts:
         try:
-            pe_value = float(pe_value) if pe_value not in (None, "") else None
+            updated_at = datetime.fromtimestamp(int(ts) / 1000, BEIJING_TZ).strftime("%Y-%m-%d")
         except (TypeError, ValueError):
-            pe_value = None
-        percentile_value = normalize_percentile(item.get("pe_percentile"))
-        ts = item.get("ts")
-        updated_at = None
-        if ts:
-            try:
-                updated_at = datetime.fromtimestamp(int(ts) / 1000, BEIJING_TZ).strftime("%Y-%m-%d")
-            except (TypeError, ValueError):
-                updated_at = str(ts)
-        return {
-            "index_name": item.get("name") or etf["index_name"],
-            "pe_ttm": pe_value,
-            "pe_percentile": percentile_value,
-            "valuation_level": valuation_level(percentile_value),
-            "source": "蛋卷基金指数估值",
-            "updated_at": updated_at,
+            updated_at = None
+    if updated_at is None:
+        raw_date = str(item.get("date") or "")
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date):
+            updated_at = raw_date
+    return {
+        "index_name": item.get("name") or etf["index_name"],
+        "pe_ttm": pe_value,
+        "pe_percentile": percentile_value,
+        "valuation_level": valuation_level(percentile_value),
+        "source": source,
+        "updated_at": updated_at,
+    }
+
+
+def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
+    resp = requests.get(
+        "https://danjuanfunds.com/djapi/index_eva/dj",
+        timeout=15,
+        headers=danjuan_headers(),
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if str(body.get("result_code", 0)) not in ("0", "200"):
+        raise RuntimeError(f"蛋卷估值业务错误: {body.get('result_code')} {body.get('result_msg', '')}")
+    items = (body.get("data") or {}).get("items") or []
+    target_code = etf["valuation_index_code"].upper()
+    item = next(
+        (item for item in items if str(item.get("index_code", "")).upper() == target_code),
+        None,
+    )
+    if not item:
+        raise RuntimeError(f"蛋卷估值未找到 {etf['valuation_index_code']}")
+    valuation = valuation_from_danjuan_item(etf, item)
+    if valuation["pe_ttm"] is None or valuation["pe_percentile"] is None or not valuation["updated_at"]:
+        raise RuntimeError("蛋卷估值缺少PE、分位或有效日期")
+    return valuation
+
+
+def subtract_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year - years)
+    except ValueError:
+        return value.replace(year=value.year - years, day=28)
+
+
+def fetch_csi300_pe_history() -> list[dict[str, Any]]:
+    resp = requests.get(
+        "https://www.csindex.com.cn/csindex-home/perf/indexCsiDsPe",
+        params={"indexCode": "000300"},
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.csindex.com.cn/"},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if str(body.get("code")) != "200" or not body.get("success"):
+        raise RuntimeError(f"中证指数PE接口业务错误: {body.get('code')} {body.get('msg', '')}")
+
+    points = []
+    for item in body.get("data") or []:
+        trade_date = str(item.get("tradeDate") or "")
+        pe_value = to_optional_float(item.get("peg"))
+        if not re.fullmatch(r"\d{8}", trade_date) or pe_value is None or pe_value <= 0:
+            continue
+        points.append((datetime.strptime(trade_date, "%Y%m%d").date(), pe_value))
+    points.sort(key=lambda point: point[0])
+    if not points:
+        raise RuntimeError("中证指数未返回有效PE历史")
+
+    history = []
+    window_values: list[float] = []
+    window_start_index = 0
+    for trade_date, pe_value in points:
+        minimum_date = subtract_years(trade_date, CSI300_PE_WINDOW_YEARS)
+        while window_start_index < len(points) and points[window_start_index][0] < minimum_date:
+            expired_value = points[window_start_index][1]
+            value_index = bisect_left(window_values, expired_value)
+            if value_index < len(window_values) and window_values[value_index] == expired_value:
+                window_values.pop(value_index)
+            window_start_index += 1
+        insort(window_values, pe_value)
+        percentile = bisect_right(window_values, pe_value) / len(window_values) * 100
+        history.append({
+            "tradeDate": trade_date.isoformat(),
+            "peTtm": pe_value,
+            "pePercentile": percentile,
+            "source": f"中证指数官网PE(TTM)，滚动{CSI300_PE_WINDOW_YEARS}年分位",
+        })
+    return history
+
+
+_VALUATION_ARCHIVE_CACHE: dict[str, Optional[list[dict[str, Any]]]] = {}
+_VALUATION_ARCHIVE_UNAVAILABLE = False
+
+
+def fetch_valuation_archive(snapshot_date: date) -> Optional[list[dict[str, Any]]]:
+    global _VALUATION_ARCHIVE_UNAVAILABLE
+    date_text = snapshot_date.isoformat()
+    if date_text in _VALUATION_ARCHIVE_CACHE:
+        return _VALUATION_ARCHIVE_CACHE[date_text]
+    if _VALUATION_ARCHIVE_UNAVAILABLE:
+        return None
+    try:
+        resp = requests.get(
+            VALUATION_ARCHIVE_URL.format(date=date_text),
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        if resp.status_code == 404:
+            _VALUATION_ARCHIVE_CACHE[date_text] = None
+            return None
+        resp.raise_for_status()
+        body = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        _VALUATION_ARCHIVE_UNAVAILABLE = True
+        print(f"  ⚠️ 蛋卷估值公开快照不可用，本次运行改用后端缓存: {e}")
+        return None
+    items = body if isinstance(body, list) else ((body.get("data") or {}).get("items") or [])
+    _VALUATION_ARCHIVE_CACHE[date_text] = items
+    return items
+
+
+def fetch_archived_valuation_on_or_before(
+    etf: dict[str, str],
+    target_date: date,
+    max_lookback_days: int = 10,
+) -> Optional[dict[str, Any]]:
+    target_code = etf["valuation_index_code"].upper()
+    best = None
+    for offset in range(max_lookback_days + 1):
+        snapshot_date = target_date - timedelta(days=offset)
+        items = fetch_valuation_archive(snapshot_date)
+        if not items:
+            continue
+        item = next(
+            (item for item in items if str(item.get("index_code", "")).upper() == target_code),
+            None,
+        )
+        if not item:
+            continue
+        valuation = valuation_from_danjuan_item(etf, item, "蛋卷估值每日公开快照")
+        effective_date = parse_iso_date(valuation.get("updated_at"))
+        if (
+            effective_date is not None
+            and effective_date <= target_date
+            and valuation["pe_ttm"] is not None
+            and valuation["pe_percentile"] is not None
+        ):
+            if best is None or effective_date > parse_iso_date(best["updated_at"]):
+                best = valuation
+        if best is not None and parse_iso_date(best["updated_at"]) == target_date:
+            break
+    return best
+
+
+def valuation_to_history_item(valuation: dict[str, Any]) -> Optional[dict[str, Any]]:
+    trade_date = str(valuation.get("updated_at") or "")
+    if parse_iso_date(trade_date) is None:
+        return None
+    percentile = to_optional_float(valuation.get("pe_percentile"))
+    if percentile is None:
+        return None
+    return {
+        "tradeDate": trade_date,
+        "peTtm": to_optional_float(valuation.get("pe_ttm")),
+        "pePercentile": percentile,
+        "source": valuation.get("source"),
+    }
+
+
+def fetch_source_valuation(etf: dict[str, str]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if etf["valuation_index_code"] == "SH000300":
+        history = fetch_csi300_pe_history()
+        latest = history[-1]
+        percentile = latest["pePercentile"]
+        valuation = {
+            "index_name": etf["index_name"],
+            "pe_ttm": latest["peTtm"],
+            "pe_percentile": percentile,
+            "valuation_level": valuation_level(percentile),
+            "source": latest["source"],
+            "updated_at": latest["tradeDate"],
         }
-    raise RuntimeError(f"蛋卷估值未找到 {etf['valuation_index_code']}")
+        if not is_fresh_date(
+            valuation["updated_at"],
+            now_beijing().date(),
+            CURRENT_VALUATION_MAX_STALENESS_DAYS,
+        ):
+            raise RuntimeError("中证指数PE数据过旧")
+        return valuation, history
+
+    valuation = None
+    try:
+        realtime = fetch_valuation_from_danjuan(etf)
+        if (
+            to_optional_float(realtime.get("pe_ttm")) is not None
+            and to_optional_float(realtime.get("pe_percentile")) is not None
+            and is_fresh_date(
+                valuation_trade_date(realtime),
+                now_beijing().date(),
+                CURRENT_VALUATION_MAX_STALENESS_DAYS,
+            )
+        ):
+            valuation = realtime
+        else:
+            print(f"  ⚠️ {etf['name']} 蛋卷实时估值数据过旧，改用公开快照")
+    except Exception as e:
+        print(f"  ⚠️ {etf['name']} 蛋卷实时估值抓取失败: {e}")
+    if valuation is None:
+        valuation = fetch_archived_valuation_on_or_before(etf, now_beijing().date())
+        if valuation is None:
+            valuation = fetch_valuation_from_env(etf)
+        elif valuation.get("source"):
+            valuation["source"] += "（最近有效值）"
+    if (
+        to_optional_float(valuation.get("pe_ttm")) is None
+        or to_optional_float(valuation.get("pe_percentile")) is None
+        or not is_fresh_date(
+            valuation_trade_date(valuation),
+            now_beijing().date(),
+            CURRENT_VALUATION_MAX_STALENESS_DAYS,
+        )
+    ):
+        raise RuntimeError(f"{etf['name']} 实时估值和公开快照均不可用或数据过旧")
+
+    history = []
+    current_date = parse_iso_date(valuation.get("updated_at"))
+    if current_date is not None:
+        targets = {
+            current_date - timedelta(days=1),
+            current_date - timedelta(days=7),
+            subtract_calendar_month(current_date),
+        }
+        for target in sorted(targets, reverse=True):
+            archived = fetch_archived_valuation_on_or_before(etf, target)
+            item = valuation_to_history_item(archived) if archived else None
+            if item:
+                history.append(item)
+    current_item = valuation_to_history_item(valuation)
+    if current_item:
+        history.append(current_item)
+    return valuation, history
 
 
 def fetch_valuation_from_env(etf: dict[str, str]) -> dict[str, Any]:
     prefix = etf["valuation_env_prefix"]
     pe = os.environ.get(f"{prefix}_PE")
     percentile = os.environ.get(f"{prefix}_PE_PERCENTILE")
+    valuation_date = os.environ.get(f"{prefix}_VALUATION_DATE")
     source = os.environ.get(f"{prefix}_VALUATION_SOURCE", "手动环境变量")
 
     try:
@@ -435,7 +773,7 @@ def fetch_valuation_from_env(etf: dict[str, str]) -> dict[str, Any]:
         pe_value = None
     percentile_value = normalize_percentile(percentile) if percentile else None
 
-    if pe_value is None:
+    if pe_value is None or percentile_value is None or parse_iso_date(valuation_date) is None:
         return {
             "index_name": etf["index_name"],
             "pe_ttm": None,
@@ -451,18 +789,8 @@ def fetch_valuation_from_env(etf: dict[str, str]) -> dict[str, Any]:
         "pe_percentile": percentile_value,
         "valuation_level": valuation_level(percentile_value),
         "source": source,
-        "updated_at": now_beijing().strftime("%Y-%m-%d"),
+        "updated_at": valuation_date,
     }
-
-
-def fetch_valuation(etf: dict[str, str]) -> dict[str, Any]:
-    try:
-        valuation = fetch_valuation_from_danjuan(etf)
-        print(f"  ✅ {etf['name']} 估值来自 {valuation['source']}")
-        return valuation
-    except Exception as e:
-        print(f"  ⚠️ {etf['name']} 蛋卷估值抓取失败: {e}")
-        return fetch_valuation_from_env(etf)
 
 
 def valuation_decision(percentile_value: Optional[float]) -> dict[str, str]:
@@ -512,29 +840,50 @@ def format_premium(premium: dict[str, Any]) -> str:
     rate = premium.get("premium_rate")
     if rate is None:
         return premium.get("level") or "暂不可用"
-    return f"{rate:+.2f}%（{premium['level']}）"
+    note = "，跨境IOPV仅供参考" if premium.get("reference_only") else ""
+    return f"{rate:+.2f}%（{premium['level']}{note}）"
 
 
-def valuation_trade_date(valuation: dict[str, Any]) -> str:
+def valuation_trade_date(valuation: dict[str, Any]) -> Optional[str]:
     updated_at = str(valuation.get("updated_at") or "")
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", updated_at):
-        return updated_at
-    return now_beijing().strftime("%Y-%m-%d")
+    return updated_at if parse_iso_date(updated_at) is not None else None
+
+
+def history_field(item: dict[str, Any], camel: str, snake: str) -> Any:
+    value = item.get(camel)
+    return value if value is not None else item.get(snake)
+
+
+def merge_pe_history(*histories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_date: dict[str, dict[str, Any]] = {}
+    for history in histories:
+        for item in history:
+            trade_date = str(history_field(item, "tradeDate", "trade_date") or "")
+            percentile = to_optional_float(history_field(item, "pePercentile", "pe_percentile"))
+            if parse_iso_date(trade_date) is None or percentile is None:
+                continue
+            normalized = dict(item)
+            normalized["tradeDate"] = trade_date
+            normalized["pePercentile"] = percentile
+            if to_optional_float(normalized.get("peTtm")) is None:
+                normalized["peTtm"] = to_optional_float(normalized.get("pe_ttm"))
+            by_date[trade_date] = normalized
+    return [by_date[key] for key in sorted(by_date)]
 
 
 def pe_history_values(
     history: list[dict[str, Any]],
     current_percentile: Optional[float],
-    current_trade_date: str,
+    current_trade_date: Optional[str],
     limit: int = 7,
 ) -> list[float]:
     by_date: dict[str, float] = {}
     for item in history:
-        trade_date = str(item.get("tradeDate") or item.get("trade_date") or "")
-        percentile = to_optional_float(item.get("pePercentile") or item.get("pe_percentile"))
-        if trade_date and percentile is not None:
+        trade_date = str(history_field(item, "tradeDate", "trade_date") or "")
+        percentile = to_optional_float(history_field(item, "pePercentile", "pe_percentile"))
+        if parse_iso_date(trade_date) is not None and percentile is not None:
             by_date[trade_date] = percentile
-    if current_percentile is not None:
+    if current_percentile is not None and current_trade_date and parse_iso_date(current_trade_date):
         by_date[current_trade_date] = current_percentile
     return [by_date[date] for date in sorted(by_date, reverse=True)[:limit]]
 
@@ -572,50 +921,107 @@ def fmt_pe_percentile(value: Optional[float]) -> str:
     return "暂不可用" if value is None else f"{value:.0f}%"
 
 
+def fmt_baseline_date(value: Optional[str]) -> str:
+    parsed = parse_iso_date(value)
+    return f"（{parsed.strftime('%m-%d')}）" if parsed else ""
+
+
 def fmt_pe_change(current: Optional[float], baseline: Optional[float]) -> str:
     if current is None or baseline is None:
         return "暂不可用"
     diff = current - baseline
+    if abs(diff) < 0.5:
+        return "— 0 个百分点"
     if diff > 0:
         return f"↑ +{diff:.0f} 个百分点"
-    if diff < 0:
-        return f"↓ {diff:.0f} 个百分点"
-    return "— 0 个百分点"
+    return f"↓ {diff:.0f} 个百分点"
 
 
-def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Optional[float]]:
-    valuation = snapshot["valuation"]
-    values = pe_history_values(
-        snapshot.get("pe_history", []),
-        valuation["pe_percentile"],
-        valuation_trade_date(valuation),
-        limit=30,
+def pe_observation_on_or_before(
+    history: list[dict[str, Any]],
+    target_date: date,
+) -> Optional[dict[str, Any]]:
+    return latest_observation_on_or_before(
+        history,
+        target_date,
+        "tradeDate",
+        max_staleness_days=10,
     )
-    current = values[0] if values else None
+
+
+def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
+    valuation = snapshot["valuation"]
+    current = to_optional_float(valuation.get("pe_percentile"))
+    current_date_text = valuation_trade_date(valuation)
+    current_date = parse_iso_date(current_date_text)
+    if current is None or current_date is None:
+        return {
+            "current": current,
+            "current_date": current_date_text,
+            "previous": None,
+            "previous_date": None,
+            "week_baseline": None,
+            "week_baseline_date": None,
+            "month_baseline": None,
+            "month_baseline_date": None,
+        }
+
+    history = merge_pe_history(snapshot.get("pe_history", []))
+    previous = pe_observation_on_or_before(history, current_date - timedelta(days=1))
+    week = pe_observation_on_or_before(history, current_date - timedelta(days=7))
+    month = pe_observation_on_or_before(history, subtract_calendar_month(current_date))
+
+    def value(item: Optional[dict[str, Any]]) -> Optional[float]:
+        return to_optional_float(item.get("pePercentile")) if item else None
+
+    def trade_date(item: Optional[dict[str, Any]]) -> Optional[str]:
+        return str(item.get("tradeDate")) if item else None
+
     return {
         "current": current,
-        "previous": values[1] if len(values) >= 2 else None,
-        "week_baseline": values[5] if len(values) >= 6 else None,
-        "month_baseline": values[20] if len(values) >= 21 else None,
+        "current_date": current_date_text,
+        "previous": value(previous),
+        "previous_date": trade_date(previous),
+        "week_baseline": value(week),
+        "week_baseline_date": trade_date(week),
+        "month_baseline": value(month),
+        "month_baseline_date": trade_date(month),
     }
+
+
+def backend_result(resp: requests.Response, operation: str) -> Optional[dict[str, Any]]:
+    if resp.status_code != 200:
+        print(f"  ⚠️ {operation}失败: HTTP {resp.status_code} {resp.text[:300]}")
+        return None
+    try:
+        body = resp.json()
+    except ValueError:
+        print(f"  ⚠️ {operation}失败: 后端未返回JSON")
+        return None
+    if body.get("code") != 200:
+        print(f"  ⚠️ {operation}失败: 业务码 {body.get('code')} {body.get('message', '')}")
+        return None
+    return body
 
 
 def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
-    if not backend_url or not ingest_token:
+    if not backend_url:
+        print(f"  ⚠️ {etf['index_name']} 未配置 BACKEND_API_URL，跳过估值缓存查询")
+        return []
+    if not ingest_token:
+        print(f"  ⚠️ {etf['index_name']} 未配置 REPORT_INGEST_TOKEN，跳过估值缓存查询")
         return []
     try:
         resp = requests.get(
             f"{backend_url}/api/market-valuations/{etf['valuation_index_code']}/latest",
-            params={"limit": 30},
+            params={"limit": 365},
             headers={"X-Ingest-Token": ingest_token},
             timeout=20,
         )
-        if resp.status_code != 200:
-            print(f"  ⚠️ {etf['index_name']} 估值历史查询失败: {resp.status_code}")
-            return []
-        return resp.json().get("data") or []
+        body = backend_result(resp, f"{etf['index_name']}估值历史查询")
+        return (body.get("data") or []) if body else []
     except Exception as e:
         print(f"  ⚠️ {etf['index_name']} 估值历史查询失败: {e}")
         return []
@@ -628,33 +1034,104 @@ def push_valuation_history(snapshot: dict[str, Any]) -> bool:
         return False
     etf = snapshot["etf"]
     valuation = snapshot["valuation"]
-    payload = {
-        "indexCode": etf["valuation_index_code"],
-        "indexName": valuation["index_name"],
-        "peTtm": valuation["pe_ttm"],
-        "pePercentile": valuation["pe_percentile"],
-        "valuationLevel": valuation["valuation_level"],
-        "tradeDate": valuation_trade_date(valuation),
-        "source": valuation["source"],
+    current_date = valuation_trade_date(valuation)
+    current_item = {
+        "tradeDate": current_date,
+        "peTtm": valuation.get("pe_ttm"),
+        "pePercentile": valuation.get("pe_percentile"),
+        "source": valuation.get("source"),
     }
-    try:
-        resp = requests.post(
-            f"{backend_url}/api/market-valuations/ingest",
-            json=payload,
-            headers={"X-Ingest-Token": ingest_token},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            print(f"  ✅ {etf['index_name']} 估值历史已同步")
-            return True
-        print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {resp.status_code} {resp.text}")
-    except Exception as e:
-        print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {e}")
-    return False
+    context = build_pe_context(snapshot)
+    wanted_dates = {
+        current_date,
+        context.get("previous_date"),
+        context.get("week_baseline_date"),
+        context.get("month_baseline_date"),
+    }
+    source_items = merge_pe_history(snapshot.get("pe_history", []), [current_item])
+    items = [item for item in source_items if item.get("tradeDate") in wanted_dates]
+    if not items:
+        print(f"  ⚠️ {etf['index_name']} 当前估值不完整，跳过历史写入")
+        return False
+
+    saved = 0
+    for item in items:
+        trade_date = str(item.get("tradeDate") or "")
+        pe_ttm = to_optional_float(item.get("peTtm"))
+        percentile = to_optional_float(item.get("pePercentile"))
+        if parse_iso_date(trade_date) is None or pe_ttm is None or percentile is None:
+            continue
+        payload = {
+            "indexCode": etf["valuation_index_code"],
+            "indexName": valuation["index_name"],
+            "peTtm": pe_ttm,
+            "pePercentile": percentile,
+            "valuationLevel": valuation_level(percentile),
+            "tradeDate": trade_date,
+            "source": item.get("source") or valuation["source"],
+        }
+        try:
+            resp = requests.post(
+                f"{backend_url}/api/market-valuations/ingest",
+                json=payload,
+                headers={"X-Ingest-Token": ingest_token},
+                timeout=30,
+            )
+            if backend_result(resp, f"{etf['index_name']}估值历史同步"):
+                saved += 1
+        except Exception as e:
+            print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {e}")
+    if saved:
+        print(f"  ✅ {etf['index_name']} 已同步 {saved} 个估值基准")
+    return saved == len(items)
 
 
 def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
-    valuation = fetch_valuation(etf)
+    backend_history = fetch_valuation_history(etf)
+    try:
+        valuation, source_history = fetch_source_valuation(etf)
+        print(f"  ✅ {etf['name']} 估值来自 {valuation['source']}")
+    except Exception as e:
+        print(f"  ⚠️ {etf['name']} 主估值源失败: {e}")
+        source_history = []
+        cached = merge_pe_history(backend_history)
+        latest = next(
+            (
+                item
+                for item in reversed(cached)
+                if to_optional_float(item.get("peTtm")) is not None
+                and to_optional_float(item.get("pePercentile")) is not None
+                and is_fresh_date(
+                    item.get("tradeDate"),
+                    now_beijing().date(),
+                    CURRENT_VALUATION_MAX_STALENESS_DAYS,
+                )
+            ),
+            None,
+        )
+        env_valuation = fetch_valuation_from_env(etf)
+        if latest:
+            percentile = to_optional_float(latest.get("pePercentile"))
+            valuation = {
+                "index_name": etf["index_name"],
+                "pe_ttm": to_optional_float(latest.get("peTtm")),
+                "pe_percentile": percentile,
+                "valuation_level": valuation_level(percentile),
+                "source": f"{latest.get('source') or '后端估值缓存'}（最近有效值）",
+                "updated_at": latest.get("tradeDate"),
+            }
+        elif (
+            to_optional_float(env_valuation.get("pe_ttm")) is not None
+            and to_optional_float(env_valuation.get("pe_percentile")) is not None
+            and is_fresh_date(
+                valuation_trade_date(env_valuation),
+                now_beijing().date(),
+                CURRENT_VALUATION_MAX_STALENESS_DAYS,
+            )
+        ):
+            valuation = env_valuation
+        else:
+            raise RuntimeError(f"{etf['name']} 无可用实时估值、公开快照或后端缓存")
     quote = fetch_etf_quote(etf)
     return {
         "etf": etf,
@@ -662,7 +1139,7 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
         "price_context": fetch_price_context(etf, quote),
         "premium": fetch_etf_premium(etf, quote),
         "valuation": valuation,
-        "pe_history": fetch_valuation_history(etf),
+        "pe_history": merge_pe_history(backend_history, source_history),
     }
 
 
@@ -1035,12 +1512,12 @@ def build_programmatic_report(
         current_price = fmt_price(quote["latest_price"])
         lines.extend([
             f"### {etf_short_name(snapshot)}",
-            f"- 当前价格 {current_price}｜昨日收盘 {fmt_price(context.get('previous_close'))}｜"
-            f"今日　 {fmt_change_pct(quote['pct_change'])}",
-            f"- 当前价格 {current_price}｜一周前价 {fmt_price(context.get('week_baseline'))}｜"
-            f"近一周 {fmt_change_pct(context['week_pct_change'])}",
-            f"- 当前价格 {current_price}｜一月前价 {fmt_price(context.get('month_baseline'))}｜"
-            f"近一月 {fmt_change_pct(context['month_pct_change'])}",
+            f"- 当前价格 {current_price}｜昨日收盘{fmt_baseline_date(context.get('previous_date'))} "
+            f"{fmt_price(context.get('previous_close'))}｜今日　 {fmt_change_pct(quote['pct_change'])}",
+            f"- 当前价格 {current_price}｜一周前价{fmt_baseline_date(context.get('week_baseline_date'))} "
+            f"{fmt_price(context.get('week_baseline'))}｜近一周 {fmt_change_pct(context['week_pct_change'])}",
+            f"- 当前价格 {current_price}｜一月前价{fmt_baseline_date(context.get('month_baseline_date'))} "
+            f"{fmt_price(context.get('month_baseline'))}｜近一月 {fmt_change_pct(context['month_pct_change'])}",
         ])
 
     lines.extend(["", "## PE分位变化"])
@@ -1051,13 +1528,17 @@ def build_programmatic_report(
         current_pe = fmt_pe_percentile(pe_context["current"])
         lines.extend([
             f"### {etf_short_name(snapshot)}（{valuation['valuation_level']}）",
-            f"- 当前PE分位 {current_pe}｜昨日分位 {fmt_pe_percentile(pe_context['previous'])}｜"
-            f"今日　 {fmt_pe_change(pe_context['current'], pe_context['previous'])}",
-            f"- 当前PE分位 {current_pe}｜一周前分位 {fmt_pe_percentile(pe_context['week_baseline'])}｜"
-            f"近一周 {fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}",
-            f"- 当前PE分位 {current_pe}｜一月前分位 {fmt_pe_percentile(pe_context['month_baseline'])}｜"
-            f"近一月 {fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
-            f"- 场内溢价率：{format_premium(premium)}；数据日期：{valuation_trade_date(valuation)}。",
+            f"- 当前PE分位 {current_pe}｜昨日分位{fmt_baseline_date(pe_context['previous_date'])} "
+            f"{fmt_pe_percentile(pe_context['previous'])}｜今日　 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['previous'])}",
+            f"- 当前PE分位 {current_pe}｜一周前分位{fmt_baseline_date(pe_context['week_baseline_date'])} "
+            f"{fmt_pe_percentile(pe_context['week_baseline'])}｜近一周 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}",
+            f"- 当前PE分位 {current_pe}｜一月前分位{fmt_baseline_date(pe_context['month_baseline_date'])} "
+            f"{fmt_pe_percentile(pe_context['month_baseline'])}｜近一月 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
+            f"- 场内参考溢价率：{format_premium(premium)}；估值日期："
+            f"{valuation_trade_date(valuation) or '暂不可用'}；估值源：{valuation['source']}。",
         ])
 
     lines.extend(["", "## A股观察", stock_observations])
@@ -1227,16 +1708,25 @@ def main() -> None:
         print(f"❌ ETF 行情抓取失败: {e}")
         sys.exit(1)
 
-    print("📡 正在同步估值历史...")
-    for snapshot in snapshots:
-        push_valuation_history(snapshot)
+    if dry_run:
+        print("🧪 ETF_DRY_RUN 已开启，跳过估值历史写入")
+    else:
+        print("📡 正在同步估值历史...")
+        for snapshot in snapshots:
+            if push_valuation_history(snapshot):
+                snapshot["pe_history"] = merge_pe_history(
+                    snapshot.get("pe_history", []),
+                    fetch_valuation_history(snapshot["etf"]),
+                )
 
     print("📡 正在筛选 A 股观察候选...")
     stock_picks = build_a_share_watchlist()
 
     ai_note = None
     stock_observations = fallback_stock_observations(stock_picks)
-    if stock_picks:
+    if dry_run and stock_picks:
+        print("🧪 ETF_DRY_RUN 已开启，跳过 A 股 LLM 分析")
+    elif stock_picks:
         try:
             stock_observations = call_llm_with_retry(
                 build_stock_observation_prompt(stock_picks),
@@ -1247,9 +1737,12 @@ def main() -> None:
             print(f"⚠️ A 股 AI 分析失败，改用基础观察: {e}")
     report = build_programmatic_report(snapshots, edition, stock_observations, ai_note)
 
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write(report)
-    print(f"💾 已保存: {report_file}")
+    if dry_run:
+        print("🧪 ETF_DRY_RUN 已开启，跳过本地报告文件写入")
+    else:
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"💾 已保存: {report_file}")
 
     wx_content = convert_to_wework_markdown(report)
     if dry_run:
@@ -1260,7 +1753,10 @@ def main() -> None:
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【市场观察{label}】沪深300ETF / 纳指100ETF / A股观察 {today}"
-    push_to_backend(edition, title, report, build_summary(snapshots), run_id)
+    if dry_run:
+        print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储")
+    else:
+        push_to_backend(edition, title, report, build_summary(snapshots), run_id)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
 

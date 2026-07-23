@@ -7,7 +7,6 @@ import com.ai.daily.service.MarketValuationHistoryService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -28,11 +27,21 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
             history.setTradeDate(dto.getTradeDate());
         }
         history.setIndexName(dto.getIndexName());
-        history.setPeTtm(dto.getPeTtm());
-        history.setPePercentile(dto.getPePercentile());
-        history.setValuationLevel(dto.getValuationLevel());
-        history.setSource(dto.getSource());
-        history.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
+        if (dto.getPeTtm() != null) {
+            history.setPeTtm(dto.getPeTtm());
+        }
+        if (dto.getPePercentile() != null) {
+            history.setPePercentile(dto.getPePercentile());
+        }
+        if (dto.getValuationLevel() != null && !dto.getValuationLevel().isBlank()) {
+            history.setValuationLevel(dto.getValuationLevel());
+        }
+        if (dto.getSource() != null && !dto.getSource().isBlank()) {
+            history.setSource(dto.getSource());
+        }
+        if (history.getCreatedAt() == null) {
+            history.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
+        }
         this.saveOrUpdate(history);
     }
 
@@ -40,8 +49,9 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
     public List<MarketValuationHistory> latest(String indexCode, int limit) {
         return this.lambdaQuery()
                 .eq(MarketValuationHistory::getIndexCode, indexCode)
+                .isNotNull(MarketValuationHistory::getPePercentile)
                 .orderByDesc(MarketValuationHistory::getTradeDate)
-                .last("LIMIT " + Math.max(1, Math.min(limit, 30)))
+                .last("LIMIT " + Math.max(1, Math.min(limit, 365)))
                 .list();
     }
 }
