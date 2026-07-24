@@ -5,7 +5,12 @@
       "Bash(npm run *)",
       "Bash(mvn test *)",
       "Bash(mvn *)",
-      "Bash(npm *)"
+      "Bash(npm *)",
+      "Bash(gh variable *)",
+      "Bash(gh run *)",
+      "Bash(gh repo *)",
+      "Bash(gh secret *)",
+      "Bash(gh api *)"
     ]
   }
 }
