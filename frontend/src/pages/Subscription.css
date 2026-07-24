@@ -395,7 +395,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 14px;
-  padding: 14px;
+  min-height: 52px;
+  padding: 12px 14px;
   border: 1px solid rgba(48, 54, 61, 0.8);
   border-radius: 12px;
   background: rgba(10, 14, 26, 0.5);
@@ -428,26 +429,73 @@
   cursor: not-allowed;
 }
 
-.topic-time {
+.topic-check small {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(124, 77, 255, 0.16);
+  color: #a98bff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.remove-interest {
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: #8b949e;
+  cursor: pointer;
+}
+
+.remove-interest:hover:not(:disabled) {
+  color: #ff7b72;
+}
+
+.remove-interest:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.custom-interest-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.custom-interest-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 9px;
+  background: rgba(10, 14, 26, 0.75);
+  color: #e6edf3;
+  outline: none;
+}
+
+.custom-interest-row input:focus {
+  border-color: rgba(0, 212, 170, 0.65);
+}
+
+.custom-interest-row button {
+  padding: 11px 16px;
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  border-radius: 9px;
+  background: rgba(0, 212, 170, 0.1);
+  color: #00d4aa;
+  cursor: pointer;
+}
+
+.custom-interest-row input:disabled,
+.custom-interest-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.interest-help {
+  margin: 10px 0 0;
   color: #8b949e;
   font-size: 12px;
-}
-
-.topic-time input[type="time"] {
-  width: 105px;
-  padding: 7px 8px;
-  background: rgba(10, 14, 26, 0.75);
-  border: 1px solid rgba(48, 54, 61, 0.8);
-  border-radius: 8px;
-  color: #e6edf3;
-  color-scheme: dark;
-}
-
-.topic-time input[type="time"]:disabled {
-  opacity: 0.45;
+  line-height: 1.6;
 }
 
 @media (max-width: 760px) {
@@ -456,8 +504,7 @@
     grid-template-columns: 1fr;
   }
 
-  .topic-schedule-row {
-    align-items: flex-start;
+  .custom-interest-row {
     flex-direction: column;
   }
 }

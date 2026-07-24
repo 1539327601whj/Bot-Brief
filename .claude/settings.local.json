@@ -10,7 +10,14 @@
       "Bash(gh run *)",
       "Bash(gh repo *)",
       "Bash(gh secret *)",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(python *)",
+      "Bash(netstat -ano)",
+      "Bash(powershell.exe *)",
+      "Bash(mysql *)",
+      "Bash(jcmd 32824 *)"
     ]
   }
 }

@@ -1,5 +1,6 @@
 package com.ai.daily.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.util.List;
@@ -31,7 +32,7 @@ public class SubscriptionDTO {
     /** 晚间版推送时间 */
     private String eveningTime;
 
-    /** 按早/晚间版分组的主题订阅时间配置 */
+    /** 按早/晚间版分组的兴趣选择 */
     private TopicSchedulesDTO topicSchedules;
 
     @Data
@@ -41,9 +42,9 @@ public class SubscriptionDTO {
     }
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TopicScheduleItemDTO {
         private String topic;
         private Boolean enabled;
-        private String time;
     }
 }

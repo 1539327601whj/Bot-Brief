@@ -19,7 +19,7 @@ public interface SubscriptionService extends IService<Subscription> {
     /**
      * 更新用户的订阅配置
      */
-    void updateForUser(Long userId,
+    Subscription updateForUser(Long userId,
                        String receiveTime,
                        String preferenceFields,
                        String topicSchedules,
@@ -30,8 +30,7 @@ public interface SubscriptionService extends IService<Subscription> {
                        LocalTime eveningTime);
 
     /**
-     * 查询所有 enabled 且指定 edition 在 [t-1min, t] 到期的用户订阅
-     * （给 ScheduledPushTask 用；容许 60s 误差窗口，避免任务恰好错过整点）
+     * 查询所有 enabled 且指定版次在当前分钟到期的用户订阅
      */
     List<Subscription> findDueForEdition(String edition, LocalTime nowFloor);
 }

@@ -1,13 +1,10 @@
 package com.ai.daily.service.impl;
 
-import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.mapper.SubscriptionMapper;
 import com.ai.daily.service.SubscriptionService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
@@ -16,42 +13,35 @@ import java.util.List;
 @Service
 public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Subscription> implements SubscriptionService {
 
-    private final ObjectMapper objectMapper;
-
-    public SubscriptionServiceImpl(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
-
     @Override
     public Subscription getOrCreateForUser(Long userId) {
-        LambdaQueryWrapper<Subscription> w = new LambdaQueryWrapper<>();
-        w.eq(Subscription::getUserId, userId).last("LIMIT 1");
-        Subscription s = this.getOne(w);
-        if (s == null) {
-            s = new Subscription();
-            s.setUserId(userId);
-            s.setReceiveTime("both");
-            s.setPreferenceFields("[]");
-            s.setEnabled(true);
-            s.setMorningEnabled(true);
-            s.setMorningTime(LocalTime.of(8, 0));
-            s.setEveningEnabled(true);
-            s.setEveningTime(LocalTime.of(20, 0));
-            this.save(s);
+        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Subscription::getUserId, userId).last("LIMIT 1");
+        Subscription subscription = this.getOne(wrapper);
+        if (subscription == null) {
+            subscription = new Subscription();
+            subscription.setUserId(userId);
+            subscription.setReceiveTime("both");
+            subscription.setPreferenceFields("[]");
+            subscription.setEnabled(true);
+            subscription.setMorningEnabled(true);
+            subscription.setMorningTime(LocalTime.of(8, 15));
+            subscription.setEveningEnabled(true);
+            subscription.setEveningTime(LocalTime.of(20, 15));
+            this.save(subscription);
         }
-        // 兼容旧数据：字段可能为 null，填默认
         boolean dirty = false;
-        if (s.getMorningEnabled() == null) { s.setMorningEnabled(true); dirty = true; }
-        if (s.getMorningTime() == null)    { s.setMorningTime(LocalTime.of(8, 0)); dirty = true; }
-        if (s.getEveningEnabled() == null) { s.setEveningEnabled(true); dirty = true; }
-        if (s.getEveningTime() == null)    { s.setEveningTime(LocalTime.of(20, 0)); dirty = true; }
-        if (s.getEnabled() == null)        { s.setEnabled(true); dirty = true; }
-        if (dirty) this.updateById(s);
-        return s;
+        if (subscription.getMorningEnabled() == null) { subscription.setMorningEnabled(true); dirty = true; }
+        if (subscription.getMorningTime() == null) { subscription.setMorningTime(LocalTime.of(8, 15)); dirty = true; }
+        if (subscription.getEveningEnabled() == null) { subscription.setEveningEnabled(true); dirty = true; }
+        if (subscription.getEveningTime() == null) { subscription.setEveningTime(LocalTime.of(20, 15)); dirty = true; }
+        if (subscription.getEnabled() == null) { subscription.setEnabled(true); dirty = true; }
+        if (dirty) this.updateById(subscription);
+        return subscription;
     }
 
     @Override
-    public void updateForUser(Long userId,
+    public Subscription updateForUser(Long userId,
                               String receiveTime,
                               String preferenceFields,
                               String topicSchedules,
@@ -60,62 +50,46 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
                               LocalTime morningTime,
                               Boolean eveningEnabled,
                               LocalTime eveningTime) {
-        Subscription s = getOrCreateForUser(userId);
-        if (receiveTime != null) s.setReceiveTime(receiveTime);
-        s.setPreferenceFields(preferenceFields);
-        s.setTopicSchedules(topicSchedules);
-        if (enabled != null) s.setEnabled(enabled);
-        if (morningEnabled != null) s.setMorningEnabled(morningEnabled);
-        if (morningTime != null) s.setMorningTime(morningTime);
-        if (eveningEnabled != null) s.setEveningEnabled(eveningEnabled);
-        if (eveningTime != null) s.setEveningTime(eveningTime);
-        this.updateById(s);
+        Subscription subscription = getOrCreateForUser(userId);
+        if (receiveTime != null) subscription.setReceiveTime(receiveTime);
+        subscription.setPreferenceFields(preferenceFields);
+        subscription.setTopicSchedules(topicSchedules);
+        if (enabled != null) subscription.setEnabled(enabled);
+        if (morningEnabled != null) subscription.setMorningEnabled(morningEnabled);
+        if (morningTime != null) subscription.setMorningTime(morningTime);
+        if (eveningEnabled != null) subscription.setEveningEnabled(eveningEnabled);
+        if (eveningTime != null) subscription.setEveningTime(eveningTime);
+        this.updateById(subscription);
+        return subscription;
     }
 
     @Override
     public List<Subscription> findDueForEdition(String edition, LocalTime nowFloor) {
-        LocalTime hm = nowFloor.withSecond(0).withNano(0);
-        LambdaQueryWrapper<Subscription> w = new LambdaQueryWrapper<>();
-        w.eq(Subscription::getEnabled, true);
+        LocalTime minute = nowFloor.withSecond(0).withNano(0);
+        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Subscription::getEnabled, true);
         if ("morning".equals(edition)) {
-            w.eq(Subscription::getMorningEnabled, true);
+            wrapper.eq(Subscription::getMorningEnabled, true)
+                    .eq(Subscription::getMorningTime, minute);
         } else if ("evening".equals(edition)) {
-            w.eq(Subscription::getEveningEnabled, true);
+            wrapper.eq(Subscription::getEveningEnabled, true)
+                    .eq(Subscription::getEveningTime, minute);
         } else {
             return List.of();
         }
-        return this.list(w).stream()
-                .filter(s -> isDueForEdition(s, edition, hm))
-                .toList();
+        return this.list(wrapper);
     }
 
-    private boolean isDueForEdition(Subscription s, String edition, LocalTime hm) {
-        SubscriptionDTO.TopicSchedulesDTO schedules = parseTopicSchedules(s.getTopicSchedules());
-        List<SubscriptionDTO.TopicScheduleItemDTO> items = schedules == null
-                ? null
-                : ("morning".equals(edition) ? schedules.getMorning() : schedules.getEvening());
-        if (items == null || items.isEmpty()) {
-            LocalTime fallback = "morning".equals(edition) ? s.getMorningTime() : s.getEveningTime();
-            return fallback != null && sameMinute(fallback, hm);
-        }
-        return items.stream().anyMatch(item -> Boolean.TRUE.equals(item.getEnabled()) && sameMinute(parseTime(item.getTime()), hm));
+    boolean isDueForEdition(Subscription subscription, String edition, LocalTime minute) {
+        LocalTime scheduled = "morning".equals(edition)
+                ? subscription.getMorningTime()
+                : "evening".equals(edition) ? subscription.getEveningTime() : null;
+        return sameMinute(scheduled, minute);
     }
 
-    private SubscriptionDTO.TopicSchedulesDTO parseTopicSchedules(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        try {
-            return objectMapper.readValue(raw, SubscriptionDTO.TopicSchedulesDTO.class);
-        } catch (JsonProcessingException e) {
-            return null;
-        }
-    }
-
-    private LocalTime parseTime(String s) {
-        if (s == null || s.isBlank()) return null;
-        return s.length() <= 5 ? LocalTime.parse(s + ":00") : LocalTime.parse(s);
-    }
-
-    private boolean sameMinute(LocalTime a, LocalTime b) {
-        return a != null && b != null && a.getHour() == b.getHour() && a.getMinute() == b.getMinute();
+    private boolean sameMinute(LocalTime first, LocalTime second) {
+        return first != null && second != null
+                && first.getHour() == second.getHour()
+                && first.getMinute() == second.getMinute();
     }
 }

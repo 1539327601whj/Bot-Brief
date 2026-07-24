@@ -4,7 +4,9 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
+import com.ai.daily.service.ReportPersonalizationService;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.service.push.PushDispatcher;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +38,9 @@ public class ScheduledPushTask {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private final SubscriptionService subscriptionService;
+    private final SubscriptionPreferences subscriptionPreferences;
     private final ReportService reportService;
+    private final ReportPersonalizationService reportPersonalizationService;
     private final PushDispatcher pushDispatcher;
     private final UserMapper userMapper;
 
@@ -55,7 +59,7 @@ public class ScheduledPushTask {
         cleanupRecentlyPushed(hm);
     }
 
-    private void dispatchEdition(String edition, LocalTime now, String hm) {
+    void dispatchEdition(String edition, LocalTime now, String hm) {
         List<Subscription> due = subscriptionService.findDueForEdition(edition, now);
         if (due.isEmpty()) return;
 
@@ -79,13 +83,16 @@ public class ScheduledPushTask {
             return;
         }
 
+        ReportPersonalizationService.PreparedReport prepared = reportPersonalizationService.prepare(report);
         for (Subscription s : due) {
             String key = s.getUserId() + ":" + edition + ":" + hm;
             if (!recentlyPushed.add(key)) continue; // 已推过，跳过
             try {
-                PushDispatcher.DispatchResult r = pushDispatcher.dispatch(s.getUserId(), report);
-                log.info("[{}] user={} 分发结果 total={} ok={} fail={}",
-                        edition, s.getUserId(), r.total(), r.ok(), r.fail());
+                List<String> interests = subscriptionPreferences.enabledTopics(s, edition);
+                Report personalized = reportPersonalizationService.personalize(prepared, interests);
+                PushDispatcher.DispatchResult r = pushDispatcher.dispatch(s.getUserId(), personalized);
+                log.info("[{}] user={} interests={} 分发结果 total={} ok={} fail={}",
+                        edition, s.getUserId(), interests.size(), r.total(), r.ok(), r.fail());
             } catch (Exception e) {
                 log.error("[{}] user={} 分发异常", edition, s.getUserId(), e);
             }

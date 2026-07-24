@@ -6,14 +6,58 @@ import { demoChannels } from '../demo/fixtures'
 import './PushChannels.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
+type FeedbackType = 'success' | 'error' | 'info'
 
 interface Channel {
+  id: number
+  channelType: ChannelType
+  displayName?: string
+  targetPreview: string
+  secretConfigured: boolean
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface ChannelForm {
   id?: number
+  originalChannelType?: ChannelType
+  channelType: ChannelType
+  displayName: string
+  target: string
+  targetPreview?: string
+  secret: string
+  secretConfigured: boolean
+  clearSecret: boolean
+  enabled: boolean
+}
+
+interface ResultEnvelope<T = unknown> {
+  code: number
+  message?: string
+  data?: T
+}
+
+interface Feedback {
+  type: FeedbackType
+  text: string
+}
+
+interface CreateChannelBody {
   channelType: ChannelType
   displayName?: string
   target: string
   secret?: string
   enabled: boolean
+}
+
+interface UpdateChannelBody {
+  channelType?: ChannelType
+  displayName?: string
+  enabled?: boolean
+  target?: string
+  secret?: string
+  clearSecret?: boolean
 }
 
 const TYPE_META: Record<ChannelType, { icon: string; label: string; targetLabel: string; targetPlaceholder: string; supportsSecret: boolean; secretHint?: string }> = {
@@ -23,86 +67,201 @@ const TYPE_META: Record<ChannelType, { icon: string; label: string; targetLabel:
   feishu:   { icon: '🚀', label: '飞书',    targetLabel: 'Webhook URL', targetPlaceholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...',       supportsSecret: true, secretHint: '飞书后台开启签名校验时的密钥' },
 }
 
-const empty: Channel = { channelType: 'email', displayName: '', target: '', secret: '', enabled: true }
+const emptyForm: ChannelForm = {
+  channelType: 'email',
+  displayName: '',
+  target: '',
+  secret: '',
+  secretConfigured: false,
+  clearSecret: false,
+  enabled: true,
+}
+
+function requireBusinessSuccess<T>(result: ResultEnvelope<T> | undefined, fallbackMessage: string): T | undefined {
+  if (result?.code !== 200) {
+    throw new Error(result?.message || fallbackMessage)
+  }
+  return result.data
+}
+
+function getErrorMessage(error: any, fallbackMessage: string) {
+  return error?.response?.data?.message || error?.message || fallbackMessage
+}
 
 export default function PushChannels() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
   const [channels, setChannels] = useState<Channel[]>([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<Channel | null>(null)
+  const [editing, setEditing] = useState<ChannelForm | null>(null)
   const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [testingIds, setTestingIds] = useState<Set<number>>(() => new Set())
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
 
-  const load = () => {
+  const load = async (): Promise<boolean> => {
     if (isDemo) {
       setChannels(demoChannels)
       setLoading(false)
-      return
+      return true
     }
+
     setLoading(true)
-    api.get('/channels')
-      .then(res => setChannels(res.data?.data || []))
-      .catch(() => setChannels([]))
-      .finally(() => setLoading(false))
+    try {
+      const res = await api.get<ResultEnvelope<Channel[]>>('/channels')
+      const data = requireBusinessSuccess(res.data, '加载渠道失败')
+      setChannels(data || [])
+      return true
+    } catch (error: any) {
+      setChannels([])
+      setFeedback({ type: 'error', text: `加载渠道失败：${getErrorMessage(error, '请稍后重试')}` })
+      return false
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load() }, [isDemo])
+  useEffect(() => { void load() }, [isDemo])
 
-  const startNew = () => { if (!isDemo) setEditing({ ...empty }) }
-  const startEdit = (c: Channel) => { if (!isDemo) setEditing({ ...c }) }
+  const startNew = () => {
+    if (isDemo) return
+    setFeedback(null)
+    setEditing({ ...emptyForm })
+  }
+
+  const startEdit = (channel: Channel) => {
+    if (isDemo) return
+    setFeedback(null)
+    setEditing({
+      id: channel.id,
+      originalChannelType: channel.channelType,
+      channelType: channel.channelType,
+      displayName: channel.displayName || '',
+      target: '',
+      targetPreview: channel.targetPreview,
+      secret: '',
+      secretConfigured: channel.secretConfigured,
+      clearSecret: false,
+      enabled: channel.enabled,
+    })
+  }
+
   const cancel = () => setEditing(null)
 
   const save = async () => {
     if (isDemo || !editing) return
-    if (!editing.target?.trim()) { setMsg('❌ 必须填写目标（邮箱或 webhook URL）'); return }
+
+    const target = editing.target.trim()
+    const secret = editing.secret.trim()
+    const isCreate = editing.id == null
+    const typeChanged = !isCreate && editing.channelType !== editing.originalChannelType
+
+    if ((isCreate || typeChanged) && !target) {
+      setFeedback({
+        type: 'error',
+        text: typeChanged ? '更改渠道类型后必须填写新的目标地址' : '必须填写目标（邮箱或 Webhook URL）',
+      })
+      return
+    }
+
     setSaving(true)
-    setMsg('')
+    setFeedback(null)
     try {
-      const payload = { ...editing, target: editing.target.trim() }
-      if (editing.id) {
-        await api.put(`/channels/${editing.id}`, payload)
+      let res
+      if (isCreate) {
+        const payload: CreateChannelBody = {
+          channelType: editing.channelType,
+          target,
+          enabled: editing.enabled,
+        }
+        const displayName = editing.displayName.trim()
+        if (displayName) payload.displayName = displayName
+        if (TYPE_META[editing.channelType].supportsSecret && secret) payload.secret = secret
+        res = await api.post<ResultEnvelope<Channel>>('/channels', payload)
       } else {
-        await api.post('/channels', payload)
+        const payload: UpdateChannelBody = {
+          displayName: editing.displayName.trim(),
+          enabled: editing.enabled,
+        }
+        if (typeChanged) payload.channelType = editing.channelType
+        if (target) payload.target = target
+        if (TYPE_META[editing.channelType].supportsSecret) {
+          if (editing.clearSecret) payload.clearSecret = true
+          else if (secret) payload.secret = secret
+        }
+        res = await api.put<ResultEnvelope<Channel>>(`/channels/${editing.id}`, payload)
       }
+
+      requireBusinessSuccess(res.data, '保存渠道失败')
       setEditing(null)
-      load()
-      setMsg('✅ 已保存')
-    } catch (e: any) {
-      setMsg('❌ 保存失败：' + (e?.response?.data?.message || e?.message || ''))
+      const refreshed = await load()
+      setFeedback(refreshed
+        ? { type: 'success', text: isCreate ? '渠道添加成功' : '渠道修改成功' }
+        : { type: 'error', text: '渠道已保存，但列表刷新失败，请稍后重试' })
+    } catch (error: any) {
+      setFeedback({ type: 'error', text: `保存失败：${getErrorMessage(error, '请检查配置后重试')}` })
     } finally {
       setSaving(false)
     }
   }
 
   const remove = async (id?: number) => {
-    if (isDemo || !id) return
-    if (!confirm('确定删除该渠道？')) return
+    if (isDemo || id == null) return
+    if (!confirm('确定删除该渠道？删除后将无法恢复。')) return
+
+    setFeedback(null)
     try {
-      await api.delete(`/channels/${id}`)
-      load()
-    } catch (e: any) {
-      alert('删除失败：' + (e?.response?.data?.message || ''))
+      const res = await api.delete<ResultEnvelope>(`/channels/${id}`)
+      requireBusinessSuccess(res.data, '删除渠道失败')
+      const refreshed = await load()
+      setFeedback(refreshed
+        ? { type: 'success', text: '渠道已删除' }
+        : { type: 'error', text: '渠道已删除，但列表刷新失败，请稍后重试' })
+    } catch (error: any) {
+      setFeedback({ type: 'error', text: `删除失败：${getErrorMessage(error, '请稍后重试')}` })
     }
   }
 
   const test = async (id?: number) => {
-    if (isDemo || !id) return
+    if (isDemo || id == null || testingIds.has(id)) return
+
+    setTestingIds(current => {
+      const next = new Set(current)
+      next.add(id)
+      return next
+    })
+    setFeedback({ type: 'info', text: '正在发送测试推送...' })
     try {
-      const res = await api.post(`/channels/${id}/test`)
-      setMsg(res.data?.message || '✅ 测试推送已发出')
-    } catch (e: any) {
-      setMsg('❌ 测试失败：' + (e?.response?.data?.message || e?.message || ''))
+      const res = await api.post<ResultEnvelope>(`/channels/${id}/test`)
+      requireBusinessSuccess(res.data, '测试推送失败')
+      setFeedback({ type: 'success', text: res.data.message || '测试推送发送成功' })
+    } catch (error: any) {
+      setFeedback({ type: 'error', text: `测试失败：${getErrorMessage(error, '请检查渠道配置后重试')}` })
+    } finally {
+      setTestingIds(current => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
     }
   }
 
-  const toggle = async (c: Channel) => {
-    if (isDemo || !c.id) return
+  const toggle = async (channel: Channel) => {
+    if (isDemo) return
+
+    const nextEnabled = !channel.enabled
+    setFeedback(null)
     try {
-      await api.put(`/channels/${c.id}`, { ...c, enabled: !c.enabled })
-      load()
-    } catch (e: any) {
-      alert('切换失败：' + (e?.response?.data?.message || ''))
+      const res = await api.put<ResultEnvelope<Channel>>(`/channels/${channel.id}`, { enabled: nextEnabled })
+      requireBusinessSuccess(res.data, nextEnabled ? '启用渠道失败' : '暂停渠道失败')
+      const refreshed = await load()
+      setFeedback(refreshed
+        ? { type: 'success', text: nextEnabled ? '渠道已启用' : '渠道已暂停' }
+        : { type: 'error', text: '渠道状态已更新，但列表刷新失败，请稍后重试' })
+    } catch (error: any) {
+      setFeedback({
+        type: 'error',
+        text: `${nextEnabled ? '启用' : '暂停'}失败：${getErrorMessage(error, '请稍后重试')}`,
+      })
     }
   }
 
@@ -116,7 +275,7 @@ export default function PushChannels() {
 
       <div className="channels-toolbar">
         <button className="btn-primary" onClick={startNew} disabled={isDemo || !!editing}>+ 添加渠道</button>
-        {msg && <span className="channels-msg">{msg}</span>}
+        {feedback && <span className={`channels-msg ${feedback.type}`}>{feedback.text}</span>}
       </div>
 
       {editing && (
@@ -126,45 +285,92 @@ export default function PushChannels() {
               <span>类型</span>
               <select
                 value={editing.channelType}
-                onChange={e => setEditing({ ...editing, channelType: e.target.value as ChannelType })}
+                onChange={event => setEditing({
+                  ...editing,
+                  channelType: event.target.value as ChannelType,
+                  target: '',
+                  secret: '',
+                  clearSecret: false,
+                })}
               >
-                {(Object.keys(TYPE_META) as ChannelType[]).map(k => (
-                  <option key={k} value={k}>{TYPE_META[k].icon} {TYPE_META[k].label}</option>
+                {(Object.keys(TYPE_META) as ChannelType[]).map(key => (
+                  <option key={key} value={key}>{TYPE_META[key].icon} {TYPE_META[key].label}</option>
                 ))}
               </select>
             </label>
             <label>
               <span>昵称（可选）</span>
               <input
-                value={editing.displayName || ''}
-                onChange={e => setEditing({ ...editing, displayName: e.target.value })}
+                value={editing.displayName}
+                onChange={event => setEditing({ ...editing, displayName: event.target.value })}
                 placeholder="如：我的常用邮箱"
               />
             </label>
           </div>
+
+          {editing.id != null && (
+            <div className="stored-config">
+              <div>
+                <span>当前目标预览</span>
+                <strong title={editing.targetPreview}>{editing.targetPreview || '未提供'}</strong>
+              </div>
+              <div>
+                <span>签名密钥</span>
+                <strong className={editing.secretConfigured ? 'configured' : ''}>
+                  {editing.secretConfigured ? '已配置' : '未配置'}
+                </strong>
+              </div>
+              <p>目标和签名密钥留空将保留已保存的配置；如果更改渠道类型，必须填写新的目标地址。</p>
+            </div>
+          )}
+
           <label className="form-block">
-            <span>{TYPE_META[editing.channelType].targetLabel}</span>
+            <span>
+              {TYPE_META[editing.channelType].targetLabel}
+              {(editing.id == null || editing.channelType !== editing.originalChannelType) ? '（必填）' : '（留空则保留）'}
+            </span>
             <input
               value={editing.target}
-              onChange={e => setEditing({ ...editing, target: e.target.value })}
+              onChange={event => setEditing({ ...editing, target: event.target.value })}
               placeholder={TYPE_META[editing.channelType].targetPlaceholder}
             />
           </label>
+
           {TYPE_META[editing.channelType].supportsSecret && (
-            <label className="form-block">
-              <span>签名密钥（可选）</span>
-              <input
-                value={editing.secret || ''}
-                onChange={e => setEditing({ ...editing, secret: e.target.value })}
-                placeholder={TYPE_META[editing.channelType].secretHint}
-              />
-            </label>
+            <>
+              <label className="form-block">
+                <span>签名密钥（可选{editing.id != null ? '，留空则保留' : ''}）</span>
+                <input
+                  type="password"
+                  value={editing.secret}
+                  disabled={editing.clearSecret}
+                  onChange={event => setEditing({ ...editing, secret: event.target.value })}
+                  placeholder={TYPE_META[editing.channelType].secretHint}
+                  autoComplete="new-password"
+                />
+              </label>
+              {editing.id != null && editing.secretConfigured && (
+                <label className="clear-secret-option">
+                  <input
+                    type="checkbox"
+                    checked={editing.clearSecret}
+                    onChange={event => setEditing({
+                      ...editing,
+                      clearSecret: event.target.checked,
+                      secret: event.target.checked ? '' : editing.secret,
+                    })}
+                  />
+                  <span>清除已保存的签名密钥</span>
+                </label>
+              )}
+            </>
           )}
+
           <div className="form-actions">
             <button className="btn-primary" onClick={save} disabled={saving}>
-              {saving ? '保存中...' : (editing.id ? '保存修改' : '添加')}
+              {saving ? '保存中...' : (editing.id != null ? '保存修改' : '添加')}
             </button>
-            <button className="btn-ghost" onClick={cancel}>取消</button>
+            <button className="btn-ghost" onClick={cancel} disabled={saving}>取消</button>
           </div>
         </div>
       )}
@@ -179,25 +385,31 @@ export default function PushChannels() {
         </div>
       ) : (
         <div className="channel-list">
-          {channels.map(c => {
-            const meta = TYPE_META[c.channelType]
+          {channels.map(channel => {
+            const meta = TYPE_META[channel.channelType]
+            const testing = testingIds.has(channel.id)
             return (
-              <div key={c.id} className={`channel-card ${c.enabled ? '' : 'disabled'}`}>
+              <div key={channel.id} className={`channel-card ${channel.enabled ? '' : 'disabled'}`}>
                 <div className="channel-icon">{meta.icon}</div>
                 <div className="channel-info">
                   <div className="channel-title">
-                    {c.displayName || meta.label}
+                    {channel.displayName || meta.label}
                     <span className="channel-type-badge">{meta.label}</span>
                   </div>
-                  <div className="channel-target" title={c.target}>{c.target}</div>
+                  <div className="channel-target" title={channel.targetPreview}>{channel.targetPreview || '未提供目标预览'}</div>
+                  <div className={`channel-secret-status ${channel.secretConfigured ? 'configured' : ''}`}>
+                    签名密钥：{channel.secretConfigured ? '已配置' : '未配置'}
+                  </div>
                 </div>
                 <div className="channel-actions">
-                  <button className="btn-icon" disabled={isDemo} onClick={() => toggle(c)} title={c.enabled ? '暂停' : '启用'}>
-                    {c.enabled ? '⏸' : '▶'}
+                  <button className="btn-icon" disabled={isDemo} onClick={() => toggle(channel)} title={channel.enabled ? '暂停' : '启用'}>
+                    {channel.enabled ? '⏸' : '▶'}
                   </button>
-                  <button className="btn-icon" disabled={isDemo} onClick={() => test(c.id)} title="测试推送">📤</button>
-                  <button className="btn-icon" disabled={isDemo} onClick={() => startEdit(c)} title="编辑">✏️</button>
-                  <button className="btn-icon danger" disabled={isDemo} onClick={() => remove(c.id)} title="删除">🗑</button>
+                  <button className="btn-icon" disabled={isDemo || testing} onClick={() => test(channel.id)} title="测试推送">
+                    {testing ? '发送中' : '📤'}
+                  </button>
+                  <button className="btn-icon" disabled={isDemo} onClick={() => startEdit(channel)} title="编辑">✏️</button>
+                  <button className="btn-icon danger" disabled={isDemo} onClick={() => remove(channel.id)} title="删除">🗑</button>
                 </div>
               </div>
             )

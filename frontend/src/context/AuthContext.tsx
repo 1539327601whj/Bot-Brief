@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import api, { TOKEN_KEY, USER_KEY } from '../utils/api'
 
 export interface UserInfo {
@@ -13,6 +13,7 @@ interface AuthContextValue {
   user: UserInfo | null
   token: string | null
   loading: boolean
+  authReady: boolean
   login: (email: string, password: string) => Promise<UserInfo>
   demoLogin: () => Promise<UserInfo>
   register: (email: string, password: string, displayName: string, inviteCode: string) => Promise<UserInfo>
@@ -29,21 +30,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   })
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [loading, setLoading] = useState(false)
+  const [authReady, setAuthReady] = useState(() => !localStorage.getItem(TOKEN_KEY))
+  const authGeneration = useRef(0)
 
-  // 打开 App 时若有 token，用 /me 同步真实用户信息
   useEffect(() => {
-    if (token) {
-      refresh().catch(() => {})
-    }
+    const storedToken = localStorage.getItem(TOKEN_KEY)
+    if (storedToken) refresh().finally(() => setAuthReady(true))
   }, [])
 
   const persist = (t: string | null, u: UserInfo | null) => {
+    authGeneration.current += 1
     if (t) localStorage.setItem(TOKEN_KEY, t)
     else localStorage.removeItem(TOKEN_KEY)
     if (u) localStorage.setItem(USER_KEY, JSON.stringify(u))
     else localStorage.removeItem(USER_KEY)
     setToken(t)
     setUser(u)
+    setAuthReady(true)
   }
 
   const login: AuthContextValue['login'] = async (email, password) => {
@@ -88,22 +91,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => persist(null, null)
 
   const refresh = async () => {
+    const requestToken = localStorage.getItem(TOKEN_KEY)
+    if (!requestToken) return
+    const requestGeneration = authGeneration.current
+    const isCurrentSession = () => (
+      authGeneration.current === requestGeneration
+      && localStorage.getItem(TOKEN_KEY) === requestToken
+    )
+
     try {
       const res = await api.get('/auth/me')
+      if (!isCurrentSession()) return
       if (res.data?.code === 200) {
         const info = res.data.data as UserInfo
         localStorage.setItem(USER_KEY, JSON.stringify(info))
         setUser(info)
-      } else {
+      } else if (res.data?.code === 401) {
         persist(null, null)
       }
-    } catch {
-      persist(null, null)
+    } catch (error) {
+      if (authGeneration.current !== requestGeneration) return
+      const currentToken = localStorage.getItem(TOKEN_KEY)
+      if (currentToken && currentToken !== requestToken) return
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 401) persist(null, null)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, demoLogin, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, token, loading, authReady, login, demoLogin, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

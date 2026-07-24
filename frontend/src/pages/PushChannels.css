@@ -26,8 +26,11 @@
 }
 .channels-msg {
   font-size: 13px;
-  color: #00d4aa;
+  color: #8b949e;
 }
+.channels-msg.success { color: #00d4aa; }
+.channels-msg.error { color: #ff8080; }
+.channels-msg.info { color: #79c0ff; }
 
 .btn-primary {
   padding: 10px 18px;
@@ -107,6 +110,53 @@
   gap: 10px;
   margin-top: 4px;
 }
+.stored-config {
+  padding: 12px 14px;
+  border: 1px solid rgba(121, 192, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(56, 139, 253, 0.08);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 18px;
+}
+.stored-config > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stored-config strong {
+  color: #c9d1d9;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stored-config strong.configured { color: #00d4aa; }
+.stored-config p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #8b949e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.channel-form .clear-secret-option {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+}
+.channel-form .clear-secret-option input {
+  margin: 0;
+  accent-color: #00d4aa;
+}
+.channel-form input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .channel-list {
   display: flex;
@@ -152,6 +202,12 @@
   margin-top: 3px;
   font-family: Menlo, Consolas, monospace;
 }
+.channel-secret-status {
+  margin-top: 4px;
+  color: #6e7681;
+  font-size: 11px;
+}
+.channel-secret-status.configured { color: #00b894; }
 .channel-actions {
   display: flex;
   gap: 6px;
@@ -167,8 +223,9 @@
   font-size: 14px;
   transition: all 0.2s;
 }
-.btn-icon:hover { background: rgba(0, 212, 170, 0.15); border-color: rgba(0, 212, 170, 0.4); }
-.btn-icon.danger:hover { background: rgba(255, 90, 90, 0.15); border-color: rgba(255, 90, 90, 0.4); color: #ff8080; }
+.btn-icon:hover:not(:disabled) { background: rgba(0, 212, 170, 0.15); border-color: rgba(0, 212, 170, 0.4); }
+.btn-icon.danger:hover:not(:disabled) { background: rgba(255, 90, 90, 0.15); border-color: rgba(255, 90, 90, 0.4); color: #ff8080; }
+.btn-icon:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .empty-state {
   text-align: center;

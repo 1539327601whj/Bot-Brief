@@ -106,17 +106,17 @@ export const demoShopReportPage: ShopAiReportPage = { records: demoShopReports, 
 
 const demoTopics = ['AI大模型', 'Web开发', '移动端', '云原生', '数据库', '安全', 'DevOps', '数据分析', '机器学习', '区块链']
 export const demoSubscription = {
-  receiveTime: '08:15', preferenceFields: ['AI大模型', 'Web开发', '数据分析'], enabled: true,
+  receiveTime: 'both', preferenceFields: ['AI大模型', 'Web开发', '数据分析', '具身智能'], enabled: true,
   morningEnabled: true, morningTime: '08:15', eveningEnabled: true, eveningTime: '20:15',
   topicSchedules: {
-    morning: demoTopics.map((topic, index) => ({ topic, enabled: index < 3, time: index < 3 ? '08:15' : '08:00' })),
-    evening: demoTopics.map((topic, index) => ({ topic, enabled: index === 0 || index === 5 || index === 7, time: index === 0 || index === 5 || index === 7 ? '20:15' : '20:00' })),
+    morning: [...demoTopics.map((topic, index) => ({ topic, enabled: index < 3 })), { topic: '具身智能', enabled: true }],
+    evening: [...demoTopics.map((topic, index) => ({ topic, enabled: index === 0 || index === 5 || index === 7 })), { topic: '具身智能', enabled: false }],
   },
 }
 
 export const demoChannels = [
-  { id: 401, channelType: 'email' as const, displayName: '演示邮箱', target: 'd***@example.invalid', enabled: true },
-  { id: 402, channelType: 'feishu' as const, displayName: '演示群机器人', target: 'https://example.invalid/webhook/••••••••', secret: '••••••••', enabled: true },
+  { id: 401, channelType: 'email' as const, displayName: '演示邮箱', targetPreview: 'd***@example.invalid', secretConfigured: false, enabled: true },
+  { id: 402, channelType: 'feishu' as const, displayName: '演示群机器人', targetPreview: 'https://example.invalid/webhook/••••••••', secretConfigured: true, enabled: true },
 ]
 
 export const demoInviteCodes = [
