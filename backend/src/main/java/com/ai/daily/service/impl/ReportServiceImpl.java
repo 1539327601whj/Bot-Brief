@@ -6,6 +6,7 @@ import com.ai.daily.service.ReportService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -41,6 +42,18 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     public Report getLatestByEdition(String edition) {
         return this.lambdaQuery()
                 .eq(Report::getEdition, edition)
+                .orderByDesc(Report::getCreatedAt)
+                .last("LIMIT 1")
+                .one();
+    }
+
+    @Override
+    public Report getLatestByEditionForDate(String edition, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        return this.lambdaQuery()
+                .eq(Report::getEdition, edition)
+                .ge(Report::getCreatedAt, start)
+                .lt(Report::getCreatedAt, date.plusDays(1).atStartOfDay())
                 .orderByDesc(Report::getCreatedAt)
                 .last("LIMIT 1")
                 .one();

@@ -12,6 +12,7 @@ import com.ai.daily.service.push.PushDispatcher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -40,7 +41,8 @@ class ScheduledPushTaskTest {
         when(subscriptions.findDueForEdition("morning", LocalTime.of(8, 15))).thenReturn(List.of(first, second));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L), user(2L)));
         Report canonical = report("公共简报");
-        when(reports.getLatestByEdition("morning")).thenReturn(canonical);
+        LocalDate date = LocalDate.of(2026, 7, 24);
+        when(reports.getLatestByEditionForDate("morning", date)).thenReturn(canonical);
         when(preferences.enabledTopics(first, "morning")).thenReturn(List.of("数据库"));
         when(preferences.enabledTopics(second, "morning")).thenReturn(List.of("移动端"));
         Report databaseReport = report("数据库内容");
@@ -49,12 +51,13 @@ class ScheduledPushTaskTest {
         when(personalizer.prepare(canonical)).thenReturn(prepared);
         when(personalizer.personalize(prepared, List.of("数据库"))).thenReturn(databaseReport);
         when(personalizer.personalize(prepared, List.of("移动端"))).thenReturn(mobileReport);
-        when(dispatcher.dispatch(any(), any())).thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
+        when(dispatcher.dispatchScheduled(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
 
-        task.dispatchEdition("morning", LocalTime.of(8, 15), "0815");
+        task.dispatchEdition("morning", LocalTime.of(8, 15), date);
 
-        verify(dispatcher).dispatch(1L, databaseReport);
-        verify(dispatcher).dispatch(2L, mobileReport);
+        verify(dispatcher).dispatchScheduled(1L, databaseReport, "morning", date);
+        verify(dispatcher).dispatchScheduled(2L, mobileReport, "morning", date);
         assertThat(canonical.getContent()).isEqualTo("公共简报");
     }
 
@@ -77,10 +80,10 @@ class ScheduledPushTaskTest {
         disabledUser.setEnabled(false);
         when(users.selectBatchIds(any())).thenReturn(List.of(demoUser, disabledUser));
 
-        task.dispatchEdition("evening", LocalTime.of(20, 15), "2015");
+        task.dispatchEdition("evening", LocalTime.of(20, 15), LocalDate.of(2026, 7, 24));
 
-        verify(reports, never()).getLatestByEdition(any());
-        verify(dispatcher, never()).dispatch(any(), any());
+        verify(reports, never()).getLatestByEditionForDate(any(), any());
+        verify(dispatcher, never()).dispatchScheduled(any(), any(), any(), any());
     }
 
     private Subscription subscription(long userId) {

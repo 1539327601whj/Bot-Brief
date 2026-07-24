@@ -2,8 +2,12 @@ package com.ai.daily.service.push;
 
 import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
+import com.ai.daily.service.PushChannelValidator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
@@ -23,11 +27,24 @@ public class FeishuChannelSender implements ChannelSender {
 
     private static final int TEXT_MAX = 30000;
 
+    private final RestTemplate restTemplate;
+    private final PushChannelValidator channelValidator;
+    private final ProviderResponseValidator responseValidator;
+
+    public FeishuChannelSender(@Qualifier("pushRestTemplate") RestTemplate restTemplate,
+                               PushChannelValidator channelValidator,
+                               ProviderResponseValidator responseValidator) {
+        this.restTemplate = restTemplate;
+        this.channelValidator = channelValidator;
+        this.responseValidator = responseValidator;
+    }
+
     @Override
     public String type() { return "feishu"; }
 
     @Override
     public void send(PushChannel channel, Report report) throws Exception {
+        channelValidator.validateForSend(channel);
         Map<String, Object> body = new HashMap<>();
         long ts = System.currentTimeMillis() / 1000;
         if (channel.getSecret() != null && !channel.getSecret().isBlank()) {
@@ -39,7 +56,13 @@ public class FeishuChannelSender implements ChannelSender {
         content.put("text", truncate(report.getTitle() + "\n\n" + report.getContent(), TEXT_MAX));
         body.put("content", content);
 
-        new RestTemplate().postForEntity(channel.getTarget(), body, String.class);
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.postForEntity(channel.getTarget(), body, String.class);
+        } catch (RestClientException e) {
+            throw new IllegalStateException("飞书请求失败");
+        }
+        responseValidator.requireSuccess(type(), response);
         log.info("飞书推送成功 channel_id={} report_id={}", channel.getId(), report.getId());
     }
 

@@ -15,6 +15,9 @@ public class PushChannelValidator {
 
     private static final Set<String> TYPES = Set.of("email", "wechat", "dingtalk", "feishu");
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]+");
+    private static final int EMAIL_MAX_LENGTH = 254;
+    private static final int WEBHOOK_MAX_LENGTH = 1500;
+    private static final int SECRET_MAX_LENGTH = 500;
 
     public void validate(String type, String target) {
         if (type == null || !TYPES.contains(type)) {
@@ -24,9 +27,17 @@ public class PushChannelValidator {
             throw new IllegalArgumentException("推送目标不能为空");
         }
         if ("email".equals(type)) {
+            if (target.length() > EMAIL_MAX_LENGTH) throw new IllegalArgumentException("邮箱地址格式无效");
             validateEmail(target);
         } else {
+            if (target.length() > WEBHOOK_MAX_LENGTH) throw new IllegalArgumentException("Webhook 地址过长");
             validateWebhook(type, target);
+        }
+    }
+
+    public void validateSecret(String secret) {
+        if (secret != null && secret.trim().length() > SECRET_MAX_LENGTH) {
+            throw new IllegalArgumentException("签名密钥过长");
         }
     }
 

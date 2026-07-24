@@ -27,6 +27,9 @@ spring:
       mail:
         smtp:
           auth: true
+          connectiontimeout: ${MAIL_CONNECTION_TIMEOUT:5000}
+          timeout: ${MAIL_READ_TIMEOUT:10000}
+          writetimeout: ${MAIL_WRITE_TIMEOUT:10000}
           starttls:
             enable: true
 
@@ -77,3 +80,9 @@ report:
 
 mail-push:
   from-name: ${MAIL_FROM_NAME:BriefMind}
+
+push-channel:
+  encryption-key: ${PUSH_CHANNEL_ENCRYPTION_KEY:}
+  http:
+    connect-timeout: ${PUSH_HTTP_CONNECT_TIMEOUT:5s}
+    read-timeout: ${PUSH_HTTP_READ_TIMEOUT:10s}

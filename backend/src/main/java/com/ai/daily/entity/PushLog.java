@@ -27,5 +27,7 @@ public class PushLog {
 
     private String errorMessage;
 
+    private String dispatchKey;
+
     private LocalDateTime pushedAt;
 }

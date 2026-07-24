@@ -2,6 +2,7 @@ package com.ai.daily.service.push;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -13,7 +14,17 @@ public class ProviderResponseValidator {
         this.objectMapper = objectMapper;
     }
 
+    public void requireSuccess(String provider, ResponseEntity<String> response) {
+        if (response == null || !response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException(providerName(provider) + "请求失败");
+        }
+        requireSuccess(provider, response.getBody());
+    }
+
     public void requireSuccess(String provider, String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw new IllegalStateException(providerName(provider) + "返回空响应");
+        }
         try {
             JsonNode body = objectMapper.readTree(responseBody);
             boolean success = switch (provider) {

@@ -41,6 +41,7 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
         String type = validator.normalizeType(request.getChannelType());
         String target = trimRequired(request.getTarget());
         validator.validate(type, target);
+        validator.validateSecret(request.getSecret());
 
         PushChannel channel = new PushChannel();
         channel.setUserId(userId);
@@ -71,6 +72,7 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
         }
         String target = suppliedTarget == null ? crypto.decrypt(stored.getTarget()) : suppliedTarget;
         validator.validate(type, target);
+        validator.validateSecret(request.getSecret());
 
         stored.setChannelType(type);
         if (request.getDisplayName() != null) stored.setDisplayName(normalizeDisplayName(request.getDisplayName()));
@@ -110,24 +112,38 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
     }
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
         if (!crypto.isAvailable()) {
             log.warn("未配置 PUSH_CHANNEL_ENCRYPTION_KEY，渠道创建、读取和发送功能不可用");
             return;
         }
         int migrated = 0;
-        for (PushChannel channel : list()) {
-            boolean dirty = false;
-            if (channel.getTarget() != null && !crypto.isEncrypted(channel.getTarget())) {
-                channel.setTarget(crypto.encrypt(channel.getTarget()));
-                dirty = true;
-            }
-            if (channel.getSecret() != null && !channel.getSecret().isBlank() && !crypto.isEncrypted(channel.getSecret())) {
-                channel.setSecret(crypto.encrypt(channel.getSecret()));
-                dirty = true;
-            }
-            if (dirty) {
+        long lastId = 0;
+        while (true) {
+            List<PushChannel> batch = lambdaQuery()
+                    .gt(PushChannel::getId, lastId)
+                    .orderByAsc(PushChannel::getId)
+                    .last("LIMIT 200")
+                    .list();
+            if (batch.isEmpty()) break;
+
+            for (PushChannel channel : batch) {
+                lastId = channel.getId();
+                boolean plaintextTarget = channel.getTarget() != null && !crypto.isEncrypted(channel.getTarget());
+                boolean plaintextSecret = channel.getSecret() != null && !channel.getSecret().isBlank()
+                        && !crypto.isEncrypted(channel.getSecret());
+                if (!plaintextTarget && !plaintextSecret) continue;
+
+                if (plaintextTarget) {
+                    try {
+                        validator.validate(channel.getChannelType(), channel.getTarget());
+                    } catch (IllegalArgumentException e) {
+                        log.warn("跳过无效历史推送渠道加密 channel_id={}", channel.getId());
+                        continue;
+                    }
+                    channel.setTarget(crypto.encrypt(channel.getTarget()));
+                }
+                if (plaintextSecret) channel.setSecret(crypto.encrypt(channel.getSecret()));
                 updateById(channel);
                 migrated++;
             }
@@ -206,6 +222,7 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
     private String normalizeDisplayName(String value) {
         if (value == null) return null;
         String trimmed = value.trim();
+        if (trimmed.length() > 100) throw new IllegalArgumentException("渠道昵称不能超过 100 个字符");
         return trimmed.isEmpty() ? null : trimmed;
     }
 }

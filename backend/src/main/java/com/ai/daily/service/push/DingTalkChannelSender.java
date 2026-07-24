@@ -2,8 +2,12 @@ package com.ai.daily.service.push;
 
 import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
+import com.ai.daily.service.PushChannelValidator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
@@ -24,11 +28,24 @@ public class DingTalkChannelSender implements ChannelSender {
 
     private static final int MARKDOWN_MAX = 20000;
 
+    private final RestTemplate restTemplate;
+    private final PushChannelValidator channelValidator;
+    private final ProviderResponseValidator responseValidator;
+
+    public DingTalkChannelSender(@Qualifier("pushRestTemplate") RestTemplate restTemplate,
+                                 PushChannelValidator channelValidator,
+                                 ProviderResponseValidator responseValidator) {
+        this.restTemplate = restTemplate;
+        this.channelValidator = channelValidator;
+        this.responseValidator = responseValidator;
+    }
+
     @Override
     public String type() { return "dingtalk"; }
 
     @Override
     public void send(PushChannel channel, Report report) throws Exception {
+        channelValidator.validateForSend(channel);
         String url = channel.getTarget();
         if (channel.getSecret() != null && !channel.getSecret().isBlank()) {
             long ts = System.currentTimeMillis();
@@ -44,7 +61,13 @@ public class DingTalkChannelSender implements ChannelSender {
         md.put("text", truncate("## " + report.getTitle() + "\n\n" + report.getContent(), MARKDOWN_MAX));
         msg.put("markdown", md);
 
-        new RestTemplate().postForEntity(url, msg, String.class);
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.postForEntity(url, msg, String.class);
+        } catch (RestClientException e) {
+            throw new IllegalStateException("钉钉请求失败");
+        }
+        responseValidator.requireSuccess(type(), response);
         log.info("钉钉推送成功 channel_id={} report_id={}", channel.getId(), report.getId());
     }
 

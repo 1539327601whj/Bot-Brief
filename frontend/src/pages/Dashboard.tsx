@@ -257,8 +257,8 @@ export default function Dashboard() {
       const [morning, evening, etfMorning, etfEvening, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
         safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }),
         safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }),
-        safeGet<Report>('/reports/latest', { params: { edition: 'etf_morning' } }),
-        safeGet<Report>('/reports/latest', { params: { edition: 'etf_evening' } }),
+        safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_morning' } }),
+        safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_evening' } }),
         safeGet<DashboardStats>('/stats/dashboard'),
         isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
         isDemo ? Promise.resolve(demoPushLogs) : safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),

@@ -11,4 +11,10 @@ public interface PushLogService extends IService<PushLog> {
 
     void record(Long userId, Long reportId, Long channelId, String channelType,
                 boolean success, String errorMessage);
+
+    Long claimScheduled(Long userId, Long reportId, Long channelId, String channelType, String dispatchKey);
+
+    void markSuccess(Long logId);
+
+    void markFailed(Long logId, String errorMessage);
 }

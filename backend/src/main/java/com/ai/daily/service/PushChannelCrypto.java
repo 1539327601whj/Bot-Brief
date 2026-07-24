@@ -1,6 +1,7 @@
 package com.ai.daily.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,13 +18,14 @@ import java.util.Base64;
 @Component
 public class PushChannelCrypto {
 
-    static final String PREFIX = "enc:v1:";
+    public static final String PREFIX = "enc:v1:";
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final SecretKeySpec key;
 
+    @Autowired
     public PushChannelCrypto(@Value("${push-channel.encryption-key:}") String configuredKey) {
         this.key = parseKey(configuredKey);
     }

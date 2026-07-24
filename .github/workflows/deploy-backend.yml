@@ -76,6 +76,7 @@ jobs:
             DEMO_DISPLAY_NAME=${{ vars.DEMO_DISPLAY_NAME || '公开演示账号' }}
             DEMO_TOKEN_EXPIRATION_MINUTES=${{ vars.DEMO_TOKEN_EXPIRATION_MINUTES || '30' }}
             REPORT_INGEST_TOKEN=${{ secrets.REPORT_INGEST_TOKEN }}
+            PUSH_CHANNEL_ENCRYPTION_KEY=${{ secrets.PUSH_CHANNEL_ENCRYPTION_KEY }}
             MAIL_HOST=${{ secrets.MAIL_HOST }}
             MAIL_PORT=${{ secrets.MAIL_PORT }}
             MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
