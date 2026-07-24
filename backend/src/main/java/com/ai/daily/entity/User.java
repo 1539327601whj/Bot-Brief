@@ -11,6 +11,9 @@ import java.time.LocalDateTime;
 @TableName("users")
 public class User {
 
+    public static final String ACCOUNT_NORMAL = "NORMAL";
+    public static final String ACCOUNT_DEMO = "DEMO";
+
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -22,6 +25,9 @@ public class User {
 
     /** ADMIN | USER */
     private String role;
+
+    /** NORMAL | DEMO */
+    private String accountType;
 
     private Boolean enabled;
 

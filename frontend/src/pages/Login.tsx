@@ -13,7 +13,7 @@ import './Auth.css'
 type Mode = 'list' | 'form'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, demoLogin } = useAuth()
   const nav = useNavigate()
 
   const [saved, setSaved] = useState<SavedAccount[]>(() => listSavedAccounts())
@@ -54,6 +54,20 @@ export default function Login() {
       nav('/', { replace: true })
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || '登录失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDemoLogin = async () => {
+    if (submitting) return
+    setError('')
+    setSubmitting(true)
+    try {
+      await demoLogin()
+      nav('/', { replace: true })
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Demo 登录失败')
     } finally {
       setSubmitting(false)
     }
@@ -142,6 +156,14 @@ export default function Login() {
             + 使用其他账户登录
           </button>
 
+          <div className="auth-demo-entry">
+            <div className="auth-demo-divider"><span>无需账号</span></div>
+            <button type="button" className="auth-demo-btn" onClick={handleDemoLogin} disabled={submitting}>
+              {submitting ? '正在进入...' : '一键体验公开 Demo'}
+            </button>
+            <small>固定合成数据 · 只读浏览 · 不保存账号</small>
+          </div>
+
           <div className="auth-footer">
             还没有账号？<Link to="/register">用邀请码注册</Link>
           </div>
@@ -214,6 +236,14 @@ export default function Login() {
             </button>
           )}
         </form>
+
+        <div className="auth-demo-entry">
+          <div className="auth-demo-divider"><span>无需账号</span></div>
+          <button type="button" className="auth-demo-btn" onClick={handleDemoLogin} disabled={submitting}>
+            {submitting ? '正在进入...' : '一键体验公开 Demo'}
+          </button>
+          <small>固定合成数据 · 只读浏览 · 不保存账号</small>
+        </div>
 
         <div className="auth-footer">
           还没有账号？<Link to="/register">用邀请码注册</Link>

@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
 import './Chat.css'
 
 interface Message {
@@ -24,6 +26,8 @@ const SUGGESTIONS = [
 ]
 
 export default function Chat() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const navigate = useNavigate()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -42,7 +46,7 @@ export default function Chat() {
 
   const handleSubmit = async (question?: string) => {
     const q = question || input.trim()
-    if (!q || loading) return
+    if (isDemo || !q || loading) return
 
     const userMessage: Message = { role: 'user', content: q }
     setMessages(prev => [...prev, userMessage])
@@ -72,6 +76,7 @@ export default function Chat() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isDemo) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -84,6 +89,7 @@ export default function Chat() {
 
   return (
     <div className="chat-container">
+      {isDemo && <DemoNotice />}
       {/* 头部 */}
       <header className="chat-header">
         <div className="header-title">
@@ -105,6 +111,7 @@ export default function Chat() {
                 <button
                   key={i}
                   className="suggestion-btn"
+                  disabled={isDemo}
                   onClick={() => handleSubmit(s)}
                 >
                   {s}
@@ -175,12 +182,12 @@ export default function Chat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            disabled={loading}
+            disabled={isDemo || loading}
           />
           <button
             className="send-btn"
             onClick={() => handleSubmit()}
-            disabled={!input.trim() || loading}
+            disabled={isDemo || !input.trim() || loading}
           >
             {loading ? (
               <span className="loading-spinner"></span>
@@ -189,7 +196,7 @@ export default function Chat() {
             )}
           </button>
         </div>
-        <div className="input-hint">按 Enter 发送，Shift + Enter 换行</div>
+        <div className="input-hint">{isDemo ? '公开 Demo 中 AI 对话不可提交' : '按 Enter 发送，Shift + Enter 换行'}</div>
       </div>
     </div>
   )

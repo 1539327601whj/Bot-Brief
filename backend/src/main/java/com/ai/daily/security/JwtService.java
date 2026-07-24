@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,6 +27,13 @@ public class JwtService {
     }
 
     public String generate(Long userId, String email, String role) {
+        return generate(userId, email, role, Duration.ofHours(expirationHours));
+    }
+
+    public String generate(Long userId, String email, String role, Duration validity) {
+        if (validity == null || validity.isZero() || validity.isNegative()) {
+            throw new IllegalArgumentException("JWT 有效期必须大于 0");
+        }
         Map<String, Object> claims = new HashMap<>();
         claims.put("uid", userId);
         claims.put("email", email);
@@ -35,7 +43,7 @@ public class JwtService {
                 .claims(claims)
                 .subject(String.valueOf(userId))
                 .issuedAt(new Date(now))
-                .expiration(new Date(now + expirationHours * 3600_000L))
+                .expiration(new Date(now + validity.toMillis()))
                 .signWith(key())
                 .compact();
     }

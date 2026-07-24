@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@Order(0)
 @RequiredArgsConstructor
 public class AdminBootstrapRunner implements ApplicationRunner {
 
@@ -42,15 +44,20 @@ public class AdminBootstrapRunner implements ApplicationRunner {
             admin.setPasswordHash(passwordEncoder.encode(bootstrapPassword));
             admin.setDisplayName("Admin");
             admin.setRole("ADMIN");
+            admin.setAccountType(User.ACCOUNT_NORMAL);
             admin.setEnabled(true);
             userService.save(admin);
             log.info("Admin 用户已创建 id={}", admin.getId());
         } else if ("BOOTSTRAP".equals(admin.getPasswordHash())) {
             admin.setPasswordHash(passwordEncoder.encode(bootstrapPassword));
             admin.setRole("ADMIN");
+            admin.setAccountType(User.ACCOUNT_NORMAL);
             admin.setEnabled(true);
             userService.updateById(admin);
             log.info("Admin 用户 {} 密码已用 ADMIN_PASSWORD 初始化", normalizedAdminEmail);
+        } else if (!User.ACCOUNT_NORMAL.equals(admin.getAccountType())) {
+            admin.setAccountType(User.ACCOUNT_NORMAL);
+            userService.updateById(admin);
         }
 
         LambdaUpdateWrapper<User> w = new LambdaUpdateWrapper<>();

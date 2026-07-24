@@ -20,10 +20,9 @@ api.interceptors.response.use(
   (resp) => resp,
   (err) => {
     if (err?.response?.status === 401) {
-      const token = localStorage.getItem(TOKEN_KEY)
-      const p = window.location.pathname
-      if (!token && p !== '/login' && p !== '/register') {
-        localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
+      if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }
     }

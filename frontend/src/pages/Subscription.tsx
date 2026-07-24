@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoChannels, demoSubscription } from '../demo/fixtures'
 import './Subscription.css'
 
 interface TopicScheduleItem {
@@ -56,6 +59,8 @@ const collectPreferenceFields = (topicSchedules: TopicSchedules) => {
 }
 
 export default function Subscription() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [data, setData] = useState<SubscriptionData>({
     preferenceFields: [],
     enabled: true,
@@ -74,6 +79,12 @@ export default function Subscription() {
   const [channelCount, setChannelCount] = useState<number | null>(null)
 
   useEffect(() => {
+    if (isDemo) {
+      setData(demoSubscription)
+      setChannelCount(demoChannels.length)
+      setLoading(false)
+      return
+    }
     api.get('/subscription')
       .then(res => {
         const d = res.data?.data
@@ -109,9 +120,10 @@ export default function Subscription() {
     api.get('/channels')
       .then(res => setChannelCount((res.data?.data || []).length))
       .catch(() => setChannelCount(null))
-  }, [])
+  }, [isDemo])
 
   const updateTopicSchedule = (edition: keyof TopicSchedules, topic: string, patch: Partial<TopicScheduleItem>) => {
+    if (isDemo) return
     setData(prev => ({
       ...prev,
       topicSchedules: {
@@ -124,6 +136,7 @@ export default function Subscription() {
   }
 
   const setEditionTopics = (edition: keyof TopicSchedules, enabled: boolean) => {
+    if (isDemo) return
     setData(prev => ({
       ...prev,
       topicSchedules: {
@@ -134,6 +147,7 @@ export default function Subscription() {
   }
 
   const applyDefaultTime = (edition: keyof TopicSchedules) => {
+    if (isDemo) return
     setData(prev => {
       const defaultTime = edition === 'morning' ? prev.morningTime : prev.eveningTime
       return {
@@ -149,10 +163,12 @@ export default function Subscription() {
   }
 
   const updateEditionDefaultTime = (edition: keyof TopicSchedules, time: string) => {
+    if (isDemo) return
     setData(prev => edition === 'morning' ? { ...prev, morningTime: time } : { ...prev, eveningTime: time })
   }
 
   const handleSave = async () => {
+    if (isDemo) return
     setSaving(true)
     setMessage('')
     try {
@@ -193,6 +209,7 @@ export default function Subscription() {
           <input
             type="checkbox"
             checked={enabled}
+            disabled={isDemo}
             onChange={(e) => onEnabledChange(e.target.checked)}
           />
           <span className="slider"></span>
@@ -203,15 +220,15 @@ export default function Subscription() {
           <input
             type="time"
             value={defaultTime}
-            disabled={!enabled}
+            disabled={isDemo || !enabled}
             onChange={(e) => updateEditionDefaultTime(edition, e.target.value)}
           />
         </div>
       </div>
       <div className="topic-actions">
-        <button type="button" onClick={() => setEditionTopics(edition, true)} disabled={!enabled}>全选内容</button>
-        <button type="button" onClick={() => setEditionTopics(edition, false)} disabled={!enabled}>清空</button>
-        <button type="button" onClick={() => applyDefaultTime(edition)} disabled={!enabled}>应用默认时间到已选</button>
+        <button type="button" onClick={() => setEditionTopics(edition, true)} disabled={isDemo || !enabled}>全选内容</button>
+        <button type="button" onClick={() => setEditionTopics(edition, false)} disabled={isDemo || !enabled}>清空</button>
+        <button type="button" onClick={() => applyDefaultTime(edition)} disabled={isDemo || !enabled}>应用默认时间到已选</button>
       </div>
       <div className="topic-schedule-list">
         {data.topicSchedules[edition].map(item => (
@@ -220,7 +237,7 @@ export default function Subscription() {
               <input
                 type="checkbox"
                 checked={item.enabled}
-                disabled={!enabled}
+                disabled={isDemo || !enabled}
                 onChange={(e) => updateTopicSchedule(edition, item.topic, { enabled: e.target.checked })}
               />
               <span>{item.topic}</span>
@@ -230,7 +247,7 @@ export default function Subscription() {
               <input
                 type="time"
                 value={item.time}
-                disabled={!enabled || !item.enabled}
+                disabled={isDemo || !enabled || !item.enabled}
                 onChange={(e) => updateTopicSchedule(edition, item.topic, { time: e.target.value })}
               />
             </div>
@@ -244,6 +261,7 @@ export default function Subscription() {
 
   return (
     <div className="subscription-page">
+      {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>📬 订阅管理</h2>
         <p className="page-desc">在早间日报和晚间日报里选择订阅内容，并为不同内容设置不同推送时间</p>
@@ -264,8 +282,8 @@ export default function Subscription() {
         </div>
       </div>
 
-      {renderEditionSection('morning', '🌅 早间日报', data.morningEnabled, data.morningTime, (enabled) => setData({ ...data, morningEnabled: enabled }))}
-      {renderEditionSection('evening', '🌙 晚间日报', data.eveningEnabled, data.eveningTime, (enabled) => setData({ ...data, eveningEnabled: enabled }))}
+      {renderEditionSection('morning', '🌅 早间日报', data.morningEnabled, data.morningTime, (enabled) => { if (!isDemo) setData({ ...data, morningEnabled: enabled }) })}
+      {renderEditionSection('evening', '🌙 晚间日报', data.eveningEnabled, data.eveningTime, (enabled) => { if (!isDemo) setData({ ...data, eveningEnabled: enabled }) })}
 
       {/* 总开关 */}
       <div className="section">
@@ -274,7 +292,8 @@ export default function Subscription() {
           <input
             type="checkbox"
             checked={data.enabled}
-            onChange={(e) => setData({ ...data, enabled: e.target.checked })}
+            disabled={isDemo}
+            onChange={(e) => { if (!isDemo) setData({ ...data, enabled: e.target.checked }) }}
           />
           <span className="slider"></span>
           <span className="toggle-label">{data.enabled ? '✅ 订阅已启用' : '⏸️ 订阅已暂停'}</span>
@@ -298,7 +317,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <button className="save-btn" onClick={handleSave} disabled={saving}>
+      <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>
         {saving ? '保存中...' : '保存设置'}
       </button>
 

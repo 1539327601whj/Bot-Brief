@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log *)",
+      "Bash(npm run *)",
+      "Bash(mvn test *)",
+      "Bash(mvn *)",
+      "Bash(npm *)"
+    ]
+  }
+}

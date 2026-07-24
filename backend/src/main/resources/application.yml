@@ -66,6 +66,12 @@ admin:
   email: ${ADMIN_EMAIL:admin@example.com}
   bootstrap-password: ${ADMIN_PASSWORD:admin123456}
 
+demo:
+  enabled: ${DEMO_ENABLED:false}
+  email: ${DEMO_EMAIL:demo@example.com}
+  display-name: ${DEMO_DISPLAY_NAME:公开演示账号}
+  token-expiration-minutes: ${DEMO_TOKEN_EXPIRATION_MINUTES:30}
+
 report:
   ingest-token: ${REPORT_INGEST_TOKEN:}
 

@@ -4,6 +4,9 @@ import { Alert, Button, Card, ConfigProvider, DatePicker, Empty, Form, Input, In
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from '../utils/dayjs'
 import { parseCsv } from '../utils/csv'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoAiExamples, demoCompetitors, demoContentAccounts, demoContentWorks, getDemoContentOverview } from '../demo/fixtures'
 import {
   analyzeHotWork,
   createAccount,
@@ -71,6 +74,8 @@ const formatNumber = (value?: number) => {
 const formatRate = (value?: number) => `${((value || 0) * 100).toFixed(2)}%`
 
 export default function ContentGrowth() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [accounts, setAccounts] = useState<ContentAccount[]>([])
   const [works, setWorks] = useState<PageData<ContentWork>>({ records: [], total: 0, current: 1, size: 10 })
   const [competitors, setCompetitors] = useState<CompetitorAccount[]>([])
@@ -120,10 +125,19 @@ export default function ContentGrowth() {
     return []
   }
   const loadOverview = async (accountId = selectedAccountId) => {
+    if (isDemo) {
+      setOverview(getDemoContentOverview(accountId))
+      return
+    }
     const res = await getOverview(accountId)
     if (res.data?.code === 200) setOverview(res.data.data)
   }
   const loadWorks = async (page = works.current || 1, size = works.size || 10, accountId = selectedAccountId) => {
+    if (isDemo) {
+      const filtered = accountId ? demoContentWorks.filter(item => item.accountId === accountId) : demoContentWorks
+      setWorks({ records: filtered.slice((page - 1) * size, page * size), total: filtered.length, current: page, size })
+      return
+    }
     setWorkLoading(true)
     try {
       const res = await getWorks({ accountId, page, size })
@@ -136,25 +150,44 @@ export default function ContentGrowth() {
   }
 
   useEffect(() => {
+    if (isDemo) {
+      setAccounts(demoContentAccounts)
+      setWorks({ records: demoContentWorks.slice(0, 10), total: demoContentWorks.length, current: 1, size: 10 })
+      setCompetitors(demoCompetitors)
+      setOverview(getDemoContentOverview())
+      setHotAnalysis(demoAiExamples.hot)
+      setTopicResult(demoAiExamples.topics)
+      setRewriteResult(demoAiExamples.rewrite)
+      setLoading(false)
+      return
+    }
     Promise.all([loadAccounts(), loadOverview(undefined), loadWorks(1, 10, undefined), loadCompetitors()])
       .finally(() => setLoading(false))
-  }, [])
+  }, [isDemo])
 
   useEffect(() => {
     if (!loading) {
+      if (isDemo) {
+        const filtered = selectedAccountId ? demoContentWorks.filter(item => item.accountId === selectedAccountId) : demoContentWorks
+        setWorks({ records: filtered.slice(0, works.size || 10), total: filtered.length, current: 1, size: works.size || 10 })
+        setOverview(getDemoContentOverview(selectedAccountId))
+        setHotAnalysis(demoAiExamples.hot)
+        return
+      }
       loadOverview(selectedAccountId)
       loadWorks(1, works.size || 10, selectedAccountId)
       setHotAnalysis(null)
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId, isDemo])
 
   const openCreateAccount = () => {
+    if (isDemo) return
     setEditingAccount(null)
     accountForm.setFieldsValue({ platform: 'douyin', followerCount: 0, accountName: '', homepageUrl: '', accountPositioning: '' })
     setAccountModalOpen(true)
   }
   const openEditAccount = () => {
-    if (!selectedAccount) return
+    if (isDemo || !selectedAccount) return
     setEditingAccount(selectedAccount)
     accountForm.setFieldsValue({
       platform: selectedAccount.platform, accountName: selectedAccount.accountName,
@@ -169,6 +202,7 @@ export default function ContentGrowth() {
     accountForm.resetFields()
   }
   const handleSaveAccount = async () => {
+    if (isDemo) return
     const values = await accountForm.validateFields()
     const payload: AccountPayload = {
       platform: editingAccount?.platform || values.platform,
@@ -186,7 +220,7 @@ export default function ContentGrowth() {
     } finally { setSaving(false) }
   }
   const handleDeleteAccount = () => {
-    if (!selectedAccount) return
+    if (isDemo || !selectedAccount) return
     Modal.confirm({
       title: `删除账号“${selectedAccount.accountName}”？`,
       content: '该账号下的所有作品数据将一并删除，此操作不可恢复。',
@@ -203,6 +237,7 @@ export default function ContentGrowth() {
   }
 
   const openCreateWork = () => {
+    if (isDemo) return
     const account = selectedAccount || accounts[0]
     setEditingWork(null)
     workForm.setFieldsValue({
@@ -212,6 +247,7 @@ export default function ContentGrowth() {
     setWorkModalOpen(true)
   }
   const openEditWork = (work: ContentWork) => {
+    if (isDemo) return
     setEditingWork(work)
     workForm.setFieldsValue({ ...work, publishTime: work.publishTime ? dayjs(work.publishTime) : null, contentType: work.contentType || 'video' })
     setWorkModalOpen(true)
@@ -225,6 +261,7 @@ export default function ContentGrowth() {
     workForm.setFieldValue('platform', accounts.find(item => item.id === accountId)?.platform)
   }
   const handleSaveWork = async () => {
+    if (isDemo) return
     const values = await workForm.validateFields()
     const account = accounts.find(item => item.id === values.accountId)
     if (!account) return message.error('请选择有效账号')
@@ -247,6 +284,7 @@ export default function ContentGrowth() {
     } finally { setSaving(false) }
   }
   const handleDeleteWork = (work: ContentWork) => {
+    if (isDemo) return
     Modal.confirm({
       title: `删除作品“${work.title}”？`, content: '删除后无法恢复。',
       okText: '确认删除', okButtonProps: { danger: true }, cancelText: '取消',
@@ -262,6 +300,7 @@ export default function ContentGrowth() {
   }
 
   const handleCreateCompetitor = async () => {
+    if (isDemo) return
     const values = await competitorForm.validateFields()
     const res = await createCompetitor(values)
     if (res.data?.code === 200) {
@@ -272,6 +311,7 @@ export default function ContentGrowth() {
     } else message.error(res.data?.message || '添加失败')
   }
   const runHotAnalysis = async () => {
+    if (isDemo) return
     setAiLoading('hot')
     try {
       const res = await analyzeHotWork({ accountId: selectedAccountId, workId: overview?.bestWork?.id })
@@ -280,6 +320,7 @@ export default function ContentGrowth() {
     } finally { setAiLoading('') }
   }
   const runTopicRecommendation = async () => {
+    if (isDemo) return
     const values = await topicForm.validateFields()
     setAiLoading('topic')
     try {
@@ -289,6 +330,7 @@ export default function ContentGrowth() {
     } finally { setAiLoading('') }
   }
   const runRewriteAdvice = async () => {
+    if (isDemo) return
     const values = await rewriteForm.validateFields()
     setAiLoading('rewrite')
     try {
@@ -299,6 +341,7 @@ export default function ContentGrowth() {
   }
 
   const openImportModal = () => {
+    if (isDemo) return
     setImportAccountId(selectedAccountId || accounts[0]?.id)
     setConflictStrategy('UPDATE')
     setCsvFileName('')
@@ -315,6 +358,7 @@ export default function ContentGrowth() {
     setImportResult(null)
   }
   const handleCsvFile = async (file: File) => {
+    if (isDemo) return false
     setImportResult(null)
     setCsvPreview([])
     setCsvFileError('')
@@ -337,7 +381,7 @@ export default function ContentGrowth() {
     return false
   }
   const handleImport = async () => {
-    if (!importAccountId || !csvPreview.length || previewErrorCount) return
+    if (isDemo || !importAccountId || !csvPreview.length || previewErrorCount) return
     setImporting(true)
     try {
       const res = await importWorks({ accountId: importAccountId, conflictStrategy, rows: csvPreview.map(item => item.row) })
@@ -349,6 +393,7 @@ export default function ContentGrowth() {
     } finally { setImporting(false) }
   }
   const downloadTemplate = () => {
+    if (isDemo) return
     const example = ['douyin', '示例作品标题', 'https://example.com/work/1', '', '2026-07-20 10:30:00', '10000', '800', '50', '120', '30', '60', 'video']
     const blob = new Blob([`﻿${csvHeaders.join(',')}\r\n${example.join(',')}\r\n`], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -370,7 +415,7 @@ export default function ContentGrowth() {
     { title: '涨粉', dataIndex: 'followerGain', width: 90, render: formatNumber },
     { title: '互动率', dataIndex: 'interactionRate', width: 100, render: formatRate },
     { title: '状态', dataIndex: 'status', width: 90, render: status => status === 'hot' ? <Tag color="red">爆款</Tag> : status === 'declining' ? <Tag color="orange">下滑</Tag> : <Tag color="blue">正常</Tag> },
-    { title: '操作', key: 'actions', width: 120, fixed: 'right', render: (_, record) => <Space size={0}><Button type="link" onClick={() => openEditWork(record)}>编辑</Button><Button type="link" danger onClick={() => handleDeleteWork(record)}>删除</Button></Space> },
+    { title: '操作', key: 'actions', width: 120, fixed: 'right', render: (_, record) => <Space size={0}><Button type="link" disabled={isDemo} onClick={() => openEditWork(record)}>编辑</Button><Button type="link" danger disabled={isDemo} onClick={() => handleDeleteWork(record)}>删除</Button></Space> },
   ]
 
   if (loading) return <div className="loading">加载中...</div>
@@ -378,18 +423,19 @@ export default function ContentGrowth() {
   return (
     <ConfigProvider theme={contentGrowthTheme}>
       <div className="growth-page">
+        {isDemo && <DemoNotice />}
         <section className="growth-hero">
           <div><h1>内容创作者增长助手</h1><p>帮短视频用户、博主、MCN、小商家复盘数据、发现爆款、生成明日选题。</p><div className="growth-tags"><span>账号概览</span><span>作品表现</span><span>爆款分析</span><span>AI 改稿建议</span></div></div>
-          <Button type="primary" size="large" onClick={openCreateAccount}>添加内容账号</Button>
+          <Button type="primary" size="large" onClick={openCreateAccount} disabled={isDemo}>添加内容账号</Button>
         </section>
 
         <section className="growth-toolbar">
           <Select allowClear placeholder="查看全部账号" value={selectedAccountId} options={accountSelectOptions} onChange={setSelectedAccountId} className="growth-account-select" />
-          <Button onClick={openEditAccount} disabled={!selectedAccount}>编辑账号</Button>
-          <Button danger onClick={handleDeleteAccount} disabled={!selectedAccount}>删除账号</Button>
-          <Button onClick={openCreateWork} disabled={!accounts.length}>录入作品数据</Button>
-          <Button onClick={openImportModal} disabled={!accounts.length}>CSV 批量导入</Button>
-          <Button onClick={() => setCompetitorModalOpen(true)}>添加竞品账号</Button>
+          <Button onClick={openEditAccount} disabled={isDemo || !selectedAccount}>编辑账号</Button>
+          <Button danger onClick={handleDeleteAccount} disabled={isDemo || !selectedAccount}>删除账号</Button>
+          <Button onClick={openCreateWork} disabled={isDemo || !accounts.length}>录入作品数据</Button>
+          <Button onClick={openImportModal} disabled={isDemo || !accounts.length}>CSV 批量导入</Button>
+          <Button onClick={() => { if (!isDemo) setCompetitorModalOpen(true) }} disabled={isDemo}>添加竞品账号</Button>
         </section>
 
         {!accounts.length && <Alert type="info" showIcon message="先添加一个内容账号" description="第一版先支持手动绑定账号和录入作品数据，平台自动同步数据后续开放。" className="growth-alert" />}
@@ -404,22 +450,22 @@ export default function ContentGrowth() {
         </section>
 
         <section className="growth-main-grid">
-          <Card title="作品表现" extra={<Space><Button onClick={openImportModal} disabled={!accounts.length}>CSV 导入</Button><Button type="primary" onClick={openCreateWork} disabled={!accounts.length}>新增作品</Button></Space>} className="growth-table-card">
+          <Card title="作品表现" extra={<Space><Button onClick={openImportModal} disabled={isDemo || !accounts.length}>CSV 导入</Button><Button type="primary" onClick={openCreateWork} disabled={isDemo || !accounts.length}>新增作品</Button></Space>} className="growth-table-card">
             <Table rowKey="id" columns={columns} dataSource={works.records} loading={workLoading} scroll={{ x: 1220 }} locale={{ emptyText: <Empty description="暂无作品数据，录入 3-5 条作品后分析更准确" /> }} pagination={{ current: works.current, pageSize: works.size, total: works.total, onChange: (page, size) => loadWorks(page, size, selectedAccountId) }} />
           </Card>
           <Card title="爆款分析" className="growth-ai-card">
             {overview?.bestWork ? <div className="growth-best-work"><span>当前最佳作品</span><strong>{overview.bestWork.title}</strong><p>播放 {formatNumber(overview.bestWork.playCount)} · 互动率 {formatRate(overview.bestWork.interactionRate)}</p></div> : <Empty description="暂无可分析作品" />}
-            <Button type="primary" block loading={aiLoading === 'hot'} disabled={!works.records.length} onClick={runHotAnalysis}>分析爆款原因</Button>
+            <Button type="primary" block loading={aiLoading === 'hot'} disabled={isDemo || !works.records.length} onClick={runHotAnalysis}>分析爆款原因</Button>
             {hotAnalysis && <AiResult result={hotAnalysis} />}
           </Card>
         </section>
 
         <section className="growth-main-grid">
-          <Card title="选题推荐" className="growth-ai-card"><Form form={topicForm} layout="vertical" initialValues={{ goal: '涨粉' }}><Form.Item name="goal" label="增长目标" rules={[{ required: true }]}><Select options={goalOptions} /></Form.Item></Form><Button type="primary" block loading={aiLoading === 'topic'} disabled={!accounts.length} onClick={runTopicRecommendation}>生成明日选题</Button>{topicResult && <AiResult result={topicResult} />}</Card>
-          <Card title="竞品监控" extra={<Button onClick={() => setCompetitorModalOpen(true)}>添加竞品</Button>}>{competitors.length ? <div className="growth-competitor-list">{competitors.map(item => <div className="growth-competitor" key={item.id}><div><strong>{item.accountName}</strong><span>{platformLabel(item.platform)} · {item.note || '重点同行账号'}</span></div><Button type="link" danger onClick={async () => { await deleteCompetitor(item.id); await loadCompetitors() }}>删除</Button></div>)}</div> : <Empty description="先记录重点同行账号，自动追踪爆款视频后续开放" />}<Alert className="growth-alert" type="warning" showIcon message="自动追踪同行最近爆的视频将在后续版本开放。" /></Card>
+          <Card title="选题推荐" className="growth-ai-card"><Form form={topicForm} layout="vertical" disabled={isDemo} initialValues={{ goal: '涨粉' }}><Form.Item name="goal" label="增长目标" rules={[{ required: true }]}><Select options={goalOptions} /></Form.Item></Form><Button type="primary" block loading={aiLoading === 'topic'} disabled={isDemo || !accounts.length} onClick={runTopicRecommendation}>生成明日选题</Button>{topicResult && <AiResult result={topicResult} />}</Card>
+          <Card title="竞品监控" extra={<Button onClick={() => { if (!isDemo) setCompetitorModalOpen(true) }} disabled={isDemo}>添加竞品</Button>}>{competitors.length ? <div className="growth-competitor-list">{competitors.map(item => <div className="growth-competitor" key={item.id}><div><strong>{item.accountName}</strong><span>{platformLabel(item.platform)} · {item.note || '重点同行账号'}</span></div><Button type="link" danger disabled={isDemo} onClick={async () => { if (isDemo) return; await deleteCompetitor(item.id); await loadCompetitors() }}>删除</Button></div>)}</div> : <Empty description="先记录重点同行账号，自动追踪爆款视频后续开放" />}<Alert className="growth-alert" type="warning" showIcon message="自动追踪同行最近爆的视频将在后续版本开放。" /></Card>
         </section>
 
-        <Card title="AI 改稿建议" className="growth-rewrite-card"><Form form={rewriteForm} layout="vertical" initialValues={{ targetPlatform: 'douyin', goal: '提高完播和收藏' }}><div className="growth-form-grid"><Form.Item name="targetPlatform" label="目标平台" rules={[{ required: true }]}><Select options={platformOptions} /></Form.Item><Form.Item name="goal" label="优化目标" rules={[{ required: true }]}><Input /></Form.Item></div><Form.Item name="draftTitle" label="标题草稿"><Input /></Form.Item><Form.Item name="draftScript" label="脚本草稿" rules={[{ required: true, message: '请输入脚本草稿或内容方向' }]}><Input.TextArea rows={5} /></Form.Item><Button type="primary" loading={aiLoading === 'rewrite'} onClick={runRewriteAdvice}>生成改稿建议</Button></Form>{rewriteResult && <AiResult result={rewriteResult} />}</Card>
+        <Card title="AI 改稿建议" className="growth-rewrite-card"><Form form={rewriteForm} layout="vertical" disabled={isDemo} initialValues={{ targetPlatform: 'douyin', goal: '提高完播和收藏' }}><div className="growth-form-grid"><Form.Item name="targetPlatform" label="目标平台" rules={[{ required: true }]}><Select options={platformOptions} /></Form.Item><Form.Item name="goal" label="优化目标" rules={[{ required: true }]}><Input /></Form.Item></div><Form.Item name="draftTitle" label="标题草稿"><Input /></Form.Item><Form.Item name="draftScript" label="脚本草稿" rules={[{ required: true, message: '请输入脚本草稿或内容方向' }]}><Input.TextArea rows={5} /></Form.Item><Button type="primary" loading={aiLoading === 'rewrite'} disabled={isDemo} onClick={runRewriteAdvice}>生成改稿建议</Button></Form>{rewriteResult && <AiResult result={rewriteResult} />}</Card>
 
         <Modal title={editingAccount ? '编辑内容账号' : '添加内容账号'} open={accountModalOpen} onOk={handleSaveAccount} confirmLoading={saving} onCancel={closeAccountModal} destroyOnClose><Form form={accountForm} layout="vertical"><Form.Item name="platform" label="平台" rules={[{ required: true }]}><Select options={platformOptions} disabled={Boolean(editingAccount)} /></Form.Item><Form.Item name="accountName" label="账号名称" rules={[{ required: true }, { max: 120 }]}><Input /></Form.Item><Form.Item name="homepageUrl" label="主页链接" rules={[{ max: 1000 }]}><Input /></Form.Item><Form.Item name="followerCount" label="当前粉丝数"><InputNumber min={0} precision={0} className="growth-full" /></Form.Item><Form.Item name="accountPositioning" label="账号定位" rules={[{ max: 500 }]}><Input.TextArea rows={3} /></Form.Item></Form></Modal>
 

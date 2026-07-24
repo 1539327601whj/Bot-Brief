@@ -1,5 +1,6 @@
 package com.ai.daily.controller;
 
+import com.ai.daily.config.DemoAccountProperties;
 import com.ai.daily.dto.AuthDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.entity.User;
@@ -10,6 +11,8 @@ import com.ai.daily.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
+
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -17,6 +20,7 @@ public class AuthController {
 
     private final UserService userService;
     private final JwtService jwtService;
+    private final DemoAccountProperties demoProperties;
 
     @PostMapping("/register")
     public Result<AuthDTO.LoginResponse> register(@RequestBody AuthDTO.RegisterRequest req) {
@@ -37,6 +41,22 @@ public class AuthController {
         return Result.ok(buildLoginResponse(u));
     }
 
+    @PostMapping("/demo")
+    public Result<AuthDTO.LoginResponse> demo() {
+        if (!demoProperties.isEnabled()) {
+            return Result.error(404, "Demo 登录未开启");
+        }
+        int expirationMinutes = demoProperties.getTokenExpirationMinutes();
+        if (expirationMinutes < 5 || expirationMinutes > 60) {
+            return Result.error(503, "Demo token 有效期配置无效");
+        }
+        User u = userService.findByEmail(demoProperties.getEmail().trim().toLowerCase());
+        if (u == null || !Boolean.TRUE.equals(u.getEnabled()) || !User.ACCOUNT_DEMO.equals(u.getAccountType())) {
+            return Result.error(503, "Demo 账号不可用");
+        }
+        return Result.ok(buildLoginResponse(u, Duration.ofMinutes(expirationMinutes)));
+    }
+
     @GetMapping("/me")
     public Result<AuthDTO.UserInfo> me() {
         UserPrincipal up = SecurityUtils.currentUserOrNull();
@@ -47,8 +67,14 @@ public class AuthController {
     }
 
     private AuthDTO.LoginResponse buildLoginResponse(User u) {
+        return buildLoginResponse(u, null);
+    }
+
+    private AuthDTO.LoginResponse buildLoginResponse(User u, Duration validity) {
         AuthDTO.LoginResponse resp = new AuthDTO.LoginResponse();
-        resp.setToken(jwtService.generate(u.getId(), u.getEmail(), u.getRole()));
+        resp.setToken(validity == null
+                ? jwtService.generate(u.getId(), u.getEmail(), u.getRole())
+                : jwtService.generate(u.getId(), u.getEmail(), u.getRole(), validity));
         resp.setUser(toUserInfo(u));
         return resp;
     }
@@ -59,6 +85,7 @@ public class AuthController {
         info.setEmail(u.getEmail());
         info.setDisplayName(u.getDisplayName());
         info.setRole(u.getRole());
+        info.setAccountType(u.getAccountType());
         return info;
     }
 }

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import api from '../utils/api'
 import dayjs from '../utils/dayjs'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoPushLogs } from '../demo/fixtures'
 import './Notifications.css'
 
 interface PushLog {
@@ -18,18 +21,26 @@ const TYPE_ICON: Record<string, string> = {
 }
 
 export default function Notifications() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [logs, setLogs] = useState<PushLog[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (isDemo) {
+      setLogs(demoPushLogs)
+      setLoading(false)
+      return
+    }
     api.get('/push-logs', { params: { limit: 200 } })
       .then(res => setLogs(res.data?.data || []))
       .catch(() => setLogs([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [isDemo])
 
   return (
     <div className="notifications-page">
+      {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>🔔 通知记录</h2>
         <p className="page-desc">你的推送历史，包含成功与失败原因</p>

@@ -30,15 +30,6 @@ public class ReportController {
     @Value("${report.ingest-token:}")
     private String ingestToken;
 
-    /**
-     * GitHub Actions 推送简报
-     * POST /api/reports
-     */
-    @PostMapping
-    public Result<String> pushReport(@Valid @RequestBody ReportPushDTO dto) {
-        return saveReport(dto);
-    }
-
     @PostMapping("/ingest")
     public Result<String> ingestReport(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
@@ -79,6 +70,9 @@ public class ReportController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String keyword) {
+        if (page < 1 || size < 1 || size > 50) {
+            return Result.error(400, "分页参数无效：page 必须大于等于 1，size 必须在 1 到 50 之间");
+        }
 
         Page<Report> pageObj = new Page<>(page, size);
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();

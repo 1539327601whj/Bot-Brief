@@ -76,6 +76,11 @@
   color: #ffc542;
   border: 1px solid rgba(255, 195, 0, 0.3);
 }
+.user-menu-role-badge.demo {
+  background: rgba(139, 156, 255, 0.16);
+  color: #cfd6ff;
+  border: 1px solid rgba(139, 156, 255, 0.3);
+}
 
 .user-menu-divider {
   height: 1px;

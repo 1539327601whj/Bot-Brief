@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import api from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoChannels } from '../demo/fixtures'
 import './PushChannels.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -23,6 +26,8 @@ const TYPE_META: Record<ChannelType, { icon: string; label: string; targetLabel:
 const empty: Channel = { channelType: 'email', displayName: '', target: '', secret: '', enabled: true }
 
 export default function PushChannels() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [channels, setChannels] = useState<Channel[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Channel | null>(null)
@@ -30,6 +35,11 @@ export default function PushChannels() {
   const [msg, setMsg] = useState('')
 
   const load = () => {
+    if (isDemo) {
+      setChannels(demoChannels)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     api.get('/channels')
       .then(res => setChannels(res.data?.data || []))
@@ -37,14 +47,14 @@ export default function PushChannels() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [isDemo])
 
-  const startNew = () => setEditing({ ...empty })
-  const startEdit = (c: Channel) => setEditing({ ...c })
+  const startNew = () => { if (!isDemo) setEditing({ ...empty }) }
+  const startEdit = (c: Channel) => { if (!isDemo) setEditing({ ...c }) }
   const cancel = () => setEditing(null)
 
   const save = async () => {
-    if (!editing) return
+    if (isDemo || !editing) return
     if (!editing.target?.trim()) { setMsg('❌ 必须填写目标（邮箱或 webhook URL）'); return }
     setSaving(true)
     setMsg('')
@@ -66,7 +76,7 @@ export default function PushChannels() {
   }
 
   const remove = async (id?: number) => {
-    if (!id) return
+    if (isDemo || !id) return
     if (!confirm('确定删除该渠道？')) return
     try {
       await api.delete(`/channels/${id}`)
@@ -77,7 +87,7 @@ export default function PushChannels() {
   }
 
   const test = async (id?: number) => {
-    if (!id) return
+    if (isDemo || !id) return
     try {
       const res = await api.post(`/channels/${id}/test`)
       setMsg(res.data?.message || '✅ 测试推送已发出')
@@ -87,7 +97,7 @@ export default function PushChannels() {
   }
 
   const toggle = async (c: Channel) => {
-    if (!c.id) return
+    if (isDemo || !c.id) return
     try {
       await api.put(`/channels/${c.id}`, { ...c, enabled: !c.enabled })
       load()
@@ -98,13 +108,14 @@ export default function PushChannels() {
 
   return (
     <div className="channels-page">
+      {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>🔔 推送渠道</h2>
         <p className="page-desc">添加你的邮箱或群机器人 Webhook，简报会按订阅时间自动推送过来</p>
       </div>
 
       <div className="channels-toolbar">
-        <button className="btn-primary" onClick={startNew} disabled={!!editing}>+ 添加渠道</button>
+        <button className="btn-primary" onClick={startNew} disabled={isDemo || !!editing}>+ 添加渠道</button>
         {msg && <span className="channels-msg">{msg}</span>}
       </div>
 
@@ -181,12 +192,12 @@ export default function PushChannels() {
                   <div className="channel-target" title={c.target}>{c.target}</div>
                 </div>
                 <div className="channel-actions">
-                  <button className="btn-icon" onClick={() => toggle(c)} title={c.enabled ? '暂停' : '启用'}>
+                  <button className="btn-icon" disabled={isDemo} onClick={() => toggle(c)} title={c.enabled ? '暂停' : '启用'}>
                     {c.enabled ? '⏸' : '▶'}
                   </button>
-                  <button className="btn-icon" onClick={() => test(c.id)} title="测试推送">📤</button>
-                  <button className="btn-icon" onClick={() => startEdit(c)} title="编辑">✏️</button>
-                  <button className="btn-icon danger" onClick={() => remove(c.id)} title="删除">🗑</button>
+                  <button className="btn-icon" disabled={isDemo} onClick={() => test(c.id)} title="测试推送">📤</button>
+                  <button className="btn-icon" disabled={isDemo} onClick={() => startEdit(c)} title="编辑">✏️</button>
+                  <button className="btn-icon danger" disabled={isDemo} onClick={() => remove(c.id)} title="删除">🗑</button>
                 </div>
               </div>
             )

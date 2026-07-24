@@ -39,7 +39,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     User user = userMapper.selectById(userId);
                     if (user != null && Boolean.TRUE.equals(user.getEnabled())) {
                         UserPrincipal principal = new UserPrincipal(
-                                user.getId(), user.getEmail(), user.getRole(),
+                                user.getId(), user.getEmail(), user.getRole(), user.getAccountType(),
                                 user.getPasswordHash(), true);
                         UsernamePasswordAuthenticationToken token2 =
                                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());

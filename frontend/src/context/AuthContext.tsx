@@ -6,6 +6,7 @@ export interface UserInfo {
   email: string
   displayName: string
   role: 'ADMIN' | 'USER'
+  accountType: 'NORMAL' | 'DEMO'
 }
 
 interface AuthContextValue {
@@ -13,6 +14,7 @@ interface AuthContextValue {
   token: string | null
   loading: boolean
   login: (email: string, password: string) => Promise<UserInfo>
+  demoLogin: () => Promise<UserInfo>
   register: (email: string, password: string, displayName: string, inviteCode: string) => Promise<UserInfo>
   logout: () => void
   refresh: () => Promise<void>
@@ -57,6 +59,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const demoLogin: AuthContextValue['demoLogin'] = async () => {
+    setLoading(true)
+    try {
+      const res = await api.post('/auth/demo')
+      if (res.data?.code !== 200) throw new Error(res.data?.message || 'Demo 登录失败')
+      const { token, user } = res.data.data
+      persist(token, user)
+      return user
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const register: AuthContextValue['register'] = async (email, password, displayName, inviteCode) => {
     setLoading(true)
     try {
@@ -88,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, token, loading, login, demoLogin, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

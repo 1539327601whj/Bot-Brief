@@ -9,7 +9,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.expression.WebExpressionAuthorizationManager;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -17,15 +19,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 /**
- * 阶段 1：只启用 JWT 过滤器，暂不 enforce 鉴权。
- * 所有原有 API 保持免登录可访问，避免一次性破坏太多。
- * 阶段 3 会切换为 anyRequest().authenticated()。
+ * JWT 无状态鉴权及集中式 API 授权规则。
  */
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final SecurityErrorHandlers securityErrorHandlers;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -39,28 +40,25 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(reg -> reg
-                        // 阶段 3：强制鉴权
-                        // 放行：认证端点、GitHub Actions 上报（自己校验 X-Ingest-Token）、健康检查、预检
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/reports/ingest").permitAll()
-                        .requestMatchers("/api/market-valuations/ingest").permitAll()
-                        .requestMatchers("/api/market-valuations/*/latest").permitAll()
-                        .requestMatchers("/api/health").permitAll()
-                        .requestMatchers("/api/push/wechat").permitAll() // 老 webhook 接口保留（兼容旧 GH Actions）
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                "/api/auth/login", "/api/auth/register", "/api/auth/demo").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                "/api/reports/ingest", "/api/market-valuations/ingest").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/market-valuations/*/latest", "/api/health").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                "/api/push/wechat", "/api/reports").denyAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/auth/me", "/api/reports", "/api/reports/latest", "/api/stats/dashboard").authenticated()
+                        .requestMatchers(new RegexRequestMatcher("^/api/reports/\\d+$", "GET")).authenticated()
+                        .requestMatchers("/api/admin/**")
+                                .access(new WebExpressionAuthorizationManager("hasRole('ADMIN') and hasAuthority('ACCOUNT_NORMAL')"))
+                        .anyRequest().hasAuthority("ACCOUNT_NORMAL")
                 )
                 .exceptionHandling(eh -> eh
-                        .authenticationEntryPoint((req, resp, ex) -> {
-                            resp.setStatus(401);
-                            resp.setContentType("application/json;charset=UTF-8");
-                            resp.getWriter().write("{\"code\":401,\"message\":\"未登录或 token 无效\"}");
-                        })
-                        .accessDeniedHandler((req, resp, ex) -> {
-                            resp.setStatus(403);
-                            resp.setContentType("application/json;charset=UTF-8");
-                            resp.getWriter().write("{\"code\":403,\"message\":\"权限不足\"}");
-                        })
+                        .authenticationEntryPoint(securityErrorHandlers)
+                        .accessDeniedHandler(securityErrorHandlers)
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

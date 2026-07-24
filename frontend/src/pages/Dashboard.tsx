@@ -4,6 +4,9 @@ import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo } from '../utils/reportEdition'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoPushLogs, demoSubscription } from '../demo/fixtures'
 import './Dashboard.css'
 
 interface Report {
@@ -237,6 +240,8 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [reports, setReports] = useState<ReportMap>(emptyReports)
   const [recentReports, setRecentReports] = useState<Report[]>([])
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -255,8 +260,8 @@ export default function Dashboard() {
         safeGet<Report>('/reports/latest', { params: { edition: 'etf_morning' } }),
         safeGet<Report>('/reports/latest', { params: { edition: 'etf_evening' } }),
         safeGet<DashboardStats>('/stats/dashboard'),
-        safeGet<Subscription>('/subscription'),
-        safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),
+        isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
+        isDemo ? Promise.resolve(demoPushLogs) : safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),
         safeGet<{ records: Report[] }>('/reports', { params: { page: 1, size: 6 } }),
       ])
 
@@ -271,7 +276,7 @@ export default function Dashboard() {
 
     loadOverview()
     return () => { mounted = false }
-  }, [])
+  }, [isDemo])
 
   const todayReports = useMemo(() => Object.values(reports).filter((report): report is Report => !!report && isToday(report.createdAt)), [reports])
   const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.etf_morning || reports.etf_evening
@@ -305,6 +310,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-new">
+      {isDemo && <DemoNotice publicContent />}
       <div className="overview-hero">
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>

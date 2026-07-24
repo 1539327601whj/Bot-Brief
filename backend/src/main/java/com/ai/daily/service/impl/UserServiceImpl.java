@@ -50,6 +50,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         u.setPasswordHash(passwordEncoder.encode(rawPassword));
         u.setDisplayName(displayName != null && !displayName.isBlank() ? displayName : normalizedEmail);
         u.setRole("USER");
+        u.setAccountType(User.ACCOUNT_NORMAL);
         u.setEnabled(true);
         u.setInviteCodeUsed(ic.getCode());
         this.save(u);
@@ -63,6 +64,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (email == null || rawPassword == null) return null;
         User u = findByEmail(email.trim().toLowerCase());
         if (u == null || !Boolean.TRUE.equals(u.getEnabled())) return null;
+        if (User.ACCOUNT_DEMO.equals(u.getAccountType())) return null;
         if (!passwordEncoder.matches(rawPassword, u.getPasswordHash())) return null;
         return u;
     }

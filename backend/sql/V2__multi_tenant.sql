@@ -13,11 +13,13 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL COMMENT 'BCrypt 密码哈希',
     display_name VARCHAR(100) DEFAULT NULL COMMENT '昵称',
     role VARCHAR(20) NOT NULL DEFAULT 'USER' COMMENT '角色 ADMIN|USER',
+    account_type VARCHAR(20) NOT NULL DEFAULT 'NORMAL' COMMENT '账号类型 NORMAL|DEMO',
     enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
     invite_code_used VARCHAR(50) DEFAULT NULL COMMENT '使用的邀请码',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_email (email)
+    UNIQUE KEY uk_email (email),
+    CONSTRAINT chk_users_account_type CHECK (account_type IN ('NORMAL', 'DEMO'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ------------------------------------------------------------

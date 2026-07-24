@@ -41,7 +41,7 @@ function Sidebar() {
     { path: '/chat', icon: '💬', label: 'AI 对话' },
     { path: '/channels', icon: '📡', label: '推送渠道' },
     { path: '/notifications', icon: '🔔', label: '通知记录' },
-    ...(user?.role === 'ADMIN' ? [{ path: '/admin', icon: '🛠', label: '邀请码管理' }] : []),
+    ...(user?.role === 'ADMIN' || user?.accountType === 'DEMO' ? [{ path: '/admin', icon: '🛠', label: '邀请码管理' }] : []),
   ]
 
   const isActive = (path: string) => {
@@ -94,7 +94,7 @@ function Sidebar() {
         <div className="user-info">
           <span className="user-name">{user?.displayName || '未登录'}</span>
           <span className="user-role">
-            {user ? (user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
+            {user ? (user.accountType === 'DEMO' ? '公开 Demo' : user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
           </span>
         </div>
         {user && <span className="user-menu-caret">{menuOpen ? '▾' : '▸'}</span>}

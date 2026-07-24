@@ -58,8 +58,8 @@ export default function UserMenu({ open, onClose }: UserMenuProps) {
         <div className="user-menu-info">
           <div className="user-menu-name">{user.displayName}</div>
           <div className="user-menu-email" title={user.email}>{user.email}</div>
-          <div className={`user-menu-role-badge ${user.role === 'ADMIN' ? 'admin' : ''}`}>
-            {user.role === 'ADMIN' ? '👑 管理员' : '普通用户'}
+          <div className={`user-menu-role-badge ${user.accountType === 'DEMO' ? 'demo' : user.role === 'ADMIN' ? 'admin' : ''}`}>
+            {user.accountType === 'DEMO' ? '公开 Demo · 只读' : user.role === 'ADMIN' ? '👑 管理员' : '普通用户'}
           </div>
         </div>
       </div>

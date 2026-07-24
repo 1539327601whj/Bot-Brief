@@ -20,6 +20,9 @@ import {
   type ShopReplenishmentSuggestion,
   type ShopStore,
 } from '../api/shopAnalytics'
+import { useAuth } from '../context/AuthContext'
+import DemoNotice from '../components/DemoNotice'
+import { demoShopReportPage, demoShopStores, getDemoShopOverview } from '../demo/fixtures'
 import './ShopAnalytics.css'
 
 const platformLabels: Record<string, string> = {
@@ -97,13 +100,18 @@ function CsvImportModal({ storeId, onClose, onImported }: { storeId: number; onC
   return <div className="shop-modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><div className="shop-modal"><div className="shop-section-header"><h2>导入真实数据</h2><button className="shop-btn-secondary" onClick={onClose}>关闭</button></div><p className="shop-modal-help">仅支持 UTF-8 CSV。建议按“商品基础数据 → 店铺每日数据 → 商品每日数据”的顺序导入。</p><div className="shop-import-controls"><select value={type} onChange={e => { setType(e.target.value as ShopImportType); resetFile() }}>{Object.entries(importLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><button className="shop-btn-secondary" onClick={() => downloadShopCsvTemplate(type)}>下载模板</button><input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files?.[0] || null); setPreview(null); setError('') }} /><button disabled={busy || !file} onClick={handlePreview}>{busy ? '处理中...' : '预览校验'}</button></div>{error && <div className="shop-message error">{error}</div>}{preview && <><div className="shop-import-summary"><span>总行数：{preview.totalRows}</span><span>有效：{preview.validRows}</span><span className={preview.errors.length ? 'has-error' : ''}>错误：{preview.errors.length}</span></div>{preview.errors.length > 0 && <div className="shop-import-errors">{preview.errors.slice(0, 50).map((item, index) => <div key={`${item.row}-${item.field}-${index}`}>第 {item.row} 行 · {item.field}：{item.message}</div>)}</div>}{preview.previewRows.length > 0 && <div className="shop-table-wrap"><table className="shop-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{preview.previewRows.map((row, index) => <tr key={index}>{headers.map(header => <td key={header}>{row[header]}</td>)}</tr>)}</tbody></table></div>}<div className="shop-modal-actions"><button disabled={busy || preview.errors.length > 0 || preview.validRows === 0} onClick={handleConfirm}>确认导入并覆盖重复数据</button></div></>}</div></div>
 }
 
-function ReportHistory({ storeId, latest, onLatestChange }: { storeId: number; latest?: ShopAiReport | null; onLatestChange: (report: ShopAiReport) => void }) {
+function ReportHistory({ storeId, latest, onLatestChange, isDemo }: { storeId: number; latest?: ShopAiReport | null; onLatestChange: (report: ShopAiReport) => void; isDemo: boolean }) {
   const [pageData, setPageData] = useState<ShopAiReportPage | null>(null)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const requestId = useRef(0)
   const load = async () => {
+    if (isDemo) {
+      setPageData(demoShopReportPage)
+      setLoading(false)
+      return
+    }
     const currentRequest = ++requestId.current
     setLoading(true); setError('')
     try {
@@ -118,8 +126,13 @@ function ReportHistory({ storeId, latest, onLatestChange }: { storeId: number; l
     }
   }
   useEffect(() => { setPage(1) }, [storeId])
-  useEffect(() => { load() }, [storeId, page, latest?.id])
+  useEffect(() => { load() }, [storeId, page, latest?.id, isDemo])
   const select = async (id: number) => {
+    if (isDemo) {
+      const report = demoShopReportPage.records.find(item => item.id === id)
+      if (report) onLatestChange(report)
+      return
+    }
     try {
       const res = await fetchShopAiReport(storeId, id)
       if (res?.code === 200) onLatestChange(res.data)
@@ -129,6 +142,8 @@ function ReportHistory({ storeId, latest, onLatestChange }: { storeId: number; l
 }
 
 export default function ShopAnalytics() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const [stores, setStores] = useState<ShopStore[]>([])
   const [storeId, setStoreId] = useState<number | undefined>()
   const [range, setRange] = useState(7)
@@ -142,6 +157,11 @@ export default function ShopAnalytics() {
   const selectedStore = useMemo(() => stores.find(store => store.id === storeId), [stores, storeId])
 
   const loadStores = async () => {
+    if (isDemo) {
+      setStores(demoShopStores)
+      setStoreId(current => current || demoShopStores[0].id)
+      return
+    }
     try {
       const res = await fetchShopStores()
       if (res?.code !== 200) throw new Error(res?.message || '加载店铺失败')
@@ -151,6 +171,13 @@ export default function ShopAnalytics() {
     } catch (e) { setNotice({ type: 'error', text: errorText(e, '加载店铺失败') }) }
   }
   const loadOverview = async (nextStoreId = storeId, nextRange = range) => {
+    if (isDemo) {
+      const data = getDemoShopOverview()
+      setOverview(data)
+      setSelectedReport(data.aiReport || null)
+      setLoading(false)
+      return
+    }
     const currentRequest = ++overviewRequestId.current
     setLoading(true)
     try {
@@ -166,13 +193,14 @@ export default function ShopAnalytics() {
       if (currentRequest === overviewRequestId.current) setLoading(false)
     }
   }
-  useEffect(() => { loadStores() }, [])
+  useEffect(() => { loadStores() }, [isDemo])
   useEffect(() => {
     if (!storeId) return
     setOverview(null); setSelectedReport(null); setShowImport(false); loadOverview(storeId, range)
-  }, [storeId, range])
+  }, [storeId, range, isDemo])
 
   const handleDemoData = async () => {
+    if (isDemo) return
     setActing(true); setNotice(null)
     try {
       const res = await generateShopDemoData(storeId)
@@ -182,6 +210,7 @@ export default function ShopAnalytics() {
     } catch (e) { setNotice({ type: 'error', text: errorText(e, '生成模拟数据失败') }) } finally { setActing(false) }
   }
   const handleAiReport = async () => {
+    if (isDemo) return
     setActing(true); setNotice(null)
     try {
       const res = await generateShopAiReport(storeId)
@@ -191,6 +220,7 @@ export default function ShopAnalytics() {
     } catch (e) { setNotice({ type: 'error', text: errorText(e, '生成经营日报失败') }) } finally { setActing(false) }
   }
   const handleImported = async () => {
+    if (isDemo) return
     await loadOverview(storeId, range)
     setNotice({ type: 'success', text: '真实数据导入成功，分析结果已刷新' })
   }
@@ -199,9 +229,10 @@ export default function ShopAnalytics() {
 
   if (loading && !overview) return <div className="loading">加载中...</div>
   return <div className="shop-analytics-page">
-    <div className="shop-hero"><div><h1>店铺分析</h1><p>导入真实经营数据，分析销售、商品、客户和库存；也可生成演示数据体验功能。</p><div className="shop-platform-tags"><span>淘宝</span><span>抖店</span><span>视频号小店</span><span>拼多多</span><span>快手小店</span></div></div><div className="shop-actions"><select value={storeId || ''} onChange={e => setStoreId(Number(e.target.value) || undefined)}>{stores.length === 0 ? <option value="">默认店铺</option> : stores.map(store => <option key={store.id} value={store.id}>{store.storeName} · {platformLabels[store.platform] || store.platform}</option>)}</select><select value={range} onChange={e => setRange(Number(e.target.value))}><option value={7}>近 7 日</option><option value={30}>近 30 日</option></select><button disabled={!storeId} onClick={() => setShowImport(true)}>导入真实数据</button><button className="shop-btn-secondary" disabled={acting} onClick={handleDemoData}>生成演示数据</button><button disabled={acting || !overview} onClick={handleAiReport}>生成经营日报</button></div></div>
+    {isDemo && <DemoNotice />}
+    <div className="shop-hero"><div><h1>店铺分析</h1><p>导入真实经营数据，分析销售、商品、客户和库存；也可生成演示数据体验功能。</p><div className="shop-platform-tags"><span>淘宝</span><span>抖店</span><span>视频号小店</span><span>拼多多</span><span>快手小店</span></div></div><div className="shop-actions"><select value={storeId || ''} onChange={e => setStoreId(Number(e.target.value) || undefined)}>{stores.length === 0 ? <option value="">默认店铺</option> : stores.map(store => <option key={store.id} value={store.id}>{store.storeName} · {platformLabels[store.platform] || store.platform}</option>)}</select><select value={range} disabled={isDemo} onChange={e => setRange(Number(e.target.value))}><option value={7}>近 7 日</option><option value={30}>近 30 日</option></select><button disabled={isDemo || !storeId} onClick={() => { if (!isDemo) setShowImport(true) }}>导入真实数据</button><button className="shop-btn-secondary" disabled={isDemo || acting} onClick={handleDemoData}>生成演示数据</button><button disabled={isDemo || acting || !overview} onClick={handleAiReport}>生成经营日报</button></div></div>
     {notice && <div className={`shop-message ${notice.type}`}>{notice.text}{notice.type === 'error' && <button onClick={() => loadOverview(storeId, range)}>重试</button>}</div>}
-    {!overview ? <div className="shop-empty-state"><h2>暂无店铺分析数据</h2><p>请先导入真实 CSV 数据，或生成演示数据体验完整分析流程。</p>{storeId && <button onClick={() => setShowImport(true)}>导入真实数据</button>}</div> : <><div className="shop-store-line">当前店铺：<strong>{selectedStore?.storeName || '默认店铺'}</strong><span>{platformLabels[selectedStore?.platform || 'manual']}</span><em>分析日期：{overview.analysisDate} · 近 {overview.requestedRange} 日 · {overview.effectiveDays} 个有效数据日</em></div>{!isToday && <div className="shop-data-date-warning">今天暂无经营汇总，当前展示最近数据日 {overview.analysisDate}，不会将历史数据冒充今日。</div>}<div className="shop-metrics-grid"><MetricCard label={`${metricPrefix}销售额`} value={money(overview.today.salesAmount)} hint={`较前一日 ${rate(overview.today.salesChangeRate)}`} tone="green" /><MetricCard label={`${metricPrefix}订单数`} value={`${overview.today.orderCount} 单`} hint={`较前一日 ${rate(overview.today.orderChangeRate)}`} tone="purple" /><MetricCard label="客单价" value={money(overview.today.averageOrderValue)} hint={`${overview.today.buyerCount} 位买家`} /><MetricCard label="复购用户" value={`${overview.today.repeatCustomerCount} 人`} hint={`高价值客户 ${overview.customers.highValueCustomerCount} 人`} /></div><div className="shop-grid-two"><ProductList title={`爆款商品 · 近 ${overview.requestedRange} 日`} items={overview.hotProducts} empty="暂无爆款商品" /><ProductList title={`滞销商品 · 近 ${overview.requestedRange} 日`} items={overview.slowProducts} empty="暂无明显滞销商品" slow /></div><div className="shop-grid-two"><CustomerProfile overview={overview} /><ActivitySuggestions items={overview.activitySuggestions} /></div><SalesTrend overview={overview} /><ReplenishmentTable items={overview.replenishmentSuggestions} /><div className="shop-panel shop-panel-wide shop-ai-report"><div className="shop-section-header"><h2>经营日报</h2><button disabled={acting} onClick={handleAiReport}>重新生成</button></div><div className="shop-report-layout"><div className="shop-report-content">{selectedReport?.content ? <ReactMarkdown>{selectedReport.content}</ReactMarkdown> : <div className="shop-empty-small">暂无经营日报，点击生成后查看。</div>}</div>{storeId && <ReportHistory storeId={storeId} latest={selectedReport} onLatestChange={setSelectedReport} />}</div></div></>}
-    {showImport && storeId && <CsvImportModal storeId={storeId} onClose={() => setShowImport(false)} onImported={handleImported} />}
+    {!overview ? <div className="shop-empty-state"><h2>暂无店铺分析数据</h2><p>请先导入真实 CSV 数据，或生成演示数据体验完整分析流程。</p>{storeId && <button onClick={() => setShowImport(true)}>导入真实数据</button>}</div> : <><div className="shop-store-line">当前店铺：<strong>{selectedStore?.storeName || '默认店铺'}</strong><span>{platformLabels[selectedStore?.platform || 'manual']}</span><em>分析日期：{overview.analysisDate} · 近 {overview.requestedRange} 日 · {overview.effectiveDays} 个有效数据日</em></div>{!isToday && <div className="shop-data-date-warning">今天暂无经营汇总，当前展示最近数据日 {overview.analysisDate}，不会将历史数据冒充今日。</div>}<div className="shop-metrics-grid"><MetricCard label={`${metricPrefix}销售额`} value={money(overview.today.salesAmount)} hint={`较前一日 ${rate(overview.today.salesChangeRate)}`} tone="green" /><MetricCard label={`${metricPrefix}订单数`} value={`${overview.today.orderCount} 单`} hint={`较前一日 ${rate(overview.today.orderChangeRate)}`} tone="purple" /><MetricCard label="客单价" value={money(overview.today.averageOrderValue)} hint={`${overview.today.buyerCount} 位买家`} /><MetricCard label="复购用户" value={`${overview.today.repeatCustomerCount} 人`} hint={`高价值客户 ${overview.customers.highValueCustomerCount} 人`} /></div><div className="shop-grid-two"><ProductList title={`爆款商品 · 近 ${overview.requestedRange} 日`} items={overview.hotProducts} empty="暂无爆款商品" /><ProductList title={`滞销商品 · 近 ${overview.requestedRange} 日`} items={overview.slowProducts} empty="暂无明显滞销商品" slow /></div><div className="shop-grid-two"><CustomerProfile overview={overview} /><ActivitySuggestions items={overview.activitySuggestions} /></div><SalesTrend overview={overview} /><ReplenishmentTable items={overview.replenishmentSuggestions} /><div className="shop-panel shop-panel-wide shop-ai-report"><div className="shop-section-header"><h2>经营日报</h2><button disabled={isDemo || acting} onClick={handleAiReport}>重新生成</button></div><div className="shop-report-layout"><div className="shop-report-content">{selectedReport?.content ? <ReactMarkdown>{selectedReport.content}</ReactMarkdown> : <div className="shop-empty-small">暂无经营日报，点击生成后查看。</div>}</div>{storeId && <ReportHistory storeId={storeId} latest={selectedReport} onLatestChange={setSelectedReport} isDemo={isDemo} />}</div></div></>}
+    {!isDemo && showImport && storeId && <CsvImportModal storeId={storeId} onClose={() => setShowImport(false)} onImported={handleImported} />}
   </div>
 }

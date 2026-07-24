@@ -16,12 +16,16 @@ public class UserPrincipal implements UserDetails {
     private Long userId;
     private String email;
     private String role;
+    private String accountType;
     private String passwordHash;
     private boolean enabled;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + role));
+        return List.of(
+                new SimpleGrantedAuthority("ROLE_" + role),
+                new SimpleGrantedAuthority("ACCOUNT_" + accountType)
+        );
     }
 
     @Override public String getPassword() { return passwordHash; }

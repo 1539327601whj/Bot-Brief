@@ -2,6 +2,8 @@ package com.ai.daily.task;
 
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
+import com.ai.daily.entity.User;
+import com.ai.daily.mapper.UserMapper;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.service.push.PushDispatcher;
@@ -13,9 +15,11 @@ import org.springframework.stereotype.Component;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 每分钟扫描所有订阅，命中 morning_time / evening_time == 当前时间(HH:mm) 的用户，
@@ -34,6 +38,7 @@ public class ScheduledPushTask {
     private final SubscriptionService subscriptionService;
     private final ReportService reportService;
     private final PushDispatcher pushDispatcher;
+    private final UserMapper userMapper;
 
     /** 防重复：key = "userId:edition:HHmm"，最多保留最近 5 分钟的 key */
     private final Set<String> recentlyPushed = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
@@ -52,6 +57,20 @@ public class ScheduledPushTask {
 
     private void dispatchEdition(String edition, LocalTime now, String hm) {
         List<Subscription> due = subscriptionService.findDueForEdition(edition, now);
+        if (due.isEmpty()) return;
+
+        Map<Long, User> users = userMapper.selectBatchIds(
+                        due.stream().map(Subscription::getUserId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        due = due.stream()
+                .filter(s -> {
+                    User user = users.get(s.getUserId());
+                    return user != null
+                            && Boolean.TRUE.equals(user.getEnabled())
+                            && !User.ACCOUNT_DEMO.equals(user.getAccountType());
+                })
+                .toList();
         if (due.isEmpty()) return;
 
         Report report = reportService.getLatestByEdition(edition);
