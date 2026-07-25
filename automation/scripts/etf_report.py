@@ -41,7 +41,7 @@ ETF_LIST = [
 
 LLM_MODELS = [
     {
-        "name": "deepseek-chat",
+        "name": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
         "base_url": "https://api.deepseek.com/",
         "api_key_env": "DEEPSEEK_API_KEY",
         "description": "DeepSeek V3 - 主用模型",

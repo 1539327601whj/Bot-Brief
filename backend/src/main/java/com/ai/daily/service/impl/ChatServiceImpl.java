@@ -30,7 +30,7 @@ public class ChatServiceImpl implements ChatService {
     @Value("${deepseek.api-key:}")
     private String deepseekApiKey;
 
-    @Value("${deepseek.model:deepseek-chat}")
+    @Value("${deepseek.model:deepseek-v4-pro}")
     private String deepseekModel;
 
     @Value("${deepseek.base-url:https://api.deepseek.com}")

@@ -333,7 +333,7 @@ def format_news_for_prompt(items, edition="morning"):
 # 支持：DeepSeek、OpenAI、Azure OpenAI 等兼容 OpenAI 协议的模型
 LLM_MODELS = [
     {
-        "name": "deepseek-chat",
+        "name": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
         "base_url": "https://api.deepseek.com/",
         "api_key_env": "DEEPSEEK_API_KEY",
         "description": "DeepSeek V3 - 主用模型"
