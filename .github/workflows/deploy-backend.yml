@@ -84,6 +84,18 @@ jobs:
             MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
             EOF
 
+            schema_ready=$(docker run --rm \
+              --add-host=host.docker.internal:host-gateway \
+              -e MYSQL_PWD='${{ secrets.DB_PASSWORD }}' \
+              mysql:8.0 \
+              mysql -N -h '${{ secrets.DB_HOST }}' -P '${{ secrets.DB_PORT }}' \
+              -u '${{ secrets.DB_USER }}' '${{ secrets.DB_NAME }}' \
+              -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';")
+            if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
+              echo "Database schema is missing V7. Back up the database and run backend/sql/V7__market_data_history.sql before deployment."
+              exit 1
+            fi
+
             docker rm -f bot-brief-backend || true
             docker compose --env-file .env.deploy up -d --build backend
             docker image prune -f

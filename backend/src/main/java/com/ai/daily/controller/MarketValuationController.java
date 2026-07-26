@@ -28,18 +28,27 @@ public class MarketValuationController {
         if (ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token)) {
             return Result.error(401, "入库 token 无效");
         }
-        marketValuationHistoryService.upsert(dto);
-        return Result.ok("估值历史已保存", null);
+        try {
+            marketValuationHistoryService.upsert(dto);
+            return Result.ok("估值历史已保存", null);
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
     }
 
     @GetMapping("/{indexCode}/latest")
     public Result<List<MarketValuationHistory>> latest(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @PathVariable String indexCode,
+            @RequestParam String percentileMethod,
             @RequestParam(defaultValue = "7") int limit) {
         if (ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token)) {
             return Result.error(401, "查询 token 无效");
         }
-        return Result.ok(marketValuationHistoryService.latest(indexCode, limit));
+        try {
+            return Result.ok(marketValuationHistoryService.latest(indexCode, percentileMethod, limit));
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
     }
 }

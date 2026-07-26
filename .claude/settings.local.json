@@ -17,7 +17,20 @@
       "Bash(netstat -ano)",
       "Bash(powershell.exe *)",
       "Bash(mysql *)",
-      "Bash(jcmd 32824 *)"
+      "Bash(jcmd 32824 *)",
+      "WebFetch(domain:www.csindex.com.cn)",
+      "WebFetch(domain:danjuanfunds.com)",
+      "WebFetch(domain:push2.eastmoney.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:push2his.eastmoney.com)",
+      "Bash(python3 -m py_compile \"D:/programme/cursor/project/Brief/.claude/worktrees/agent-a9e0174a0dfc128e8/automation/scripts/etf_report.py\")",
+      "Bash(where.exe python *)",
+      "Bash(py *)",
+      "Bash(PYTHONIOENCODING=utf-8 py *)",
+      "mcp__ide__getDiagnostics",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 PYTHONIOENCODING=utf-8 python *)",
+      "Bash(command -v mysql)",
+      "Bash(command -v docker)"
     ]
   }
 }

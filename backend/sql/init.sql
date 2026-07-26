@@ -24,13 +24,37 @@ CREATE TABLE IF NOT EXISTS market_valuation_history (
     index_name VARCHAR(100) NOT NULL COMMENT '指数名称',
     pe_ttm DECIMAL(12, 4) DEFAULT NULL COMMENT 'PE TTM',
     pe_percentile DECIMAL(8, 4) DEFAULT NULL COMMENT 'PE 分位',
+    percentile_method VARCHAR(64) NOT NULL COMMENT 'PE 分位计算口径',
     valuation_level VARCHAR(20) DEFAULT NULL COMMENT '估值状态',
     trade_date DATE NOT NULL COMMENT '交易日期',
     source VARCHAR(100) DEFAULT NULL COMMENT '数据来源',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    UNIQUE KEY uk_index_trade_date (index_code, trade_date),
-    INDEX idx_index_trade_date (index_code, trade_date)
+    UNIQUE KEY uk_index_trade_date_method (index_code, trade_date, percentile_method),
+    INDEX idx_index_method_trade_date (index_code, percentile_method, trade_date DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='市场估值历史表';
+
+CREATE TABLE IF NOT EXISTS etf_price_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    fund_code VARCHAR(32) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
+    trade_date DATE NOT NULL COMMENT '交易日期',
+    open_price DECIMAL(18, 6) NOT NULL COMMENT '开盘价',
+    high_price DECIMAL(18, 6) NOT NULL COMMENT '最高价',
+    low_price DECIMAL(18, 6) NOT NULL COMMENT '最低价',
+    close_price DECIMAL(18, 6) NOT NULL COMMENT '收盘价',
+    adjustment_type VARCHAR(16) NOT NULL COMMENT '复权类型，例如 QFQ',
+    source VARCHAR(100) NOT NULL COMMENT '数据来源',
+    fetched_at DATETIME NOT NULL COMMENT '数据抓取时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    CONSTRAINT chk_etf_price_positive CHECK (open_price > 0 AND high_price > 0 AND low_price > 0 AND close_price > 0),
+    CONSTRAINT chk_etf_price_ohlc CHECK (high_price >= open_price AND high_price >= close_price AND low_price <= open_price AND low_price <= close_price),
+    CONSTRAINT chk_etf_adjustment_type CHECK (adjustment_type IN ('QFQ')),
+    CONSTRAINT chk_etf_source_not_blank CHECK (CHAR_LENGTH(TRIM(source)) > 0),
+    UNIQUE KEY uk_etf_price_identity (fund_code, trade_date, adjustment_type, source),
+    INDEX idx_etf_price_latest (fund_code, adjustment_type, trade_date DESC),
+    INDEX idx_etf_price_fetched_at (fetched_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ETF 历史行情表';
 
 CREATE TABLE IF NOT EXISTS subscription (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',

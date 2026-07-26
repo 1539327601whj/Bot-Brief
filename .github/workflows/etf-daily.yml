@@ -12,6 +12,11 @@ on:
         options:
           - morning
           - evening
+      sync_only:
+        description: '仅回填并校验 ETF 价格历史，不推送日报'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -24,6 +29,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: automation/requirements.txt
       - name: 安装依赖
         run: pip install -r automation/requirements.txt -q
       - name: 生成市场观察 & 推送
@@ -34,5 +41,6 @@ jobs:
           BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
           REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
           EDITION: ${{ github.event.inputs.edition || 'auto' }}
+          ETF_SYNC_ONLY: ${{ github.event.inputs.sync_only || 'false' }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python automation/scripts/etf_report.py

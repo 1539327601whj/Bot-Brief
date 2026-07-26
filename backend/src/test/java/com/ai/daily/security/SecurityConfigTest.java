@@ -37,6 +37,7 @@ class SecurityConfigTest {
                 "/api/stats/dashboard", "/api/chat", "/api/content-growth/overview",
                 "/api/shop/analytics/overview", "/api/subscription", "/api/channels",
                 "/api/push-logs", "/api/admin/invite-codes", "/api/market-valuations/000300/latest",
+                "/api/etf-prices/510300/latest", "/api/etf-prices/ingest",
                 "/api/health", "/api/push/wechat"
         })
         String ok() {
@@ -56,6 +57,10 @@ class SecurityConfigTest {
     @Test
     void anonymousCanOnlyReachExistingPublicReadEndpoint() throws Exception {
         mockMvc.perform(get("/api/market-valuations/000300/latest"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/etf-prices/510300/latest"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/etf-prices/ingest"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/reports"))

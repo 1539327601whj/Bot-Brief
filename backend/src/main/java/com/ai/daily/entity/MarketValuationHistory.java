@@ -24,6 +24,8 @@ public class MarketValuationHistory {
 
     private BigDecimal pePercentile;
 
+    private String percentileMethod;
+
     private String valuationLevel;
 
     private LocalDate tradeDate;

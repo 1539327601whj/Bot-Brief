@@ -10,5 +10,5 @@ public interface MarketValuationHistoryService extends IService<MarketValuationH
 
     void upsert(MarketValuationIngestDTO dto);
 
-    List<MarketValuationHistory> latest(String indexCode, int limit);
+    List<MarketValuationHistory> latest(String indexCode, String percentileMethod, int limit);
 }
