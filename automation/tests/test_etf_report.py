@@ -1,7 +1,7 @@
 import importlib.util
 import os
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -36,6 +36,60 @@ def prices(source="测试源", count=25):
     } for day in range(1, min(count, 30) + 1)]
 
 
+def complete_snapshot(etf=ETF):
+    method = etf["percentile_method"]
+    return {
+        "etf": etf,
+        "quote": {
+            "latest_price": 4.1,
+            "previous_close": 4.0,
+            "pct_change": 2.5,
+            "data_time": "2026-07-27 15:00:00",
+            "source": "行情测试源",
+            "data_status": "external",
+            "error": None,
+        },
+        "price_context": {
+            "previous_close": 4.0,
+            "previous_date": "2026-07-24",
+            "week_baseline": 3.9,
+            "week_baseline_date": "2026-07-20",
+            "week_pct_change": 5.13,
+            "month_baseline": 3.8,
+            "month_baseline_date": "2026-06-27",
+            "month_pct_change": 7.89,
+            "source": "前复权测试源",
+            "data_status": "external_cached",
+            "as_of": "2026-07-24",
+            "error": None,
+        },
+        "premium": {
+            "premium_rate": 0.2,
+            "level": "轻微溢价",
+            "source": "溢价测试源",
+            "data_time": "2026-07-27 15:00:00",
+            "reference_only": False,
+            "error": None,
+        },
+        "valuation": {
+            "pe_ttm": 12.5,
+            "pe_percentile": 45.0,
+            "percentile_method": method,
+            "valuation_level": "估值适中",
+            "source": "估值测试源",
+            "updated_at": "2026-07-27",
+            "data_status": "external",
+            "error": None,
+        },
+        "pe_history": [{
+            "tradeDate": "2026-07-24",
+            "peTtm": 12.0,
+            "pePercentile": 40.0,
+            "percentileMethod": method,
+        }],
+    }
+
+
 class HttpTests(unittest.TestCase):
     def test_retry_session_limits_get_to_three_attempts(self):
         session = report.build_http_session()
@@ -67,6 +121,21 @@ class QuoteTests(unittest.TestCase):
         sina.return_value = {"source": "新浪财经"}
         self.assertEqual(report.fetch_etf_quote(ETF)["source"], "新浪财经")
         sina.assert_called_once_with(ETF)
+
+    @patch.object(report, "http_get")
+    def test_premium_uses_stock_get_code_field(self, get):
+        get.return_value = response({"data": {
+            "f57": ETF["code"],
+            "f124": int(NOW.timestamp()),
+            "f2": 4.1,
+            "f441": 4.0,
+            "f402": -2.5,
+        }})
+        quote = {"latest_price": 4.1, "data_time": "2026-07-27 15:00:00"}
+        premium = report.fetch_etf_premium(ETF, quote)
+        self.assertAlmostEqual(premium["premium_rate"], 2.5)
+        self.assertIsNone(premium["error"])
+        self.assertIn("f57", get.call_args.kwargs["params"]["fields"])
 
 
 class HistoryTests(unittest.TestCase):
@@ -268,6 +337,67 @@ class ValuationTests(unittest.TestCase):
         fetch.side_effect = [{"status": "transport_error", "items": None}] * 5
         self.assertIsNone(report.fetch_archived_valuation_on_or_before(ETF, report.date(2026, 7, 26), 10))
         self.assertEqual(fetch.call_count, 3)
+
+
+class ReportTests(unittest.TestCase):
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_report_is_objective_and_includes_provenance(self, _):
+        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening")
+        for required in (
+            "ETF 市场数据简报", "PE(TTM)：12.50", "PE分位：45%",
+            "中证 PE(TTM) 滚动10年分位", "估值测试源", "2026-07-27",
+            "外部数据已校验", "数据风险与异常",
+        ):
+            self.assertIn(required, text)
+        for forbidden in ("加仓", "减仓", "正常定投", "今日动作", "A股观察", "观察线"):
+            self.assertNotIn(forbidden, text)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_premium_failure_is_included_in_data_risks(self, _):
+        snapshot = complete_snapshot()
+        snapshot["premium"].update({
+            "premium_rate": None,
+            "source": "不可确认",
+            "data_time": "不可确认",
+            "error": "溢价源失败",
+        })
+        text = report.build_programmatic_report([snapshot], "market_watch_evening")
+        self.assertIn("溢折价：溢价源失败", text)
+        self.assertNotIn("本次未发现缺失字段", text)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_large_valuation_change_is_labeled_as_possible_revision(self, _):
+        snapshot = complete_snapshot()
+        snapshot["pe_history"] = [{
+            "tradeDate": "2026-07-26",
+            "peTtm": 15.0,
+            "pePercentile": 70.0,
+            "percentileMethod": ETF["percentile_method"],
+        }]
+        text = report.build_programmatic_report([snapshot], "market_watch_evening")
+        self.assertIn("可能包含数据源成分、盈利或历史样本修订", text)
+
+    def test_weekend_skip_allows_dry_run_and_force_run(self):
+        saturday = NOW + timedelta(days=5)
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(report.should_skip_weekend_report(saturday, False))
+            self.assertFalse(report.should_skip_weekend_report(saturday, True))
+        with patch.dict(os.environ, {"ETF_FORCE_RUN": "true"}, clear=True):
+            self.assertFalse(report.should_skip_weekend_report(saturday, False))
+
+    @patch.object(report, "build_snapshot")
+    @patch.object(report, "now_beijing", return_value=NOW + timedelta(days=5))
+    def test_weekend_main_exits_before_fetching(self, _, build_snapshot):
+        with patch.dict(os.environ, {}, clear=True):
+            report.main()
+        build_snapshot.assert_not_called()
+
+    @patch.object(report, "sync_price_history", return_value=True)
+    @patch.object(report, "now_beijing", return_value=NOW + timedelta(days=5))
+    def test_weekend_sync_only_still_runs(self, _, sync_price_history):
+        with patch.dict(os.environ, {"ETF_SYNC_ONLY": "true"}, clear=True):
+            report.main()
+        sync_price_history.assert_called_once_with()
 
 
 if __name__ == "__main__":

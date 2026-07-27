@@ -30,7 +30,9 @@
       "mcp__ide__getDiagnostics",
       "Bash(PYTHONDONTWRITEBYTECODE=1 PYTHONIOENCODING=utf-8 python *)",
       "Bash(command -v mysql)",
-      "Bash(command -v docker)"
+      "Bash(command -v docker)",
+      "WebSearch",
+      "Bash(PYTHONIOENCODING=utf-8 ETF_DRY_RUN=true EDITION=evening py *)"
     ]
   }
 }
