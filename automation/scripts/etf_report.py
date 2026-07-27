@@ -44,6 +44,13 @@ ETF_LIST = [
     },
 ]
 
+A_SHARE_PICK_COUNT = 2
+A_SHARE_PAGE_SIZE = 100
+A_SHARE_MARKET_FS = "m:1+t:2,m:0+t:6,m:0+t:80"
+A_SHARE_MIN_AMOUNT = 300000000
+A_SHARE_MIN_MARKET_CAP = 10000000000
+A_SHARE_MAX_ABS_PCT_CHANGE = 6
+A_SHARE_BANNED_NAME_KEYWORDS = ("ST", "*ST", "退")
 CSI300_PE_WINDOW_YEARS = 10
 CURRENT_VALUATION_MAX_STALENESS_DAYS = 15
 VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/master/json/{date}.json"
@@ -1509,6 +1516,122 @@ def sanitize_report(report: str) -> str:
     return report.rstrip() + f"\n\n> {DISCLAIMER}"
 
 
+def fetch_a_share_candidates() -> list[dict[str, Any]]:
+    resp = http_get(
+        "https://push2.eastmoney.com/api/qt/clist/get",
+        params={
+            "pn": 1,
+            "pz": A_SHARE_PAGE_SIZE,
+            "po": 1,
+            "np": 1,
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f6",
+            "fs": A_SHARE_MARKET_FS,
+            "fields": "f12,f14,f2,f3,f6,f8,f9,f10,f15,f16,f20,f23,f24,f25,f62",
+        },
+        timeout=(4, 10),
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    resp.raise_for_status()
+    return resp.json().get("data", {}).get("diff", []) or []
+
+
+def normalize_a_share(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": str(item.get("f12") or ""),
+        "name": str(item.get("f14") or ""),
+        "latest_price": finite_positive(item.get("f2")),
+        "pct_change": to_optional_float(item.get("f3")),
+        "amount": finite_positive(item.get("f6")),
+        "turnover_rate": to_optional_float(item.get("f8")),
+        "pe_dynamic": finite_positive(item.get("f9")),
+        "volume_ratio": to_optional_float(item.get("f10")),
+        "high": finite_positive(item.get("f15")),
+        "low": finite_positive(item.get("f16")),
+        "total_market_cap": finite_positive(item.get("f20")),
+        "pb": finite_positive(item.get("f23")),
+        "pct_change_60d": to_optional_float(item.get("f24")),
+        "pct_change_ytd": to_optional_float(item.get("f25")),
+        "main_net_inflow": to_optional_float(item.get("f62")),
+    }
+
+
+def is_a_share_candidate(stock: dict[str, Any]) -> bool:
+    name = stock["name"].upper()
+    return bool(
+        stock["code"] and stock["name"]
+        and not any(keyword in name for keyword in A_SHARE_BANNED_NAME_KEYWORDS)
+        and stock["latest_price"] is not None and stock["latest_price"] > 2
+        and stock["pct_change"] is not None and abs(stock["pct_change"]) <= A_SHARE_MAX_ABS_PCT_CHANGE
+        and stock["amount"] is not None and stock["amount"] >= A_SHARE_MIN_AMOUNT
+        and stock["total_market_cap"] is not None and stock["total_market_cap"] >= A_SHARE_MIN_MARKET_CAP
+        and stock["pe_dynamic"] is not None and stock["pe_dynamic"] <= 80
+        and stock["pb"] is not None and stock["pb"] <= 10
+        and stock["turnover_rate"] is not None and 0.3 <= stock["turnover_rate"] <= 8
+    )
+
+
+def score_a_share(stock: dict[str, Any]) -> float:
+    liquidity = min(stock["amount"] / 2_000_000_000, 1) * 30
+    size = min(stock["total_market_cap"] / 80_000_000_000, 1) * 20
+    stability = max(0, 1 - abs(stock["pct_change"]) / A_SHARE_MAX_ABS_PCT_CHANGE) * 15
+    valuation = max(0, 1 - stock["pe_dynamic"] / 80) * 10 + max(0, 1 - stock["pb"] / 10) * 5
+    volume = 10 if 0.8 <= (stock["volume_ratio"] or 0) <= 2.5 else 3
+    inflow = 5 if (stock["main_net_inflow"] or 0) > 0 else 0
+    trend_60d = stock["pct_change_60d"]
+    trend = 10 if trend_60d is not None and -10 <= trend_60d <= 30 else 3
+    return liquidity + size + stability + valuation + volume + inflow + trend
+
+
+def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
+    reasons = [
+        f"成交额 {stock['amount'] / 100_000_000:.1f} 亿元",
+        f"动态PE {stock['pe_dynamic']:.1f}、PB {stock['pb']:.1f}",
+    ]
+    if (stock["main_net_inflow"] or 0) > 0:
+        reasons.append(f"主力净流入 {stock['main_net_inflow'] / 10_000:.0f} 万元")
+    day_change = stock["pct_change"] or 0
+    trend_60d = stock["pct_change_60d"]
+    if day_change > 0 and trend_60d is not None and trend_60d > 0:
+        trend = "量价与中期方向偏强；若后续成交额维持且不跌破当日低点，强势可能延续。"
+    elif day_change < 0 and trend_60d is not None and trend_60d < 0:
+        trend = "短中期仍偏弱；只有放量企稳并收复当日高点后，趋势才可能改善。"
+    else:
+        trend = "短期更可能维持震荡；需观察后续量能和当日高低点突破方向。"
+    risks = []
+    if stock["pe_dynamic"] > 50 or stock["pb"] > 6:
+        risks.append("估值偏高")
+    if abs(day_change) >= 4:
+        risks.append("单日波动较大")
+    if (stock["main_net_inflow"] or 0) < 0:
+        risks.append("主力资金净流出")
+    if trend_60d is not None and trend_60d > 30:
+        risks.append("近60日涨幅较大")
+    if not risks:
+        risks.append("机械筛选未覆盖基本面、公告和行业事件")
+    return {
+        "name": stock["name"],
+        "code": stock["code"],
+        "reason": "；".join(reasons) + "。",
+        "trend": trend,
+        "risk": "；".join(risks) + "。",
+    }
+
+
+def build_a_share_observations() -> list[dict[str, str]]:
+    try:
+        stocks = [normalize_a_share(item) for item in fetch_a_share_candidates()]
+        candidates = [stock for stock in stocks if is_a_share_candidate(stock)]
+        candidates.sort(key=score_a_share, reverse=True)
+        picks = candidates[:A_SHARE_PICK_COUNT]
+        print(f"  ✅ A股观察候选筛选完成：{len(picks)} 只")
+        return [a_share_observation(stock) for stock in picks]
+    except Exception as e:
+        print(f"  ⚠️ A股观察候选抓取失败: {e}")
+        return []
+
+
 def etf_short_name(snapshot: dict[str, Any]) -> str:
     return snapshot["etf"]["name"].split()[0]
 
@@ -1590,76 +1713,93 @@ def snapshot_data_issues(snapshot: dict[str, Any]) -> list[str]:
     return issues
 
 
-def build_programmatic_report(snapshots: list[dict[str, Any]], edition: str) -> str:
+def build_programmatic_report(
+    snapshots: list[dict[str, Any]],
+    edition: str,
+    stock_observations: Optional[list[dict[str, str]]] = None,
+) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
     lines = [
-        f"> **ETF 市场数据简报 · {today}（{edition_label(edition)}）**",
+        f"> **ETF 行情日报 · {today}（{edition_label(edition)}）**",
         "",
-        "## 数据状态",
+        "## 先看结论",
         f"- {build_market_direction_summary(snapshots)}",
     ]
     for snapshot in snapshots:
         quote = snapshot["quote"]
-        context = snapshot["price_context"]
         valuation = snapshot["valuation"]
         lines.append(
-            f"- {etf_short_name(snapshot)}：行情 {data_status_label(quote.get('data_status'))}；"
-            f"价格历史 {data_status_label(context.get('data_status'))}；"
-            f"估值 {data_status_label(valuation.get('data_status'))}。"
+            f"- {etf_short_name(snapshot)}：该交易日 {fmt_change_pct(quote.get('pct_change'))}；"
+            f"PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}；"
+            f"PE分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}。"
         )
-    lines.append("- 两只指数采用不同 PE 分位口径，只能分别做自身历史比较，不应横向比较分位高低。")
+    lines.append("- 两只指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
 
-    lines.extend(["", "## 价格与区间表现"])
+    lines.extend(["", "## 两只ETF变化"])
     for snapshot in snapshots:
         quote = snapshot["quote"]
         context = snapshot["price_context"]
         current_price = fmt_price(quote.get("latest_price"))
         price_label = "最近确认收盘价" if quote.get("data_status") == "cached_close" else "行情价"
         lines.extend([
-            f"### {etf_short_name(snapshot)}（{snapshot['etf']['code']}）",
-            f"- {price_label}：{current_price}（截至 {quote.get('data_time') or '不可确认'}）；"
-            f"该交易日 {fmt_change_pct(quote.get('pct_change'))}。",
-            f"- 区间：上一交易日收盘{fmt_baseline_date(context.get('previous_date'))} "
-            f"{fmt_price(context.get('previous_close'))}；近一周 "
-            f"{fmt_change_pct(context.get('week_pct_change'))}（基准 {context.get('week_baseline_date') or '不可确认'}）；"
-            f"近一月 {fmt_change_pct(context.get('month_pct_change'))}"
-            f"（基准 {context.get('month_baseline_date') or '不可确认'}）。",
-            f"- 来源：行情 {quote.get('source') or '不可确认'}；价格历史 "
-            f"{context.get('source') or '不可确认'}（{PRICE_ADJUSTMENT_TYPE}，截至 "
-            f"{context.get('as_of') or '不可确认'}）。",
+            f"### {etf_short_name(snapshot)}",
+            f"- {price_label}（截至 {quote.get('data_time') or '不可确认'}）{current_price}｜该交易日 "
+            f"{fmt_change_pct(quote.get('pct_change'))}；行情源：{quote.get('source') or '不可确认'}。",
+            f"- 行情价 {current_price}｜上一交易日收盘{fmt_baseline_date(context.get('previous_date'))} "
+            f"{fmt_price(context.get('previous_close'))}",
+            f"- 行情价 {current_price}｜一周前价{fmt_baseline_date(context.get('week_baseline_date'))} "
+            f"{fmt_price(context.get('week_baseline'))}｜近一周 {fmt_change_pct(context.get('week_pct_change'))}",
+            f"- 行情价 {current_price}｜一月前价{fmt_baseline_date(context.get('month_baseline_date'))} "
+            f"{fmt_price(context.get('month_baseline'))}｜近一月 {fmt_change_pct(context.get('month_pct_change'))}",
+            f"- 历史源：{context.get('source') or '不可确认'}；"
+            f"{data_status_label(context.get('data_status'))}；截至 {context.get('as_of') or '不可确认'}。",
         ])
 
-    lines.extend(["", "## PE与分位"])
+    lines.extend(["", "## PE分位变化"])
     for snapshot in snapshots:
         premium = snapshot["premium"]
         valuation = snapshot["valuation"]
         pe_context = build_pe_context(snapshot)
+        current = fmt_pe_percentile(pe_context["current"])
         method = valuation.get("percentile_method") or valuation.get("percentileMethod")
         lines.extend([
             f"### {etf_short_name(snapshot)}（{valuation.get('valuation_level') or '估值状态不可确认'}）",
-            f"- PE(TTM)：{fmt_number(valuation.get('pe_ttm'), 2)}；PE分位："
-            f"{fmt_pe_percentile(pe_context['current'])}（截至 "
-            f"{valuation_trade_date(valuation) or '不可确认'}）。",
-            f"- 分位变化：上一观测{fmt_baseline_date(pe_context['previous_date'])} "
-            f"{fmt_pe_change(pe_context['current'], pe_context['previous'])}；近一周 "
-            f"{fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}；近一月 "
-            f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}。",
-            f"- 口径：{percentile_method_label(method)}（{method or '不可确认'}）；来源："
-            f"{valuation.get('source') or '不可确认'}；状态："
-            f"{data_status_label(valuation.get('data_status'))}。",
-            f"- 场内参考溢价率：{format_premium(premium)}；来源："
-            f"{premium.get('source') or '不可确认'}（截至 {premium.get('data_time') or '不可确认'}）。",
+            f"- PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}｜当前PE分位 {current}｜估值日期 "
+            f"{valuation_trade_date(valuation) or '不可确认'}",
+            f"- 当前PE分位 {current}｜上一观测分位{fmt_baseline_date(pe_context['previous_date'])} "
+            f"{fmt_pe_percentile(pe_context['previous'])}｜本次观测 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['previous'])}",
+            f"- 当前PE分位 {current}｜一周前分位{fmt_baseline_date(pe_context['week_baseline_date'])} "
+            f"{fmt_pe_percentile(pe_context['week_baseline'])}｜近一周 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}",
+            f"- 当前PE分位 {current}｜一月前分位{fmt_baseline_date(pe_context['month_baseline_date'])} "
+            f"{fmt_pe_percentile(pe_context['month_baseline'])}｜近一月 "
+            f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
+            f"- 溢价：{format_premium(premium)}；估值源："
+            f"{valuation.get('source') or '不可确认'}；"
+            f"{data_status_label(valuation.get('data_status'))}；口径："
+            f"{percentile_method_label(method)}。",
         ])
 
-    lines.extend(["", "## 数据风险与异常"])
-    issues_found = False
-    for snapshot in snapshots:
-        for issue in snapshot_data_issues(snapshot):
-            issues_found = True
-            lines.append(f"- {etf_short_name(snapshot)}：{issue}。")
-    if not issues_found:
-        lines.append("- 本次未发现缺失字段、缓存降级或显著的估值单日跳变。")
-    lines.append("- 公开数据源可能在盘后修订历史值；报告保留真实来源、日期和口径，不用推测值补齐缺失数据。")
+    issues = [
+        f"{etf_short_name(snapshot)}：{issue}"
+        for snapshot in snapshots
+        for issue in snapshot_data_issues(snapshot)
+        if not issue.startswith("溢折价：IOPV日期与行情日期不一致")
+    ]
+    if issues:
+        lines.extend(["", "## 数据异常", *(f"- {issue}。" for issue in issues)])
+
+    lines.extend(["", "## A股观察候选"])
+    if stock_observations:
+        for stock in stock_observations:
+            lines.append(
+                f"- **{stock['name']}（{stock['code']}）**：{stock['reason']}"
+                f"趋势：{stock['trend']}风险：{stock['risk']}"
+            )
+    else:
+        lines.append("- 候选数据不可确认，本次不提供股票观察名单。")
+    lines.append("- 候选基于公开量价与估值机械筛选，仅作研究线索，不代表推荐或确定性预测。")
     return sanitize_report("\n".join(lines))
 
 
@@ -1715,7 +1855,9 @@ def convert_to_wework_markdown(md_text: str) -> str:
         return result
 
     summary_index = next(
-        (index for index, line in enumerate(out) if line == "> **数据风险与异常**"),
+        (index for index, line in enumerate(out) if line in (
+            "> **数据异常**", "> **A股观察候选**"
+        )),
         len(out),
     )
     tail = out[summary_index:]
@@ -1935,7 +2077,9 @@ def main() -> None:
                     fetch_valuation_history(snapshot["etf"]),
                 )
 
-    report = build_programmatic_report(snapshots, edition)
+    print("📡 正在筛选两只 A 股观察候选...")
+    stock_observations = build_a_share_observations()
+    report = build_programmatic_report(snapshots, edition, stock_observations)
 
     if dry_run:
         print("🧪 ETF_DRY_RUN 已开启，跳过本地报告文件写入")

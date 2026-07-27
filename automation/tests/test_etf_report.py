@@ -341,16 +341,48 @@ class ValuationTests(unittest.TestCase):
 
 class ReportTests(unittest.TestCase):
     @patch.object(report, "now_beijing", return_value=NOW)
-    def test_report_is_objective_and_includes_provenance(self, _):
-        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening")
+    def test_report_keeps_clear_layout_without_etf_advice(self, _):
+        stocks = [{
+            "name": "测试股份", "code": "600000",
+            "reason": "成交活跃且估值过滤通过。",
+            "trend": "短期更可能维持震荡。",
+            "risk": "需核对基本面和公告。",
+        }]
+        text = report.build_programmatic_report(
+            [complete_snapshot()], "market_watch_evening", stocks
+        )
         for required in (
-            "ETF 市场数据简报", "PE(TTM)：12.50", "PE分位：45%",
-            "中证 PE(TTM) 滚动10年分位", "估值测试源", "2026-07-27",
-            "外部数据已校验", "数据风险与异常",
+            "ETF 行情日报", "先看结论", "两只ETF变化", "PE分位变化",
+            "PE(TTM) 12.50", "PE分位 45%", "中证 PE(TTM) 滚动10年分位",
+            "估值测试源", "2026-07-27", "外部数据已校验",
+            "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
             self.assertIn(required, text)
-        for forbidden in ("加仓", "减仓", "正常定投", "今日动作", "A股观察", "观察线"):
+        for forbidden in ("加仓", "减仓", "正常定投", "今日动作", "观察线"):
             self.assertNotIn(forbidden, text)
+
+    def test_a_share_observation_is_conditional_and_traceable(self):
+        stock = {
+            "name": "测试股份", "code": "600000", "amount": 800_000_000,
+            "pe_dynamic": 18.0, "pb": 2.0, "main_net_inflow": 20_000_000,
+            "pct_change": 1.5, "pct_change_60d": 12.0,
+        }
+        observation = report.a_share_observation(stock)
+        self.assertIn("成交额", observation["reason"])
+        self.assertIn("若", observation["trend"])
+        self.assertNotIn("必涨", "".join(observation.values()))
+
+    @patch.object(report, "fetch_a_share_candidates")
+    def test_a_share_selector_returns_two_scored_candidates(self, fetch):
+        fetch.return_value = [{
+            "f12": f"60000{index}", "f14": f"测试{index}", "f2": 10,
+            "f3": index, "f6": 1_000_000_000 - index, "f8": 2,
+            "f9": 20 + index, "f10": 1.2, "f15": 10.5, "f16": 9.5,
+            "f20": 50_000_000_000, "f23": 2, "f24": 10, "f25": 8,
+            "f62": 10_000_000,
+        } for index in range(3)]
+        observations = report.build_a_share_observations()
+        self.assertEqual(len(observations), 2)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_premium_failure_is_included_in_data_risks(self, _):

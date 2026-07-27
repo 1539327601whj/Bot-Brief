@@ -1,17 +1,23 @@
 name: 市场观察
 
 on:
-  # 定时由腾讯云 SCF 负责，避免 GitHub schedule 延迟或重复推送
+  schedule:
+    # UTC 10:00 = 北京时间 18:00，仅工作日推送一次
+    - cron: '0 10 * * 1-5'
   workflow_dispatch:
     inputs:
       edition:
         description: '选择版本'
         required: true
-        default: 'morning'
+        default: 'evening'
         type: choice
         options:
-          - morning
           - evening
+      send_report:
+        description: '手动生成并推送日报；旧SCF触发未传此参数时不会重复推送'
+        required: false
+        default: false
+        type: boolean
       sync_only:
         description: '仅回填并校验 ETF 价格历史，不推送日报'
         required: false
@@ -20,6 +26,7 @@ on:
 
 jobs:
   build:
+    if: github.event_name == 'schedule' || inputs.send_report == true || inputs.sync_only == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,7 +47,7 @@ jobs:
           ETF_WECHAT_WEBHOOK: ${{ secrets.ETF_WECHAT_WEBHOOK }}
           BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
           REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
-          EDITION: ${{ github.event.inputs.edition || 'auto' }}
+          EDITION: ${{ github.event.inputs.edition || 'evening' }}
           ETF_SYNC_ONLY: ${{ github.event.inputs.sync_only || 'false' }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python automation/scripts/etf_report.py
