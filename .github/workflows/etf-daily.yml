@@ -1,9 +1,7 @@
 name: 市场观察
 
 on:
-  schedule:
-    # UTC 10:00 = 北京时间 18:00，仅工作日推送一次
-    - cron: '0 10 * * 1-5'
+  # 定时由腾讯云 SCF 负责，GitHub Actions 仅执行任务和支持手动回填
   workflow_dispatch:
     inputs:
       edition:
@@ -13,11 +11,6 @@ on:
         type: choice
         options:
           - evening
-      send_report:
-        description: '手动生成并推送日报；旧SCF触发未传此参数时不会重复推送'
-        required: false
-        default: false
-        type: boolean
       sync_only:
         description: '仅回填并校验 ETF 价格历史，不推送日报'
         required: false
@@ -26,7 +19,6 @@ on:
 
 jobs:
   build:
-    if: github.event_name == 'schedule' || inputs.send_report == true || inputs.sync_only == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
