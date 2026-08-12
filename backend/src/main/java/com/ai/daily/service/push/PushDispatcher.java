@@ -64,8 +64,20 @@ public class PushDispatcher {
 
     public DispatchResult dispatchScheduled(Long userId, Report report, String edition, LocalDate date) {
         List<PushChannel> channels = channelService.listEnabledByUser(userId);
+        Map<Long, Report> reportsByChannel = new HashMap<>();
+        channels.forEach(channel -> reportsByChannel.put(channel.getId(), report));
+        return dispatchScheduledByChannel(userId, reportsByChannel, edition, date);
+    }
+
+    public DispatchResult dispatchScheduledByChannel(Long userId, Map<Long, Report> reportsByChannel,
+                                                       String edition, LocalDate date) {
+        List<PushChannel> channels = channelService.listEnabledByUser(userId);
         int ok = 0, fail = 0, skipped = 0;
+        int total = 0;
         for (PushChannel channel : channels) {
+            Report report = reportsByChannel.get(channel.getId());
+            if (report == null) continue;
+            total++;
             String dispatchKey = scheduledDispatchKey(userId, channel.getId(), edition, date);
             Long logId = pushLogService.claimScheduled(userId, report.getId(), channel.getId(),
                     channel.getChannelType(), dispatchKey);
@@ -90,7 +102,7 @@ public class PushDispatcher {
                 fail++;
             }
         }
-        return new DispatchResult(channels.size(), ok, fail, skipped);
+        return new DispatchResult(total, ok, fail, skipped);
     }
 
     /** 单渠道试推（用于前端"测试推送"按钮） */

@@ -1,9 +1,12 @@
 package com.ai.daily.task;
 
+import com.ai.daily.dto.SubscriptionDTO;
+import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
+import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportPersonalizationService;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.SubscriptionPreferences;
@@ -15,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,8 +37,9 @@ class ScheduledPushTaskTest {
         ReportService reports = mock(ReportService.class);
         ReportPersonalizationService personalizer = mock(ReportPersonalizationService.class);
         PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, reports, personalizer, dispatcher, users);
+        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, reports, personalizer, dispatcher, users);
 
         Subscription first = subscription(1L);
         Subscription second = subscription(2L);
@@ -43,22 +48,60 @@ class ScheduledPushTaskTest {
         Report canonical = report("公共简报");
         LocalDate date = LocalDate.of(2026, 7, 24);
         when(reports.getLatestByEditionForDate("morning", date)).thenReturn(canonical);
-        when(preferences.enabledTopics(first, "morning")).thenReturn(List.of("数据库"));
-        when(preferences.enabledTopics(second, "morning")).thenReturn(List.of("移动端"));
+        when(preferences.enabledTopicItems(first, "morning")).thenReturn(List.of(topic("数据库", null)));
+        when(preferences.enabledTopicItems(second, "morning")).thenReturn(List.of(topic("移动端", null)));
+        when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
+        when(channels.listEnabledByUser(2L)).thenReturn(List.of(channel(12L)));
         Report databaseReport = report("数据库内容");
         Report mobileReport = report("移动端内容");
         ReportPersonalizationService.PreparedReport prepared = new ReportPersonalizationService.PreparedReport(canonical, "", List.of());
         when(personalizer.prepare(canonical)).thenReturn(prepared);
         when(personalizer.personalize(prepared, List.of("数据库"))).thenReturn(databaseReport);
         when(personalizer.personalize(prepared, List.of("移动端"))).thenReturn(mobileReport);
-        when(dispatcher.dispatchScheduled(any(), any(), any(), any()))
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
                 .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
 
         task.dispatchEdition("morning", LocalTime.of(8, 15), date);
 
-        verify(dispatcher).dispatchScheduled(1L, databaseReport, "morning", date);
-        verify(dispatcher).dispatchScheduled(2L, mobileReport, "morning", date);
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), any(), eq("morning"), eq(date));
+        verify(dispatcher).dispatchScheduledByChannel(eq(2L), any(), eq("morning"), eq(date));
         assertThat(canonical.getContent()).isEqualTo("公共简报");
+    }
+
+    @Test
+    void routesDifferentTopicsToTheirAssignedChannels() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        ReportService reports = mock(ReportService.class);
+        ReportPersonalizationService personalizer = mock(ReportPersonalizationService.class);
+        PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
+        UserMapper users = mock(UserMapper.class);
+        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, reports, personalizer, dispatcher, users);
+
+        Subscription subscription = subscription(1L);
+        LocalDate date = LocalDate.of(2026, 7, 24);
+        Report canonical = report("公共简报");
+        Report databaseReport = report("数据库内容");
+        Report mobileReport = report("移动端内容");
+        ReportPersonalizationService.PreparedReport prepared = new ReportPersonalizationService.PreparedReport(canonical, "", List.of());
+        when(subscriptions.findDueForEdition("morning", LocalTime.of(8, 15))).thenReturn(List.of(subscription));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
+        when(reports.getLatestByEditionForDate("morning", date)).thenReturn(canonical);
+        when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
+        when(preferences.enabledTopicItems(subscription, "morning")).thenReturn(List.of(
+                topic("数据库", List.of(11L)), topic("移动端", List.of(12L))));
+        when(personalizer.prepare(canonical)).thenReturn(prepared);
+        when(personalizer.personalize(prepared, List.of("数据库"))).thenReturn(databaseReport);
+        when(personalizer.personalize(prepared, List.of("移动端"))).thenReturn(mobileReport);
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(2, 2, 0));
+
+        task.dispatchEdition("morning", LocalTime.of(8, 15), date);
+
+        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("morning"), eq(date));
+        assertThat(reportsByChannel.getValue()).containsEntry(11L, databaseReport).containsEntry(12L, mobileReport);
     }
 
     @Test
@@ -68,8 +111,9 @@ class ScheduledPushTaskTest {
         ReportService reports = mock(ReportService.class);
         ReportPersonalizationService personalizer = mock(ReportPersonalizationService.class);
         PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, reports, personalizer, dispatcher, users);
+        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, reports, personalizer, dispatcher, users);
 
         Subscription demo = subscription(1L);
         Subscription disabled = subscription(2L);
@@ -83,7 +127,22 @@ class ScheduledPushTaskTest {
         task.dispatchEdition("evening", LocalTime.of(20, 15), LocalDate.of(2026, 7, 24));
 
         verify(reports, never()).getLatestByEditionForDate(any(), any());
-        verify(dispatcher, never()).dispatchScheduled(any(), any(), any(), any());
+        verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
+    }
+
+    private SubscriptionDTO.TopicScheduleItemDTO topic(String name, List<Long> channelIds) {
+        SubscriptionDTO.TopicScheduleItemDTO item = new SubscriptionDTO.TopicScheduleItemDTO();
+        item.setTopic(name);
+        item.setEnabled(true);
+        item.setChannelIds(channelIds);
+        return item;
+    }
+
+    private PushChannel channel(long id) {
+        PushChannel channel = new PushChannel();
+        channel.setId(id);
+        channel.setEnabled(true);
+        return channel;
     }
 
     private Subscription subscription(long userId) {

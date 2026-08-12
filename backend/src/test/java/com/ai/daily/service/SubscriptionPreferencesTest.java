@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +39,38 @@ class SubscriptionPreferencesTest {
         assertThat(normalized.schedules().getMorning()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
                 .containsExactly("具身 智能", "AI大模型");
         assertThat(normalized.schedulesJson()).doesNotContain("time");
+    }
+
+    @Test
+    void preservesAndNormalizesChannelAssignments() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO item = item("AI大模型", true);
+        item.setChannelIds(Arrays.asList(12L, 12L, null, -1L, 13L));
+        schedules.setMorning(List.of(item));
+        schedules.setEvening(List.of());
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+
+        assertThat(normalized.schedules().getMorning().get(0).getChannelIds()).containsExactly(12L, 13L);
+    }
+
+    @Test
+    void keepsExplicitEmptyChannelAssignmentsDistinctFromLegacyAssignments() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO explicit = item("AI大模型", true);
+        explicit.setChannelIds(List.of());
+        SubscriptionDTO.TopicScheduleItemDTO legacy = item("数据库", true);
+        schedules.setMorning(List.of(explicit, legacy));
+        schedules.setEvening(List.of());
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+
+        assertThat(normalized.schedules().getMorning().get(0).getChannelIds()).isEmpty();
+        assertThat(normalized.schedules().getMorning().get(1).getChannelIds()).isNull();
     }
 
     @Test

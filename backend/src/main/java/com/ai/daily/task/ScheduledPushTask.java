@@ -1,13 +1,16 @@
 package com.ai.daily.task;
 
+import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
 import com.ai.daily.service.ReportPersonalizationService;
+import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
+import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.service.push.PushDispatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +42,7 @@ public class ScheduledPushTask {
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
+    private final PushChannelService pushChannelService;
     private final ReportService reportService;
     private final ReportPersonalizationService reportPersonalizationService;
     private final PushDispatcher pushDispatcher;
@@ -81,12 +85,32 @@ public class ScheduledPushTask {
         ReportPersonalizationService.PreparedReport prepared = reportPersonalizationService.prepare(report);
         for (Subscription s : due) {
             try {
-                List<String> interests = subscriptionPreferences.enabledTopics(s, edition);
-                Report personalized = reportPersonalizationService.personalize(prepared, interests);
-                PushDispatcher.DispatchResult r = pushDispatcher.dispatchScheduled(
-                        s.getUserId(), personalized, edition, date);
-                log.info("[{}] user={} interests={} 分发结果 total={} ok={} fail={} skipped={}",
-                        edition, s.getUserId(), interests.size(), r.total(), r.ok(), r.fail(), r.skipped());
+                List<PushChannel> channels = pushChannelService.listEnabledByUser(s.getUserId());
+                Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
+                List<SubscriptionDTO.TopicScheduleItemDTO> items = subscriptionPreferences.enabledTopicItems(s, edition);
+                for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
+                    if (item.getChannelIds() == null) {
+                        channels.forEach(channel -> interestsByChannel
+                                .computeIfAbsent(channel.getId(), ignored -> new java.util.ArrayList<>())
+                                .add(item.getTopic()));
+                    } else {
+                        item.getChannelIds().forEach(channelId -> {
+                            if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
+                                interestsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>())
+                                        .add(item.getTopic());
+                            }
+                        });
+                    }
+                }
+                Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
+                for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
+                    reportsByChannel.put(entry.getKey(), reportPersonalizationService.personalize(
+                            prepared, entry.getValue()));
+                }
+                PushDispatcher.DispatchResult r = pushDispatcher.dispatchScheduledByChannel(
+                        s.getUserId(), reportsByChannel, edition, date);
+                log.info("[{}] user={} interests={} channels={} 分发结果 total={} ok={} fail={} skipped={}",
+                        edition, s.getUserId(), items.size(), reportsByChannel.size(), r.total(), r.ok(), r.fail(), r.skipped());
             } catch (Exception e) {
                 log.error("[{}] user={} 分发异常", edition, s.getUserId(), e);
             }

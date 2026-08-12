@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,6 +74,12 @@ public class SubscriptionPreferences {
     }
 
     public List<String> enabledTopics(Subscription subscription, String edition) {
+        return enabledTopicItems(subscription, edition).stream()
+                .map(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
+                .toList();
+    }
+
+    public List<SubscriptionDTO.TopicScheduleItemDTO> enabledTopicItems(Subscription subscription, String edition) {
         SubscriptionDTO.TopicSchedulesDTO schedules = readSchedules(subscription);
         List<SubscriptionDTO.TopicScheduleItemDTO> items = switch (edition) {
             case "morning" -> schedules.getMorning();
@@ -80,10 +87,37 @@ public class SubscriptionPreferences {
             default -> List.of();
         };
         if (items == null) return List.of();
-        return items.stream()
-                .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
-                .map(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
-                .toList();
+        return items.stream().filter(item -> Boolean.TRUE.equals(item.getEnabled())).toList();
+    }
+
+    public String writeSchedules(SubscriptionDTO.TopicSchedulesDTO schedules) {
+        try {
+            return objectMapper.writeValueAsString(schedules);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("订阅配置转换失败", e);
+        }
+    }
+
+    public SubscriptionDTO.TopicSchedulesDTO filterChannelIds(
+            SubscriptionDTO.TopicSchedulesDTO schedules, Collection<Long> ownedChannelIds) {
+        Set<Long> owned = ownedChannelIds == null ? Set.of() : new LinkedHashSet<>(ownedChannelIds);
+        SubscriptionDTO.TopicSchedulesDTO filtered = new SubscriptionDTO.TopicSchedulesDTO();
+        filtered.setMorning(filterChannelIds(schedules == null ? null : schedules.getMorning(), owned));
+        filtered.setEvening(filterChannelIds(schedules == null ? null : schedules.getEvening(), owned));
+        return filtered;
+    }
+
+    private List<SubscriptionDTO.TopicScheduleItemDTO> filterChannelIds(
+            List<SubscriptionDTO.TopicScheduleItemDTO> items, Set<Long> ownedChannelIds) {
+        if (items == null) return new ArrayList<>();
+        return items.stream().map(item -> {
+            if (item.getChannelIds() == null) return item;
+            item.setChannelIds(item.getChannelIds().stream()
+                    .filter(id -> id != null && ownedChannelIds.contains(id))
+                    .distinct()
+                    .toList());
+            return item;
+        }).toList();
     }
 
     private SubscriptionDTO.TopicSchedulesDTO normalizeSchedules(SubscriptionDTO.TopicSchedulesDTO source) {
@@ -106,12 +140,22 @@ public class SubscriptionPreferences {
                 SubscriptionDTO.TopicScheduleItemDTO normalized = new SubscriptionDTO.TopicScheduleItemDTO();
                 normalized.setTopic(topic);
                 normalized.setEnabled(Boolean.TRUE.equals(item.getEnabled()));
+                normalized.setChannelIds(normalizeChannelIds(item.getChannelIds()));
                 unique.put(key, normalized);
-            } else if (Boolean.TRUE.equals(item.getEnabled())) {
-                existing.setEnabled(true);
+            } else {
+                if (Boolean.TRUE.equals(item.getEnabled())) existing.setEnabled(true);
+                if (item.getChannelIds() != null) existing.setChannelIds(normalizeChannelIds(item.getChannelIds()));
             }
         }
         return new ArrayList<>(unique.values());
+    }
+
+    private List<Long> normalizeChannelIds(List<Long> channelIds) {
+        if (channelIds == null) return null;
+        return channelIds.stream()
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .toList();
     }
 
     private SubscriptionDTO.TopicSchedulesDTO schedulesFromFields(List<String> fields) {

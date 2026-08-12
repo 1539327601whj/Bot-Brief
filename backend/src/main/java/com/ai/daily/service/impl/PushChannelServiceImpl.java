@@ -17,6 +17,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 
 @Slf4j
@@ -102,6 +103,14 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
     public List<PushChannel> listEnabledByUser(Long userId) {
         LambdaQueryWrapper<PushChannel> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PushChannel::getUserId, userId).eq(PushChannel::getEnabled, true);
+        return list(wrapper).stream().map(this::decryptCopy).toList();
+    }
+
+    @Override
+    public List<PushChannel> listByIdsForUser(Long userId, Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        LambdaQueryWrapper<PushChannel> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(PushChannel::getUserId, userId).in(PushChannel::getId, ids);
         return list(wrapper).stream().map(this::decryptCopy).toList();
     }
 

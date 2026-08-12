@@ -252,45 +252,136 @@
   font-size: 16px;
 }
 
-/* 早/晚间版单行布局 */
+/* 早/晚间版展示时间 */
 .edition-row {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.9fr) minmax(340px, 1.1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.edition-toggle {
+  min-height: 78px;
+  padding: 15px 18px;
+  background: linear-gradient(135deg, rgba(13, 17, 31, 0.92), rgba(16, 22, 39, 0.75));
+}
+
+.toggle-copy {
   display: flex;
-  gap: 16px;
-  align-items: center;
-  flex-wrap: wrap;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
 }
-.edition-row .toggle {
-  flex: 1 1 200px;
-  min-width: 200px;
+
+.toggle-copy strong {
+  color: #e6edf3;
+  font-size: 14px;
+  font-weight: 600;
 }
-.time-picker {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: rgba(10, 14, 26, 0.5);
-  border: 1px solid rgba(48, 54, 61, 0.8);
-  border-radius: 10px;
-  flex: 1 1 200px;
-  min-width: 200px;
-}
-.time-label {
-  color: #8b949e;
-  font-size: 13px;
+
+.toggle-copy small {
+  overflow: hidden;
+  color: #778195;
+  font-size: 11px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.time-picker input[type="time"] {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: #e6edf3;
-  font-size: 15px;
-  font-family: inherit;
-  outline: none;
-  color-scheme: dark;
+
+.time-picker {
+  display: flex;
+  min-width: 0;
+  min-height: 78px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  overflow: hidden;
+  background:
+    linear-gradient(120deg, rgba(124, 77, 255, 0.08), rgba(0, 212, 170, 0.04)),
+    rgba(10, 14, 26, 0.78);
+  border: 1px solid rgba(139, 156, 255, 0.24);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
-.time-picker input[type="time"]:disabled {
-  opacity: 0.4;
+
+.time-picker:focus-within {
+  border-color: rgba(139, 156, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(139, 156, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.time-picker.disabled {
+  opacity: 0.48;
+}
+
+.time-picker-copy {
+  display: flex;
+  min-width: 120px;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.time-label {
+  color: #e6edf3;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.time-picker-copy small {
+  color: #778195;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.subscription-page .subscription-time-picker.ant-picker {
+  width: 132px;
+  height: 44px;
+  flex: 0 0 132px;
+  padding: 0 13px;
+  background: rgba(5, 8, 17, 0.82);
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.subscription-page .subscription-time-picker.ant-picker:hover,
+.subscription-page .subscription-time-picker.ant-picker-focused {
+  border-color: #8b9cff;
+}
+
+.subscription-page .subscription-time-picker .ant-picker-input > input {
+  color: #f4f7fb;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+}
+
+.subscription-page .subscription-time-picker .ant-picker-suffix {
+  color: #00d4aa;
+}
+
+.subscription-time-popup.ant-picker-dropdown .ant-picker-panel-container {
+  overflow: hidden;
+  background: #0d111b;
+  border: 1px solid rgba(139, 156, 255, 0.24);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.52), 0 0 28px rgba(124, 77, 255, 0.08);
+}
+
+.subscription-time-popup .ant-picker-time-panel-column {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 156, 255, 0.4) transparent;
+}
+
+.subscription-time-popup .ant-picker-time-panel-cell-inner {
+  border-radius: 7px;
+}
+
+.subscription-time-popup .ant-picker-time-panel-cell-selected .ant-picker-time-panel-cell-inner {
+  background: linear-gradient(135deg, rgba(124, 77, 255, 0.44), rgba(0, 212, 170, 0.28));
+  color: #fff;
+  font-weight: 600;
 }
 
 /* 推送渠道预览 */
@@ -345,6 +436,43 @@
 
 .section-title-row h3 {
   margin-bottom: 0;
+}
+
+.edition-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.edition-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.edition-heading > div > span {
+  color: #778195;
+  font-size: 11px;
+}
+
+.edition-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(245, 196, 81, 0.24);
+  border-radius: 11px;
+  background: rgba(245, 196, 81, 0.08);
+  color: #f5c451;
+  font-size: 19px;
+  box-shadow: 0 8px 24px rgba(245, 196, 81, 0.08);
+}
+
+.edition-section.evening .edition-icon {
+  border-color: rgba(139, 156, 255, 0.28);
+  background: rgba(139, 156, 255, 0.1);
+  color: #a8b2ff;
+  box-shadow: 0 8px 24px rgba(124, 77, 255, 0.1);
 }
 
 .section-count {
@@ -498,13 +626,50 @@
   line-height: 1.6;
 }
 
+.time-warning {
+  margin: 0 0 16px;
+  padding: 13px 15px;
+  border: 1px solid rgba(245, 196, 81, 0.32);
+  border-radius: 10px;
+  background: rgba(245, 196, 81, 0.08);
+  color: #f5c451;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 @media (max-width: 760px) {
   .subscription-summary,
-  .topic-schedule-list {
+  .topic-schedule-list,
+  .edition-row {
     grid-template-columns: 1fr;
   }
 
   .custom-interest-row {
     flex-direction: column;
+  }
+
+  .time-picker {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 460px) {
+  .subscription-page {
+    padding: 16px;
+  }
+
+  .section-title-row,
+  .time-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .section-count {
+    align-self: flex-start;
+  }
+
+  .subscription-page .subscription-time-picker.ant-picker {
+    width: 100%;
+    flex-basis: 44px;
   }
 }

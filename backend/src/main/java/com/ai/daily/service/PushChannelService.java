@@ -6,6 +6,7 @@ import com.ai.daily.dto.PushChannelUpdateRequest;
 import com.ai.daily.entity.PushChannel;
 import com.baomidou.mybatisplus.extension.service.IService;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface PushChannelService extends IService<PushChannel> {
@@ -19,6 +20,8 @@ public interface PushChannelService extends IService<PushChannel> {
     boolean removeForUser(Long id, Long userId);
 
     List<PushChannel> listEnabledByUser(Long userId);
+
+    List<PushChannel> listByIdsForUser(Long userId, Collection<Long> ids);
 
     PushChannel getByIdForUser(Long id, Long userId);
 }

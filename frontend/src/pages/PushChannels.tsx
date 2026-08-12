@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
-import { demoChannels } from '../demo/fixtures'
+import { demoChannels, demoSubscription } from '../demo/fixtures'
 import './PushChannels.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -30,6 +30,25 @@ interface ChannelForm {
   secretConfigured: boolean
   clearSecret: boolean
   enabled: boolean
+}
+
+interface TopicScheduleItem {
+  topic: string
+  enabled: boolean
+  channelIds?: number[] | null
+}
+
+interface SubscriptionData {
+  enabled: boolean
+  morningEnabled: boolean
+  morningTime: string
+  eveningEnabled: boolean
+  eveningTime: string
+  preferenceFields: string[]
+  topicSchedules: {
+    morning: TopicScheduleItem[]
+    evening: TopicScheduleItem[]
+  }
 }
 
 interface ResultEnvelope<T = unknown> {
@@ -88,10 +107,39 @@ function getErrorMessage(error: any, fallbackMessage: string) {
   return error?.response?.data?.message || error?.message || fallbackMessage
 }
 
+function normalizeSubscription(source: any): SubscriptionData {
+  const normalizeEditionTime = (value: unknown, edition: 'morning' | 'evening') => {
+    const normalized = typeof value === 'string' ? value.slice(0, 5) : ''
+    const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized)
+    const hour = match ? Number(normalized.slice(0, 2)) : -1
+    const valid = edition === 'morning' ? hour >= 0 && hour < 15 : hour >= 15
+    return valid ? normalized : edition === 'morning' ? '08:15' : '20:15'
+  }
+  const normalizeItems = (items: any): TopicScheduleItem[] => (Array.isArray(items) ? items : []).map(item => ({
+    topic: String(item?.topic || ''),
+    enabled: Boolean(item?.enabled),
+    channelIds: item?.channelIds == null ? item?.channelIds : [...new Set((item.channelIds || []).filter((id: any) => Number.isInteger(id) && id > 0))],
+  })).filter(item => item.topic)
+  return {
+    enabled: source?.enabled ?? true,
+    morningEnabled: source?.morningEnabled ?? true,
+    morningTime: normalizeEditionTime(source?.morningTime, 'morning'),
+    eveningEnabled: source?.eveningEnabled ?? true,
+    eveningTime: normalizeEditionTime(source?.eveningTime, 'evening'),
+    preferenceFields: source?.preferenceFields || [],
+    topicSchedules: {
+      morning: normalizeItems(source?.topicSchedules?.morning),
+      evening: normalizeItems(source?.topicSchedules?.evening),
+    },
+  }
+}
+
 export default function PushChannels() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
   const [channels, setChannels] = useState<Channel[]>([])
+  const [subscription, setSubscription] = useState<SubscriptionData>(() => normalizeSubscription({}))
+  const [subscriptionSaving, setSubscriptionSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<ChannelForm | null>(null)
   const [saving, setSaving] = useState(false)
@@ -101,15 +149,21 @@ export default function PushChannels() {
   const load = async (): Promise<boolean> => {
     if (isDemo) {
       setChannels(demoChannels)
+      setSubscription(normalizeSubscription(demoSubscription))
       setLoading(false)
       return true
     }
 
     setLoading(true)
     try {
-      const res = await api.get<ResultEnvelope<Channel[]>>('/channels')
-      const data = requireBusinessSuccess(res.data, '加载渠道失败')
+      const [channelsRes, subscriptionRes] = await Promise.all([
+        api.get<ResultEnvelope<Channel[]>>('/channels'),
+        api.get<ResultEnvelope<any>>('/subscription'),
+      ])
+      const data = requireBusinessSuccess(channelsRes.data, '加载渠道失败')
+      const subscriptionData = requireBusinessSuccess(subscriptionRes.data, '加载订阅失败')
       setChannels(data || [])
+      setSubscription(normalizeSubscription(subscriptionData))
       return true
     } catch (error: any) {
       setChannels([])
@@ -121,6 +175,39 @@ export default function PushChannels() {
   }
 
   useEffect(() => { void load() }, [isDemo])
+
+  const updateAssignment = (edition: 'morning' | 'evening', topic: string, channelId: number, checked: boolean) => {
+    if (isDemo) return
+    setSubscription(prev => ({
+      ...prev,
+      topicSchedules: {
+        ...prev.topicSchedules,
+        [edition]: prev.topicSchedules[edition].map(item => {
+          if (item.topic !== topic) return item
+          const current = item.channelIds == null ? channels.filter(channel => channel.enabled).map(channel => channel.id) : item.channelIds
+          const next = checked ? [...new Set([...current, channelId])] : current.filter(id => id !== channelId)
+          return { ...item, channelIds: next }
+        }),
+      },
+    }))
+  }
+
+  const saveAssignments = async () => {
+    if (isDemo || subscriptionSaving) return
+    setSubscriptionSaving(true)
+    setFeedback(null)
+    try {
+      const payload = { ...subscription, preferenceFields: subscription.preferenceFields }
+      const res = await api.put<ResultEnvelope<any>>('/subscription', payload)
+      const saved = requireBusinessSuccess(res.data, '保存内容分发设置失败')
+      setSubscription(normalizeSubscription(saved || payload))
+      setFeedback({ type: 'success', text: '内容分发设置已保存' })
+    } catch (error: any) {
+      setFeedback({ type: 'error', text: `保存失败：${getErrorMessage(error, '请稍后重试')}` })
+    } finally {
+      setSubscriptionSaving(false)
+    }
+  }
 
   const startNew = () => {
     if (isDemo) return
@@ -372,6 +459,53 @@ export default function PushChannels() {
             </button>
             <button className="btn-ghost" onClick={cancel} disabled={saving}>取消</button>
           </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="delivery-settings">
+          <div className="delivery-header">
+            <div>
+              <h3>订阅内容分发</h3>
+              <p>这里只显示订阅管理中已选择的早报和晚报内容，可分别设置推送渠道。</p>
+            </div>
+            <button className="btn-primary" onClick={saveAssignments} disabled={isDemo || subscriptionSaving}>
+              {subscriptionSaving ? '保存中...' : '保存分发设置'}
+            </button>
+          </div>
+          {(['morning', 'evening'] as const).map(edition => {
+            const items = subscription.topicSchedules[edition].filter(item => item.enabled)
+            const title = edition === 'morning' ? '早间日报' : '晚间日报'
+            const time = edition === 'morning' ? subscription.morningTime : subscription.eveningTime
+            return (
+              <div key={edition} className="delivery-edition">
+                <div className="delivery-edition-title"><strong>{title}</strong><span>推送时间 {time}</span></div>
+                {items.length === 0 ? <div className="delivery-empty">当前没有已订阅内容</div> : items.map(item => {
+                  const selected = item.channelIds == null ? channels.filter(channel => channel.enabled).map(channel => channel.id) : item.channelIds
+                  return (
+                    <div key={`${edition}-${item.topic}`} className="delivery-topic-row">
+                      <div className="delivery-topic-name">{item.topic}</div>
+                      <div className="delivery-channel-options">
+                        {channels.map(channel => (
+                          <label key={channel.id} className={!channel.enabled ? 'channel-option disabled' : 'channel-option'}>
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(channel.id)}
+                              disabled={isDemo}
+                              onChange={event => updateAssignment(edition, item.topic, channel.id, event.target.checked)}
+                            />
+                            <span>{channel.displayName || TYPE_META[channel.channelType].label}</span>
+                            {!channel.enabled && <small>已暂停</small>}
+                          </label>
+                        ))}
+                      </div>
+                      {selected.length === 0 && <div className="delivery-warning">未选择渠道，不会推送</div>}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
         </div>
       )}
 

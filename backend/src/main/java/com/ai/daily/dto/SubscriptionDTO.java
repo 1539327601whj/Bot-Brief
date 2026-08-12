@@ -23,13 +23,13 @@ public class SubscriptionDTO {
     /** 是否接收早间版 */
     private Boolean morningEnabled;
 
-    /** 早间版推送时间 "HH:mm" 或 "HH:mm:ss" */
+    /** 早间版 Web 展示时间，范围 00:00-14:59，格式 "HH:mm" 或 "HH:mm:ss" */
     private String morningTime;
 
     /** 是否接收晚间版 */
     private Boolean eveningEnabled;
 
-    /** 晚间版推送时间 */
+    /** 晚间版 Web 展示时间，范围 15:00-23:59 */
     private String eveningTime;
 
     /** 按早/晚间版分组的兴趣选择 */
@@ -46,5 +46,6 @@ public class SubscriptionDTO {
     public static class TopicScheduleItemDTO {
         private String topic;
         private Boolean enabled;
+        private List<Long> channelIds;
     }
 }

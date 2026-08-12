@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
+import { ConfigProvider, TimePicker, theme } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
+import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
@@ -9,6 +12,7 @@ import './Subscription.css'
 interface TopicScheduleItem {
   topic: string
   enabled: boolean
+  channelIds?: number[] | null
 }
 
 interface TopicSchedules {
@@ -31,8 +35,41 @@ const FIELD_OPTIONS = [
 ]
 const MAX_INTERESTS = 20
 const MAX_INTEREST_LENGTH = 40
+const DEFAULT_TIMES = { morning: '08:15', evening: '20:15' } as const
+const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+
+const subscriptionTheme = {
+  algorithm: theme.darkAlgorithm,
+  token: {
+    colorPrimary: '#8b9cff',
+    colorPrimaryHover: '#a8b2ff',
+    colorBgBase: '#05070d',
+    colorBgContainer: '#0d111b',
+    colorBgElevated: '#111620',
+    colorBorder: 'rgba(255, 255, 255, 0.14)',
+    colorText: '#f4f7fb',
+    colorTextSecondary: '#9aa4b5',
+    borderRadius: 12,
+    boxShadowSecondary: '0 24px 80px rgba(0, 0, 0, 0.48)',
+  },
+}
 
 const toHHmm = (value?: string) => value ? value.slice(0, 5) : ''
+const timeToMinutes = (value: string) => {
+  if (!TIME_PATTERN.test(value)) return null
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+const isTimeInEdition = (value: string, edition: keyof TopicSchedules) => {
+  const minutes = timeToMinutes(value)
+  if (minutes === null) return false
+  return edition === 'morning' ? minutes < 15 * 60 : minutes >= 15 * 60
+}
+const normalizeEditionTime = (value: string | undefined, edition: keyof TopicSchedules) => {
+  const normalized = toHHmm(value)
+  return isTimeInEdition(normalized, edition) ? normalized : DEFAULT_TIMES[edition]
+}
+const timeRangeLabel = (edition: keyof TopicSchedules) => edition === 'morning' ? '00:00–14:59' : '15:00–23:59'
 const normalizeInterest = (value: string) => value.trim().replace(/\s+/g, ' ')
 const interestKey = (topic: string) => topic.toLocaleLowerCase()
 const isPreset = (topic: string) => FIELD_OPTIONS.some(option => interestKey(option) === interestKey(topic))
@@ -42,13 +79,17 @@ const mergeTopicItems = (items: TopicScheduleItem[] | undefined, selected: strin
   const existing = new Map<string, TopicScheduleItem>()
   ;(items || []).forEach(item => {
     const topic = normalizeInterest(item.topic || '')
-    if (topic) existing.set(interestKey(topic), { topic, enabled: Boolean(item.enabled) })
+    if (topic) existing.set(interestKey(topic), {
+      topic,
+      enabled: Boolean(item.enabled),
+      channelIds: item.channelIds == null ? item.channelIds : [...new Set(item.channelIds.filter(id => Number.isInteger(id) && id > 0))],
+    })
   })
   if (items === undefined) {
     selected.forEach(topicValue => {
       const topic = normalizeInterest(topicValue)
       const key = interestKey(topic)
-      if (topic && !existing.has(key)) existing.set(key, { topic, enabled: true })
+      if (topic && !existing.has(key)) existing.set(key, { topic, enabled: true, channelIds: null })
     })
   }
 
@@ -56,7 +97,7 @@ const mergeTopicItems = (items: TopicScheduleItem[] | undefined, selected: strin
   existing.forEach(item => {
     if (!topics.some(topic => interestKey(topic) === interestKey(item.topic))) topics.push(item.topic)
   })
-  return topics.map(topic => existing.get(interestKey(topic)) || { topic, enabled: false })
+  return topics.map(topic => existing.get(interestKey(topic)) || { topic, enabled: false, channelIds: null })
 }
 
 const collectPreferenceFields = (topicSchedules: TopicSchedules) => {
@@ -72,15 +113,20 @@ const normalizeSubscription = (source: any): SubscriptionData => {
   return {
     enabled: source?.enabled ?? true,
     morningEnabled: source?.morningEnabled ?? true,
-    morningTime: toHHmm(source?.morningTime) || '08:15',
+    morningTime: normalizeEditionTime(source?.morningTime, 'morning'),
     eveningEnabled: source?.eveningEnabled ?? true,
-    eveningTime: toHHmm(source?.eveningTime) || '20:15',
+    eveningTime: normalizeEditionTime(source?.eveningTime, 'evening'),
     topicSchedules: {
       morning: mergeTopicItems(source?.topicSchedules?.morning, preferenceFields),
       evening: mergeTopicItems(source?.topicSchedules?.evening, preferenceFields),
     },
   }
 }
+
+const repairedTimeEditions = (source: any) => (['morning', 'evening'] as const).filter(edition => {
+  const value = edition === 'morning' ? source?.morningTime : source?.eveningTime
+  return Boolean(value) && !isTimeInEdition(toHHmm(value), edition)
+})
 
 export default function Subscription() {
   const { user } = useAuth()
@@ -90,6 +136,7 @@ export default function Subscription() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [timeWarning, setTimeWarning] = useState('')
   const [channelCount, setChannelCount] = useState<number | null>(null)
 
   useEffect(() => {
@@ -102,7 +149,14 @@ export default function Subscription() {
     api.get('/subscription')
       .then(res => {
         const subscription = res.data?.data
-        if (subscription) setData(normalizeSubscription(subscription))
+        if (subscription) {
+          const repaired = repairedTimeEditions(subscription)
+          setData(normalizeSubscription(subscription))
+          if (repaired.length > 0) {
+            const labels = repaired.map(edition => edition === 'morning' ? '早报' : '晚报').join('和')
+            setTimeWarning(`检测到${labels}的 Web 展示时间不符合时段规则，已恢复为默认时间，请确认后保存。`)
+          }
+        }
       })
       .catch(err => {
         if (err?.response?.status === 401) setMessage('登录状态已失效，请重新登录')
@@ -172,14 +226,23 @@ export default function Subscription() {
 
   const handleSave = async () => {
     if (isDemo) return
-    setSaving(true)
     setMessage('')
+    if (!isTimeInEdition(data.morningTime, 'morning')) {
+      setMessage(`早报 Web 展示时间只能选择 ${timeRangeLabel('morning')}`)
+      return
+    }
+    if (!isTimeInEdition(data.eveningTime, 'evening')) {
+      setMessage(`晚报 Web 展示时间只能选择 ${timeRangeLabel('evening')}`)
+      return
+    }
+    setSaving(true)
     try {
       const payload = { ...data, preferenceFields: collectPreferenceFields(data.topicSchedules) }
       const res = await api.put('/subscription', payload)
       if (res.data?.code === 200) {
         setData(normalizeSubscription(res.data.data || payload))
-        setMessage('设置已保存，早报和晚报会按各自时间推送匹配内容')
+        setTimeWarning('')
+        setMessage('设置已保存，早报和晚报会按各自的 Web 展示时间显示匹配内容')
       } else setMessage('保存失败：' + (res.data?.message || ''))
     } catch (error: any) {
       setMessage('请求失败：' + (error?.response?.data?.message || error?.message || ''))
@@ -192,31 +255,60 @@ export default function Subscription() {
     edition: keyof TopicSchedules,
     title: string,
     enabled: boolean,
-    pushTime: string,
+    displayTime: string,
     onEnabledChange: (enabled: boolean) => void,
   ) => {
     const selected = data.topicSchedules[edition].filter(item => item.enabled).length
+    const isMorning = edition === 'morning'
     return (
-      <div className="section edition-section">
+      <div className={`section edition-section ${edition}`}>
         <div className="section-title-row">
-          <h3>{title}</h3>
+          <div className="edition-heading">
+            <span className="edition-icon" aria-hidden="true">{isMorning ? '☀' : '☾'}</span>
+            <div>
+              <h3>{title}</h3>
+              <span>{isMorning ? '零点至下午三点前' : '下午三点至午夜前'}</span>
+            </div>
+          </div>
           <span className="section-count">已选 {selected} 个兴趣</span>
         </div>
         <div className="edition-row">
-          <label className="toggle">
+          <label className="toggle edition-toggle">
             <input type="checkbox" checked={enabled} disabled={isDemo} onChange={event => onEnabledChange(event.target.checked)} />
             <span className="slider"></span>
-            <span className="toggle-label">{enabled ? '已开启' : '已关闭'}</span>
+            <span className="toggle-copy">
+              <strong>{enabled ? '订阅已开启' : '订阅已关闭'}</strong>
+              <small>{enabled ? '到点后在首页展示对应内容' : '该版次不会生成或展示内容'}</small>
+            </span>
           </label>
-          <div className="time-picker">
-            <span className="time-label">推送时间</span>
-            <input
-              type="time"
-              value={pushTime}
+          <div className={`time-picker ${enabled ? '' : 'disabled'}`}>
+            <div className="time-picker-copy">
+              <span className="time-label">Web 展示时间</span>
+              <small>可选 {timeRangeLabel(edition)}</small>
+            </div>
+            <TimePicker
+              className="subscription-time-picker"
+              popupClassName="subscription-time-popup"
+              value={dayjs(`2000-01-01T${displayTime}:00`)}
+              format="HH:mm"
+              minuteStep={1}
+              allowClear={false}
+              showNow={false}
+              hideDisabledOptions
+              inputReadOnly
               disabled={isDemo || !enabled}
-              onChange={event => setData(prev => edition === 'morning'
-                ? { ...prev, morningTime: event.target.value }
-                : { ...prev, eveningTime: event.target.value })}
+              disabledTime={() => ({
+                disabledHours: () => isMorning
+                  ? Array.from({ length: 9 }, (_, index) => index + 15)
+                  : Array.from({ length: 15 }, (_, index) => index),
+              })}
+              onChange={value => {
+                if (!value) return
+                const nextTime = value.format('HH:mm')
+                setData(prev => isMorning
+                  ? { ...prev, morningTime: nextTime }
+                  : { ...prev, eveningTime: nextTime })
+              }}
             />
           </div>
         </div>
@@ -267,11 +359,12 @@ export default function Subscription() {
   const totalTopics = collectPreferenceFields(data.topicSchedules).length
 
   return (
+    <ConfigProvider locale={zhCN} theme={subscriptionTheme}>
     <div className="subscription-page">
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">为早报和晚报选择预设或自定义兴趣，并分别设置一个推送时间</p>
+        <p className="page-desc">选择你关注的内容，并为早报和晚报分别设置 Web 展示时间</p>
       </div>
 
       <div className="subscription-summary">
@@ -304,9 +397,11 @@ export default function Subscription() {
         </div>
       </div>
 
+      {timeWarning && <div className="time-warning">{timeWarning}</div>}
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className="message">{message}</div>}
     </div>
+    </ConfigProvider>
   )
 }
 
