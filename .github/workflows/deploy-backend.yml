@@ -172,7 +172,9 @@ jobs:
             echo "Backend archive checksum failed; the next run will upload it again"
             exit 1
           fi
-          docker load -i "$ARCHIVE"
+          tar -xzf "$ARCHIVE"
+          test -f backend/Dockerfile || { echo "Backend Dockerfile is missing from the source archive"; exit 1; }
+          docker build -t "$IMAGE_TAG" backend
 
           previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-backend 2>/dev/null || true)"
           docker image inspect mysql:8.0 >/dev/null 2>&1 || { docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true; echo "mysql:8.0 image must be preloaded on the server for schema checks"; exit 1; }
