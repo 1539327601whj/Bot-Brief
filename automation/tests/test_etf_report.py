@@ -390,6 +390,17 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(observations["status"], "available")
         self.assertEqual(len(observations["items"]), 2)
 
+    @patch.object(report, "http_get")
+    def test_a_share_fetcher_requires_valid_response_shape(self, get):
+        get.return_value = response({"data": {"diff": []}})
+        self.assertEqual(report.fetch_a_share_candidates(), [])
+        get.return_value = response({"data": {}})
+        with self.assertRaisesRegex(RuntimeError, "diff 不是列表"):
+            report.fetch_a_share_candidates()
+        get.return_value = response([])
+        with self.assertRaisesRegex(RuntimeError, "缺少 data 对象"):
+            report.fetch_a_share_candidates()
+
     @patch.object(report, "fetch_a_share_candidates", return_value=[])
     def test_a_share_selector_distinguishes_valid_empty_result(self, _):
         result = report.build_a_share_observations()
@@ -466,6 +477,20 @@ class ReportTests(unittest.TestCase):
                 "market_watch_evening", "title", "content", "summary", "run"
             ))
         self.assertEqual(post.call_count, 3)
+
+    @patch.object(report.requests, "post")
+    @patch.object(report.time, "sleep")
+    def test_wechat_handles_retryable_and_non_object_business_responses(self, _, post):
+        busy = response({"errcode": -1})
+        success = response({"errcode": 0})
+        post.side_effect = [busy, success]
+        self.assertTrue(report.push_to_wechat("content", "https://wechat.test"))
+        self.assertEqual(post.call_count, 2)
+
+        post.reset_mock(side_effect=True)
+        post.return_value = response([])
+        self.assertFalse(report.push_to_wechat("content", "https://wechat.test"))
+        self.assertEqual(post.call_count, 1)
 
     @patch.object(report, "build_snapshot")
     @patch.object(report, "now_beijing", return_value=NOW + timedelta(days=5))

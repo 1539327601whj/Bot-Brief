@@ -45,13 +45,13 @@ interface PushLog {
   pushedAt: string
 }
 
-type EditionKey = 'morning' | 'evening' | 'etf_evening'
+type EditionKey = 'morning' | 'evening' | 'market_watch_evening'
 type ReportMap = Record<EditionKey, Report | null>
 
 const emptyReports: ReportMap = {
   morning: null,
   evening: null,
-  etf_evening: null,
+  market_watch_evening: null,
 }
 
 function isToday(date?: string) {
@@ -264,7 +264,7 @@ export default function Dashboard() {
       ])
 
       if (!mounted) return
-      setReports({ morning, evening, etf_evening: etfEvening })
+      setReports({ morning, evening, market_watch_evening: etfEvening })
       setStats(statsData)
       setSubscription(subscriptionData)
       setPushLogs(pushLogData || [])
@@ -277,7 +277,7 @@ export default function Dashboard() {
   }, [isDemo])
 
   const todayReports = useMemo(() => Object.values(reports).filter((report): report is Report => !!report && isToday(report.createdAt)), [reports])
-  const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.etf_evening
+  const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.market_watch_evening
   const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
   const failedLogs = todayLogs.filter(log => log.status === 'failed')
   const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '--:--'
@@ -288,7 +288,7 @@ export default function Dashboard() {
     if ((stats?.todayCount ?? todayReports.length) === 0) items.push('今日暂无任何报告入库')
     if (now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('AI 早间简报尚未生成')
     if (now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('AI 晚间简报尚未生成')
-    if (now.hour() >= 18 && !isToday(reports.etf_evening?.createdAt)) items.push('ETF/A股日报尚未生成')
+    if (now.hour() >= 18 && !isToday(reports.market_watch_evening?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) items.push('订阅已开启，但今日暂无推送记录')
     return items
@@ -299,7 +299,7 @@ export default function Dashboard() {
     if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
     if (subscription && (!subscription.preferenceFields || subscription.preferenceFields.length === 0)) return ['完善关注领域，让后续内容更贴合你的偏好。']
     if (!isToday(reports.morning?.createdAt) || !isToday(reports.evening?.createdAt)) return ['今日 AI 简报未完全生成，建议检查 GitHub Actions 运行记录。']
-    if (isToday(reports.etf_evening?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
+    if (isToday(reports.market_watch_evening?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
     return ['今日数据状态正常，建议先查看今日重点和近期热点。']
   }, [failedLogs.length, subscription, reports])
 
@@ -340,7 +340,7 @@ export default function Dashboard() {
         <h2>ETF / A股观察</h2>
       </div>
       <div className="overview-single-grid">
-        <ReportMiniCard report={reports.etf_evening} edition="etf_evening" />
+        <ReportMiniCard report={reports.market_watch_evening} edition="market_watch_evening" />
       </div>
 
       <div className="overview-main-grid">

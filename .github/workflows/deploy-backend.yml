@@ -35,18 +35,20 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.sha }}
 
-      - name: Build deployment image
-        id: image
+      - name: Package backend source
+        id: release
         shell: bash
         run: |
           set -euo pipefail
           short_sha="$(git rev-parse --short=12 HEAD)"
-          image_tag="${IMAGE_REPOSITORY}:${short_sha}"
-          archive="backend-${short_sha}.tar.gz"
-          docker build --pull -t "$image_tag" backend
-          docker save "$image_tag" | gzip -1 > "$RUNNER_TEMP/$archive"
+          archive="backend-source-${short_sha}.tar.gz"
+          tar -czf "$RUNNER_TEMP/$archive" \
+            backend/pom.xml \
+            backend/src \
+            backend/Dockerfile \
+            backend/.dockerignore \
+            docker-compose.yml
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
-          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "sha=$short_sha" >> "$GITHUB_OUTPUT"
 
@@ -105,39 +107,55 @@ jobs:
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
-          ARCHIVE: ${{ steps.image.outputs.archive }}
-          RELEASE_SHA: ${{ steps.image.outputs.sha }}
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
           release_dir="$DEPLOY_DIR/.deploy/backend-$RELEASE_SHA"
+          archive_path="$RUNNER_TEMP/$ARCHIVE"
+          archive_bytes="$(stat -c '%s' "$archive_path")"
+          archive_sha="$(cut -d ' ' -f 1 "$RUNNER_TEMP/$ARCHIVE.sha256")"
           ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" "rm -rf '$release_dir' && install -d -m 700 '$release_dir'"
-          for attempt in 1 2 3; do
-            if scp "${ssh_opts[@]}" \
-              "$RUNNER_TEMP/$ARCHIVE" \
+
+          echo "Backend release archive: $(numfmt --to=iec "$archive_bytes") ($archive_bytes bytes)"
+          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
+            "DEPLOY_DIR='$DEPLOY_DIR' RELEASE_SHA='$RELEASE_SHA' ARCHIVE='$ARCHIVE' ARCHIVE_SHA='$archive_sha' bash -s" <<'REMOTE'
+          set -euo pipefail
+          install -d -m 700 "$DEPLOY_DIR/.deploy"
+          release_dir="$DEPLOY_DIR/.deploy/backend-$RELEASE_SHA"
+          install -d -m 700 "$release_dir"
+          find "$DEPLOY_DIR/.deploy" -mindepth 1 -maxdepth 1 -type d -mmin +1440 ! -path "$release_dir" -exec rm -rf -- {} +
+          if [ "$(cat "$release_dir/.archive-sha256" 2>/dev/null || true)" != "$ARCHIVE_SHA" ]; then
+            rm -f "$release_dir/$ARCHIVE"
+          fi
+          printf '%s\n' "$ARCHIVE_SHA" > "$release_dir/.archive-sha256"
+          REMOTE
+
+          for attempt in 1 2; do
+            echo "Uploading backend source ($attempt/2)"
+            if timeout 90s scp "${ssh_opts[@]}" \
+              "$archive_path" \
               "$RUNNER_TEMP/$ARCHIVE.sha256" \
               "$RUNNER_TEMP/backend.env" \
-              docker-compose.yml \
               "$SERVER_USER@$SERVER_IP:$release_dir/"; then
               exit 0
             fi
-            if [ "$attempt" = "3" ]; then
-              echo "Release upload failed after 3 attempts"
+            if [ "$attempt" = "2" ]; then
+              echo "Backend source upload failed after 2 attempts"
               exit 1
             fi
-            delay=$((attempt * 20))
-            echo "Release upload failed, retrying in ${delay}s ($attempt/3)"
-            sleep "$delay"
+            echo "Backend source upload interrupted, retrying in 10s"
+            sleep 10
           done
 
       - name: Activate backend release
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
-          ARCHIVE: ${{ steps.image.outputs.archive }}
-          RELEASE_SHA: ${{ steps.image.outputs.sha }}
+          IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.sha }}
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -149,31 +167,46 @@ jobs:
           cd "$release_dir"
           command -v docker >/dev/null 2>&1 || { echo "Docker is not installed on the server"; exit 1; }
           docker compose version >/dev/null
-          sha256sum -c "$ARCHIVE.sha256"
+          if ! sha256sum -c "$ARCHIVE.sha256"; then
+            rm -f "$ARCHIVE" .archive-sha256
+            echo "Backend archive checksum failed; the next run will upload it again"
+            exit 1
+          fi
           docker load -i "$ARCHIVE"
 
           previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-backend 2>/dev/null || true)"
+          docker image inspect mysql:8.0 >/dev/null 2>&1 || { docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true; echo "mysql:8.0 image must be preloaded on the server for schema checks"; exit 1; }
+          schema_ready=$(docker run --rm --pull=never \
+            --add-host=host.docker.internal:host-gateway \
+            -e MYSQL_PWD="$(awk -F= '$1 == "DB_PASSWORD" {sub(/^[^=]*=/, ""); print; exit}' backend.env)" \
+            mysql:8.0 \
+            mysql -N \
+            -h "$(awk -F= '$1 == "DB_HOST" {print $2; exit}' backend.env)" \
+            -P "$(awk -F= '$1 == "DB_PORT" {print $2; exit}' backend.env)" \
+            -u "$(awk -F= '$1 == "DB_USER" {print $2; exit}' backend.env)" \
+            "$(awk -F= '$1 == "DB_NAME" {print $2; exit}' backend.env)" \
+            -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';")
+          if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
+            docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true
+            echo "Database schema is missing V7. Back up the database and run backend/sql/V7__market_data_history.sql before deployment."
+            exit 1
+          fi
+
+          had_previous_env=false
+          had_previous_compose=false
+          if [ -f "$DEPLOY_DIR/.env.deploy" ]; then
+            cp -p "$DEPLOY_DIR/.env.deploy" "$release_dir/.env.deploy.previous"
+            had_previous_env=true
+          fi
+          if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
+            cp -p "$DEPLOY_DIR/docker-compose.yml" "$release_dir/docker-compose.yml.previous"
+            had_previous_compose=true
+          fi
           install -m 600 backend.env "$DEPLOY_DIR/.env.deploy.new"
           mv -f "$DEPLOY_DIR/.env.deploy.new" "$DEPLOY_DIR/.env.deploy"
           install -m 644 docker-compose.yml "$DEPLOY_DIR/docker-compose.yml.new"
           mv -f "$DEPLOY_DIR/docker-compose.yml.new" "$DEPLOY_DIR/docker-compose.yml"
           cd "$DEPLOY_DIR"
-
-          docker image inspect mysql:8.0 >/dev/null 2>&1 || { echo "mysql:8.0 image must be preloaded on the server for schema checks"; exit 1; }
-          schema_ready=$(docker run --rm --pull=never \
-            --add-host=host.docker.internal:host-gateway \
-            -e MYSQL_PWD="$(awk -F= '$1 == "DB_PASSWORD" {sub(/^[^=]*=/, ""); print; exit}' .env.deploy)" \
-            mysql:8.0 \
-            mysql -N \
-            -h "$(awk -F= '$1 == "DB_HOST" {print $2; exit}' .env.deploy)" \
-            -P "$(awk -F= '$1 == "DB_PORT" {print $2; exit}' .env.deploy)" \
-            -u "$(awk -F= '$1 == "DB_USER" {print $2; exit}' .env.deploy)" \
-            "$(awk -F= '$1 == "DB_NAME" {print $2; exit}' .env.deploy)" \
-            -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';")
-          if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
-            echo "Database schema is missing V7. Back up the database and run backend/sql/V7__market_data_history.sql before deployment."
-            exit 1
-          fi
 
           BACKEND_IMAGE="$IMAGE_TAG" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
           healthy=false
@@ -188,14 +221,35 @@ jobs:
           if [ "$healthy" != "true" ]; then
             echo "Backend health check failed"
             docker logs --tail 200 bot-brief-backend || true
+            if [ "$had_previous_env" = "true" ]; then
+              install -m 600 "$release_dir/.env.deploy.previous" "$DEPLOY_DIR/.env.deploy"
+            fi
+            if [ "$had_previous_compose" = "true" ]; then
+              install -m 644 "$release_dir/docker-compose.yml.previous" "$DEPLOY_DIR/docker-compose.yml"
+            fi
             if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
               echo "Rolling back to $previous_image"
               BACKEND_IMAGE="$previous_image" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
             fi
+            docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true
             exit 1
           fi
 
+          if [ -n "$previous_image" ] && [ "$previous_image" != "$IMAGE_TAG" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
+            docker tag "$previous_image" bot-brief-backend:previous
+          else
+            docker image rm bot-brief-backend:previous >/dev/null 2>&1 || true
+          fi
           docker tag "$IMAGE_TAG" bot-brief-backend:local
+          current_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
+          previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-backend:previous 2>/dev/null || true)"
+          while IFS= read -r old_image; do
+            [ -n "$old_image" ] || continue
+            old_id="$(docker image inspect --format '{{.Id}}' "$old_image" 2>/dev/null || true)"
+            if [ "$old_id" != "$current_id" ] && [ "$old_id" != "$previous_id" ]; then
+              docker image rm "$old_image" >/dev/null 2>&1 || true
+            fi
+          done < <(docker image ls bot-brief-backend --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-backend:[0-9a-f]{12,}$' || true)
           rm -rf "$release_dir"
           docker image prune -f
           echo "Backend deployed successfully: $IMAGE_TAG"

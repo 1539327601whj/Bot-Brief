@@ -32,6 +32,9 @@ public class Report {
     /** GitHub Actions 运行 ID（可关联查询） */
     private String runId;
 
+    /** 报告入库幂等键 */
+    private String ingestKey;
+
     /** 创建时间 */
     private LocalDateTime createdAt;
 }

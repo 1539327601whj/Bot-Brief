@@ -25,6 +25,7 @@ def now_beijing():
 # ─── 推送 Spring Boot 后端 ─────────────────────────────────────────
 
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+WECHAT_RETRYABLE_ERRCODES = {-1, 45009}
 
 
 def push_to_backend(edition, title, content, summary, run_id):
@@ -98,14 +99,18 @@ def push_to_wechat(content, webhook_url, max_retries=3):
     for attempt in range(max_retries):
         try:
             resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
-            data = resp.json()
-            if resp.status_code == 200 and data.get("errcode") == 0:
+            try:
+                data = resp.json()
+            except ValueError:
+                data = None
+            errcode = data.get("errcode") if isinstance(data, dict) else None
+            if resp.status_code == 200 and errcode == 0:
                 print(f"✅ 推送成功 ({len(content.encode('utf-8'))} bytes)")
                 return True
-            print(f"❌ 推送失败: HTTP {resp.status_code}, errcode={data.get('errcode')}")
-            if resp.status_code not in RETRYABLE_STATUS_CODES:
+            print(f"❌ 推送失败: HTTP {resp.status_code}, errcode={errcode}")
+            if resp.status_code not in RETRYABLE_STATUS_CODES and errcode not in WECHAT_RETRYABLE_ERRCODES:
                 return False
-        except (requests.ConnectionError, requests.Timeout, ValueError) as e:
+        except (requests.ConnectionError, requests.Timeout) as e:
             print(f"⚠️ 企业微信推送失败: {e}")
         except requests.RequestException as e:
             print(f"❌ 企业微信推送失败且不可重试: {e}")
@@ -394,7 +399,7 @@ def extract_llm_content(response, description):
 def has_substantive_report_content(content):
     for line in content.splitlines():
         stripped = line.strip()
-        if not stripped or re.fullmatch(r"[-*_—=\s]+", stripped):
+        if not stripped or stripped.startswith(">") or re.fullmatch(r"[-*_—=\s]+", stripped):
             continue
         if re.fullmatch(r"#{1,6}\s+.+", stripped):
             continue
@@ -599,9 +604,12 @@ def main():
         print("❌ 企业微信推送失败，报告已入库")
         sys.exit(1)
 
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write(full_report)
-    print(f"💾 已保存: {report_file}")
+    try:
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(full_report)
+        print(f"💾 已保存: {report_file}")
+    except OSError as e:
+        print(f"⚠️ 报告已入库并推送，但本地文件保存失败: {e}")
     print(f"\n✅ 今日简报完成！({now_beijing().strftime('%H:%M:%S')})")
 
 

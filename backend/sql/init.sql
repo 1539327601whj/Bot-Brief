@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS reports (
     content LONGTEXT NOT NULL COMMENT '简报正文（Markdown）',
     summary VARCHAR(500) DEFAULT NULL COMMENT '摘要（列表展示用）',
     run_id VARCHAR(50) DEFAULT NULL COMMENT 'GitHub Actions Run ID',
+    ingest_key VARCHAR(100) DEFAULT NULL COMMENT '报告入库幂等键',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_edition (edition),
-    INDEX idx_created_at (created_at)
+    INDEX idx_created_at (created_at),
+    UNIQUE KEY uk_reports_ingest_key (ingest_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 简报表';
 
 CREATE TABLE IF NOT EXISTS market_valuation_history (

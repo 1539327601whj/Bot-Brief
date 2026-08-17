@@ -47,6 +47,7 @@ class LlmResponseTests(unittest.TestCase):
 
     def test_content_quality_rejects_shell(self):
         self.assertFalse(report.has_substantive_report_content("# 标题\n\n---\n"))
+        self.assertFalse(report.has_substantive_report_content("# 标题\n\n> 数据来源：测试源"))
         self.assertTrue(report.has_substantive_report_content("# 标题\n\n## 要点\n正文内容"))
 
     @patch.dict(os.environ, {"DEEPSEEK_API_KEY": "secret"}, clear=False)
@@ -85,6 +86,24 @@ class DeliveryTests(unittest.TestCase):
         response.json.return_value = {"code": 200}
         post.return_value = response
         self.assertTrue(report.push_to_backend("morning", "title", "content", "summary", "run"))
+
+    @patch("requests.post")
+    @patch.object(report.time, "sleep")
+    def test_wechat_retries_retryable_business_error_and_rejects_non_object_json(self, _, post):
+        busy = Mock(status_code=200)
+        busy.json.return_value = {"errcode": -1}
+        success = Mock(status_code=200)
+        success.json.return_value = {"errcode": 0}
+        post.side_effect = [busy, success]
+        self.assertTrue(report.push_to_wechat("content", "https://wechat.test"))
+        self.assertEqual(post.call_count, 2)
+
+        post.reset_mock(side_effect=True)
+        invalid = Mock(status_code=200)
+        invalid.json.return_value = []
+        post.return_value = invalid
+        self.assertFalse(report.push_to_wechat("content", "https://wechat.test"))
+        self.assertEqual(post.call_count, 1)
 
     @patch.dict(os.environ, {
         "DEEPSEEK_API_KEY": "secret",

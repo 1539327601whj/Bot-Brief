@@ -44,7 +44,7 @@ jobs:
           image_tag="${IMAGE_REPOSITORY}:${short_sha}"
           archive="frontend-${short_sha}.tar.gz"
           docker build --pull -t "$image_tag" frontend
-          docker save "$image_tag" | gzip -1 > "$RUNNER_TEMP/$archive"
+          docker save "$image_tag" | gzip -9 > "$RUNNER_TEMP/$archive"
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
           echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
@@ -74,22 +74,53 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="$DEPLOY_DIR/.deploy/frontend-$RELEASE_SHA"
+          archive_path="$RUNNER_TEMP/$ARCHIVE"
+          archive_bytes="$(stat -c '%s' "$archive_path")"
+          archive_sha="$(cut -d ' ' -f 1 "$RUNNER_TEMP/$ARCHIVE.sha256")"
           ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" "rm -rf '$release_dir' && install -d -m 700 '$release_dir'"
+
+          echo "Frontend release archive: $(numfmt --to=iec "$archive_bytes") ($archive_bytes bytes)"
+          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
+            "DEPLOY_DIR='$DEPLOY_DIR' RELEASE_SHA='$RELEASE_SHA' ARCHIVE='$ARCHIVE' ARCHIVE_SHA='$archive_sha' bash -s" <<'REMOTE'
+          set -euo pipefail
+          install -d -m 700 "$DEPLOY_DIR/.deploy"
+          release_dir="$DEPLOY_DIR/.deploy/frontend-$RELEASE_SHA"
+          install -d -m 700 "$release_dir"
+          find "$DEPLOY_DIR/.deploy" -mindepth 1 -maxdepth 1 -type d -mmin +1440 ! -path "$release_dir" -exec rm -rf -- {} +
+          if [ "$(cat "$release_dir/.archive-sha256" 2>/dev/null || true)" != "$ARCHIVE_SHA" ]; then
+            rm -f "$release_dir/$ARCHIVE"
+          fi
+          printf '%s\n' "$ARCHIVE_SHA" > "$release_dir/.archive-sha256"
+          REMOTE
+
+          batch_file="$RUNNER_TEMP/frontend-sftp.batch"
+          printf 'reput %s %s\nput %s %s\nput %s %s\n' \
+            "$archive_path" "$release_dir/$ARCHIVE" \
+            "$RUNNER_TEMP/$ARCHIVE.sha256" "$release_dir/$ARCHIVE.sha256" \
+            "docker-compose.yml" "$release_dir/docker-compose.yml" > "$batch_file"
+
           for attempt in 1 2 3; do
-            if scp "${ssh_opts[@]}" \
-              "$RUNNER_TEMP/$ARCHIVE" \
-              "$RUNNER_TEMP/$ARCHIVE.sha256" \
-              docker-compose.yml \
-              "$SERVER_USER@$SERVER_IP:$release_dir/"; then
+            echo "Uploading frontend release with resume support ($attempt/3)"
+            sftp "${ssh_opts[@]}" -b "$batch_file" "$SERVER_USER@$SERVER_IP" &
+            upload_pid=$!
+            while kill -0 "$upload_pid" 2>/dev/null; do
+              uploaded_bytes="$(ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" "stat -c '%s' '$release_dir/$ARCHIVE' 2>/dev/null || printf '0'" || printf '0')"
+              if [[ "$uploaded_bytes" =~ ^[0-9]+$ ]]; then
+                percent=$((uploaded_bytes * 100 / archive_bytes))
+                [ "$percent" -le 100 ] || percent=100
+                echo "Uploaded $(numfmt --to=iec "$uploaded_bytes") / $(numfmt --to=iec "$archive_bytes") (${percent}%)"
+              fi
+              sleep 15
+            done
+            if wait "$upload_pid"; then
               exit 0
             fi
             if [ "$attempt" = "3" ]; then
-              echo "Release upload failed after 3 attempts"
+              echo "Release upload failed after 3 resumable attempts"
               exit 1
             fi
             delay=$((attempt * 20))
-            echo "Release upload failed, retrying in ${delay}s ($attempt/3)"
+            echo "Release upload interrupted, resuming in ${delay}s"
             sleep "$delay"
           done
 
@@ -111,10 +142,19 @@ jobs:
           cd "$release_dir"
           command -v docker >/dev/null 2>&1 || { echo "Docker is not installed on the server"; exit 1; }
           docker compose version >/dev/null
-          sha256sum -c "$ARCHIVE.sha256"
+          if ! sha256sum -c "$ARCHIVE.sha256"; then
+            rm -f "$ARCHIVE" .archive-sha256
+            echo "Frontend archive checksum failed; the next run will upload it again"
+            exit 1
+          fi
           docker load -i "$ARCHIVE"
 
           previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-frontend 2>/dev/null || true)"
+          had_previous_compose=false
+          if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
+            cp -p "$DEPLOY_DIR/docker-compose.yml" "$release_dir/docker-compose.yml.previous"
+            had_previous_compose=true
+          fi
           install -m 644 docker-compose.yml "$DEPLOY_DIR/docker-compose.yml.new"
           mv -f "$DEPLOY_DIR/docker-compose.yml.new" "$DEPLOY_DIR/docker-compose.yml"
           cd "$DEPLOY_DIR"
@@ -132,14 +172,32 @@ jobs:
           if [ "$healthy" != "true" ]; then
             echo "Frontend health check failed"
             docker logs --tail 200 bot-brief-frontend || true
+            if [ "$had_previous_compose" = "true" ]; then
+              install -m 644 "$release_dir/docker-compose.yml.previous" "$DEPLOY_DIR/docker-compose.yml"
+            fi
             if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
               echo "Rolling back to $previous_image"
               FRONTEND_IMAGE="$previous_image" docker compose up -d --no-build --force-recreate frontend
             fi
+            docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true
             exit 1
           fi
 
+          if [ -n "$previous_image" ] && [ "$previous_image" != "$IMAGE_TAG" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
+            docker tag "$previous_image" bot-brief-frontend:previous
+          else
+            docker image rm bot-brief-frontend:previous >/dev/null 2>&1 || true
+          fi
           docker tag "$IMAGE_TAG" bot-brief-frontend:local
+          current_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
+          previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-frontend:previous 2>/dev/null || true)"
+          while IFS= read -r old_image; do
+            [ -n "$old_image" ] || continue
+            old_id="$(docker image inspect --format '{{.Id}}' "$old_image" 2>/dev/null || true)"
+            if [ "$old_id" != "$current_id" ] && [ "$old_id" != "$previous_id" ]; then
+              docker image rm "$old_image" >/dev/null 2>&1 || true
+            fi
+          done < <(docker image ls bot-brief-frontend --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-frontend:[0-9a-f]{12,}$' || true)
           rm -rf "$release_dir"
           docker image prune -f
           echo "Frontend deployed successfully: $IMAGE_TAG"

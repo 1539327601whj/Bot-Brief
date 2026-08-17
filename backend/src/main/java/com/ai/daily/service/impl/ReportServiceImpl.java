@@ -4,6 +4,7 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.mapper.ReportMapper;
 import com.ai.daily.service.ReportService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -27,15 +28,28 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         if (!hasSubstantiveContent(content)) {
             throw new IllegalArgumentException("简报缺少实质正文");
         }
+        String ingestKey = runId != null && !runId.isBlank() && !"local".equals(runId)
+                ? edition + ":" + runId
+                : null;
+        if (ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null) {
+            return;
+        }
         Report report = new Report();
         report.setEdition(edition);
         report.setTitle(title);
         report.setContent(content);
         report.setSummary(summary);
         report.setRunId(runId);
+        report.setIngestKey(ingestKey);
         report.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
-        if (!this.save(report)) {
-            throw new IllegalStateException("简报保存失败");
+        try {
+            if (!this.save(report)) {
+                throw new IllegalStateException("简报保存失败");
+            }
+        } catch (DuplicateKeyException e) {
+            if (ingestKey == null || baseMapper.findIdByIngestKey(ingestKey) == null) {
+                throw e;
+            }
         }
     }
 

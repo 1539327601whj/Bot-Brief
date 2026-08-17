@@ -13,7 +13,7 @@ import sys
 import time
 from bisect import bisect_left, bisect_right, insort
 from datetime import date, datetime, timezone, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional, TypedDict
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -62,8 +62,18 @@ PRICE_CACHE_QUERY_LIMIT = PRICE_HISTORY_LIMIT * 2
 PRICE_MAX_STALENESS_DAYS = 15
 PE_LOOKBACK_DAYS = 15
 RETRYABLE_STATUS_CODES = (408, 429, 500, 502, 503, 504)
+WECHAT_RETRYABLE_ERRCODES = (-1, 45009)
+
+
+class AShareObservationResult(TypedDict):
+    status: Literal["available", "empty", "provider_error"]
+    items: list[dict[str, str]]
+    source: str
+    error: Optional[str]
+
 
 _HTTP_SESSION: Optional[requests.Session] = None
+_JSON_UNSET = object()
 
 DISCLAIMER = "数据说明：本报告汇总公开市场数据，仅用于核对数据、市场状态与风险；不同估值口径不可直接横向比较，不构成投资建议或买卖依据。"
 
@@ -1312,14 +1322,21 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def backend_result(resp: requests.Response, operation: str) -> Optional[dict[str, Any]]:
+def backend_result(
+    resp: requests.Response,
+    operation: str,
+    parsed_body: Any = _JSON_UNSET,
+) -> Optional[dict[str, Any]]:
     if resp.status_code != 200:
         print(f"  ⚠️ {operation}失败: HTTP {resp.status_code} {resp.text[:300]}")
         return None
     try:
-        body = resp.json()
+        body = resp.json() if parsed_body is _JSON_UNSET else parsed_body
     except ValueError:
         print(f"  ⚠️ {operation}失败: 后端未返回JSON")
+        return None
+    if not isinstance(body, dict):
+        print(f"  ⚠️ {operation}失败: 后端JSON不是对象")
         return None
     if body.get("code") != 200:
         print(f"  ⚠️ {operation}失败: 业务码 {body.get('code')} {body.get('message', '')}")
@@ -1534,7 +1551,13 @@ def fetch_a_share_candidates() -> list[dict[str, Any]]:
         headers={"User-Agent": "Mozilla/5.0"},
     )
     resp.raise_for_status()
-    return resp.json().get("data", {}).get("diff", []) or []
+    body = resp.json()
+    if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
+        raise RuntimeError("东方财富A股候选响应缺少 data 对象")
+    items = body["data"].get("diff")
+    if not isinstance(items, list):
+        raise RuntimeError("东方财富A股候选响应 diff 不是列表")
+    return items
 
 
 def normalize_a_share(item: dict[str, Any]) -> dict[str, Any]:
@@ -1619,7 +1642,7 @@ def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def build_a_share_observations() -> dict[str, Any]:
+def build_a_share_observations() -> AShareObservationResult:
     try:
         raw_items = fetch_a_share_candidates()
         stocks = [normalize_a_share(item) for item in raw_items]
@@ -1728,7 +1751,7 @@ def snapshot_data_issues(snapshot: dict[str, Any]) -> list[str]:
 def build_programmatic_report(
     snapshots: list[dict[str, Any]],
     edition: str,
-    stock_observations: Optional[dict[str, Any]] = None,
+    stock_observations: Optional[AShareObservationResult] = None,
 ) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
     lines = [
@@ -1904,14 +1927,18 @@ def push_to_wechat(content: str, webhook_url: str, max_attempts: int = 3) -> boo
     for attempt in range(max_attempts):
         try:
             resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
-            data = resp.json()
-            if resp.status_code == 200 and data.get("errcode") == 0:
+            try:
+                data = resp.json()
+            except ValueError:
+                data = None
+            errcode = data.get("errcode") if isinstance(data, dict) else None
+            if resp.status_code == 200 and errcode == 0:
                 print(f"✅ ETF 企业微信推送成功 ({len(content.encode('utf-8'))} bytes)")
                 return True
-            print(f"❌ ETF 企业微信推送失败: HTTP {resp.status_code}, errcode={data.get('errcode')}")
-            if resp.status_code not in RETRYABLE_STATUS_CODES:
+            print(f"❌ ETF 企业微信推送失败: HTTP {resp.status_code}, errcode={errcode}")
+            if resp.status_code not in RETRYABLE_STATUS_CODES and errcode not in WECHAT_RETRYABLE_ERRCODES:
                 return False
-        except (requests.ConnectionError, requests.Timeout, ValueError) as e:
+        except (requests.ConnectionError, requests.Timeout) as e:
             print(f"⚠️ ETF 企业微信推送失败: {e}")
         except requests.RequestException as e:
             print(f"❌ ETF 企业微信推送失败且不可重试: {e}")
@@ -1946,15 +1973,15 @@ def push_to_backend(edition: str, title: str, content: str, summary: str, run_id
                 headers={"X-Ingest-Token": ingest_token},
                 timeout=(4, 15),
             )
-            body = backend_result(resp, "ETF报告同步")
+            try:
+                parsed_body = resp.json()
+            except ValueError:
+                parsed_body = None
+            body = backend_result(resp, "ETF报告同步", parsed_body)
             if body is not None:
                 print(f"  ✅ ETF 报告已同步到后端（第 {attempt + 1} 次尝试）")
                 return True
-            business_code = None
-            try:
-                business_code = resp.json().get("code")
-            except (ValueError, AttributeError):
-                pass
+            business_code = parsed_body.get("code") if isinstance(parsed_body, dict) else None
             retryable = resp.status_code in RETRYABLE_STATUS_CODES or (
                 resp.status_code == 200 and isinstance(business_code, int) and business_code >= 500
             )
