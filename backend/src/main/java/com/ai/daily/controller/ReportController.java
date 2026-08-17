@@ -48,14 +48,18 @@ public class ReportController {
                     ? dto.getContent().substring(0, 100) + "..."
                     : dto.getContent();
         }
-        reportService.saveReport(
-                dto.getEdition(),
-                dto.getTitle(),
-                dto.getContent(),
-                summary,
-                dto.getRunId()
-        );
-        return Result.ok("简报已保存", null);
+        try {
+            reportService.saveReport(
+                    dto.getEdition(),
+                    dto.getTitle(),
+                    dto.getContent(),
+                    summary,
+                    dto.getRunId()
+            );
+            return Result.ok("简报已保存", null);
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
     }
 
     /**

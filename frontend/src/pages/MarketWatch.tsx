@@ -15,15 +15,14 @@ interface Report {
 }
 
 interface WatchCardConfig {
-  edition: 'market_watch_morning' | 'market_watch_evening'
+  edition: 'market_watch_evening'
   title: string
   subtitle: string
   icon: string
 }
 
 const watchCards: WatchCardConfig[] = [
-  { edition: 'market_watch_morning', title: '早间观察', subtitle: '盘中早段行情、估值位置和今日关注点', icon: '早' },
-  { edition: 'market_watch_evening', title: '晚间观察', subtitle: '全天表现复盘、波动提醒和明日观察点', icon: '晚' },
+  { edition: 'market_watch_evening', title: 'ETF 行情日报', subtitle: '工作日 18:00 更新全天行情、估值变化、数据风险和两只 A 股观察候选', icon: '报' },
 ]
 
 const featureCards = [

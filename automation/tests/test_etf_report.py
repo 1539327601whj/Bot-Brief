@@ -342,12 +342,17 @@ class ValuationTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_report_keeps_clear_layout_without_etf_advice(self, _):
-        stocks = [{
-            "name": "测试股份", "code": "600000",
-            "reason": "成交活跃且估值过滤通过。",
-            "trend": "短期更可能维持震荡。",
-            "risk": "需核对基本面和公告。",
-        }]
+        stocks = {
+            "status": "available",
+            "items": [{
+                "name": "测试股份", "code": "600000",
+                "reason": "成交活跃且估值过滤通过。",
+                "trend": "短期更可能维持震荡。",
+                "risk": "需核对基本面和公告。",
+            }],
+            "source": "测试源",
+            "error": None,
+        }
         text = report.build_programmatic_report(
             [complete_snapshot()], "market_watch_evening", stocks
         )
@@ -382,7 +387,39 @@ class ReportTests(unittest.TestCase):
             "f62": 10_000_000,
         } for index in range(3)]
         observations = report.build_a_share_observations()
-        self.assertEqual(len(observations), 2)
+        self.assertEqual(observations["status"], "available")
+        self.assertEqual(len(observations["items"]), 2)
+
+    @patch.object(report, "fetch_a_share_candidates", return_value=[])
+    def test_a_share_selector_distinguishes_valid_empty_result(self, _):
+        result = report.build_a_share_observations()
+        self.assertEqual(result["status"], "empty")
+        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening", result)
+        self.assertIn("数据源正常", text)
+        self.assertNotIn("候选数据源异常", text)
+
+    @patch.object(report, "fetch_a_share_candidates", side_effect=RuntimeError("502 Bad Gateway"))
+    def test_a_share_selector_marks_provider_error(self, _):
+        result = report.build_a_share_observations()
+        self.assertEqual(result["status"], "provider_error")
+        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening", result)
+        self.assertIn("候选数据源异常", text)
+        self.assertIn("502 Bad Gateway", text)
+
+    @patch.object(report, "http_get")
+    def test_premium_502_returns_provider_error(self, get):
+        get.return_value = response(status=502)
+        premium = report.fetch_etf_premium(
+            ETF, {"latest_price": 4.1, "data_time": "2026-07-27 15:00:00"}
+        )
+        self.assertEqual(premium["data_status"], "provider_error")
+        self.assertIsNone(premium["premium_rate"])
+        self.assertIn("502", premium["error"])
+
+    def test_morning_edition_is_rejected(self):
+        with patch.dict(os.environ, {"EDITION": "morning"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "早间版已停用"):
+                report.detect_edition()
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_premium_failure_is_included_in_data_risks(self, _):
@@ -416,6 +453,19 @@ class ReportTests(unittest.TestCase):
             self.assertFalse(report.should_skip_weekend_report(saturday, True))
         with patch.dict(os.environ, {"ETF_FORCE_RUN": "true"}, clear=True):
             self.assertFalse(report.should_skip_weekend_report(saturday, False))
+
+    @patch.dict(os.environ, {
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+    }, clear=False)
+    @patch.object(report.requests, "post")
+    def test_report_ingest_rejects_http_success_with_business_failure(self, post):
+        post.return_value = response({"code": 500, "message": "保存失败"})
+        with patch.object(report.time, "sleep"):
+            self.assertFalse(report.push_to_backend(
+                "market_watch_evening", "title", "content", "summary", "run"
+            ))
+        self.assertEqual(post.call_count, 3)
 
     @patch.object(report, "build_snapshot")
     @patch.object(report, "now_beijing", return_value=NOW + timedelta(days=5))

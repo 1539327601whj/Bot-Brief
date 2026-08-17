@@ -60,7 +60,7 @@ jobs:
           test -n "$SERVER_SSH_KEY" || { echo "SERVER_SSH_KEY is not configured"; exit 1; }
           test -n "$SERVER_HOST_KEY" || { echo "SERVER_HOST_KEY is not configured"; exit 1; }
           install -d -m 700 "$HOME/.ssh"
-          printf '%s' "$SERVER_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SERVER_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
           printf '%s\n' "$SERVER_HOST_KEY" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/deploy_key" "$HOME/.ssh/known_hosts"
 

@@ -45,13 +45,12 @@ interface PushLog {
   pushedAt: string
 }
 
-type EditionKey = 'morning' | 'evening' | 'etf_morning' | 'etf_evening'
+type EditionKey = 'morning' | 'evening' | 'etf_evening'
 type ReportMap = Record<EditionKey, Report | null>
 
 const emptyReports: ReportMap = {
   morning: null,
   evening: null,
-  etf_morning: null,
   etf_evening: null,
 }
 
@@ -254,10 +253,9 @@ export default function Dashboard() {
 
     async function loadOverview() {
       setLoading(true)
-      const [morning, evening, etfMorning, etfEvening, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
+      const [morning, evening, etfEvening, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
         safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }),
         safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }),
-        safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_morning' } }),
         safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_evening' } }),
         safeGet<DashboardStats>('/stats/dashboard'),
         isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
@@ -266,7 +264,7 @@ export default function Dashboard() {
       ])
 
       if (!mounted) return
-      setReports({ morning, evening, etf_morning: etfMorning, etf_evening: etfEvening })
+      setReports({ morning, evening, etf_evening: etfEvening })
       setStats(statsData)
       setSubscription(subscriptionData)
       setPushLogs(pushLogData || [])
@@ -279,7 +277,7 @@ export default function Dashboard() {
   }, [isDemo])
 
   const todayReports = useMemo(() => Object.values(reports).filter((report): report is Report => !!report && isToday(report.createdAt)), [reports])
-  const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.etf_morning || reports.etf_evening
+  const focusReport = todayReports.find(report => report.edition === 'evening' || report.edition === 'morning') || todayReports[0] || reports.morning || reports.evening || reports.etf_evening
   const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
   const failedLogs = todayLogs.filter(log => log.status === 'failed')
   const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '--:--'
@@ -290,8 +288,7 @@ export default function Dashboard() {
     if ((stats?.todayCount ?? todayReports.length) === 0) items.push('今日暂无任何报告入库')
     if (now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('AI 早间简报尚未生成')
     if (now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('AI 晚间简报尚未生成')
-    if (now.hour() >= 11 && !isToday(reports.etf_morning?.createdAt)) items.push('ETF/A股早间观察尚未生成')
-    if (now.hour() >= 18 && !isToday(reports.etf_evening?.createdAt)) items.push('ETF/A股晚间观察尚未生成')
+    if (now.hour() >= 18 && !isToday(reports.etf_evening?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) items.push('订阅已开启，但今日暂无推送记录')
     return items
@@ -302,7 +299,7 @@ export default function Dashboard() {
     if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
     if (subscription && (!subscription.preferenceFields || subscription.preferenceFields.length === 0)) return ['完善关注领域，让后续内容更贴合你的偏好。']
     if (!isToday(reports.morning?.createdAt) || !isToday(reports.evening?.createdAt)) return ['今日 AI 简报未完全生成，建议检查 GitHub Actions 运行记录。']
-    if (isToday(reports.etf_morning?.createdAt) || isToday(reports.etf_evening?.createdAt)) return ['ETF/A股观察已更新，可以结合今日重点查看市场变化。']
+    if (isToday(reports.etf_evening?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
     return ['今日数据状态正常，建议先查看今日重点和近期热点。']
   }, [failedLogs.length, subscription, reports])
 
@@ -342,8 +339,7 @@ export default function Dashboard() {
       <div className="overview-section-header">
         <h2>ETF / A股观察</h2>
       </div>
-      <div className="overview-two-grid">
-        <ReportMiniCard report={reports.etf_morning} edition="etf_morning" />
+      <div className="overview-single-grid">
         <ReportMiniCard report={reports.etf_evening} edition="etf_evening" />
       </div>
 

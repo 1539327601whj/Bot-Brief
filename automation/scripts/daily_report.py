@@ -24,8 +24,11 @@ def now_beijing():
 
 # ─── 推送 Spring Boot 后端 ─────────────────────────────────────────
 
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
+
 def push_to_backend(edition, title, content, summary, run_id):
-    """将简报 POST 到 Spring Boot 后端 API 存储（带重试机制，解决 Render 冷启动问题）"""
+    """将简报 POST 到 Spring Boot 后端 API 存储。"""
     import requests as req
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
@@ -36,11 +39,8 @@ def push_to_backend(edition, title, content, summary, run_id):
         print("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
         return False
 
-    # Render 免费层限制请求体约 1MB，截断 content 避免 400 错误
-    # 保留约 100KB 安全余量（约 3万字符）
     max_content_length = 30000
     truncated_content = content if len(content) <= max_content_length else content[:max_content_length] + "\n\n> ...(内容已截断，完整版请查看企业微信)"
-
     payload = {
         "edition": edition,
         "title": title,
@@ -49,59 +49,70 @@ def push_to_backend(edition, title, content, summary, run_id):
         "runId": run_id
     }
 
-    # Render 冷启动约 30-60 秒，需要足够的超时和重试
-    max_retries = 5
-    base_timeout = 60  # 首次等待 60 秒
-
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             resp = req.post(
                 f"{backend_url}/api/reports/ingest",
                 json=payload,
                 headers={"X-Ingest-Token": ingest_token},
-                timeout=base_timeout
+                timeout=(5, 60)
             )
-            if resp.status_code == 200:
+            try:
+                body = resp.json()
+            except ValueError:
+                body = None
+            if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
                 print(f"  ✅ 已同步到后端 API（第 {attempt + 1} 次尝试）")
                 return True
-            else:
-                print(f"  ⚠️ 后端 API 返回 {resp.status_code}: {resp.text}")
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 15
-                    print(f"  ⏳ {wait_time} 秒后重试...")
-                    time.sleep(wait_time)
-                    continue
+            message = body.get("message") if isinstance(body, dict) else "响应不是有效 JSON"
+            print(f"  ⚠️ 后端 API 返回 HTTP {resp.status_code}，业务响应: {message}")
+            business_code = body.get("code") if isinstance(body, dict) else None
+            retryable = resp.status_code in RETRYABLE_STATUS_CODES or (
+                resp.status_code == 200 and isinstance(business_code, int) and business_code >= 500
+            )
+            if not retryable:
                 return False
-        except Exception as e:
+        except (req.ConnectionError, req.Timeout) as e:
             print(f"  ⚠️ 后端 API 同步失败: {e}")
-            if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 15
-                print(f"  ⏳ {wait_time} 秒后重试...")
-                time.sleep(wait_time)
-                continue
+        except req.RequestException as e:
+            print(f"  ⚠️ 后端 API 同步失败且不可重试: {e}")
             return False
-
+        if attempt < max_retries - 1:
+            wait_time = (attempt + 1) * 5
+            print(f"  ⏳ {wait_time} 秒后重试...")
+            time.sleep(wait_time)
     return False
 
 
 # ─── 企业微信推送 ───────────────────────────────────────────────
 
-def push_to_wechat(content, webhook_url):
-    """通过企业微信 Webhook 发送 Markdown 消息"""
+def push_to_wechat(content, webhook_url, max_retries=3):
+    """通过企业微信 Webhook 发送 Markdown 消息。"""
     import requests
     payload = {
         "msgtype": "markdown",
         "markdown": {"content": content}
     }
     headers = {"Content-Type": "application/json; charset=utf-8"}
-    resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
-    data = resp.json()
-    if data.get("errcode") == 0:
-        print(f"✅ 推送成功 ({len(content.encode('utf-8'))} bytes)")
-        return True
-    else:
-        print(f"❌ 推送失败: {data}")
-        return False
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
+            data = resp.json()
+            if resp.status_code == 200 and data.get("errcode") == 0:
+                print(f"✅ 推送成功 ({len(content.encode('utf-8'))} bytes)")
+                return True
+            print(f"❌ 推送失败: HTTP {resp.status_code}, errcode={data.get('errcode')}")
+            if resp.status_code not in RETRYABLE_STATUS_CODES:
+                return False
+        except (requests.ConnectionError, requests.Timeout, ValueError) as e:
+            print(f"⚠️ 企业微信推送失败: {e}")
+        except requests.RequestException as e:
+            print(f"❌ 企业微信推送失败且不可重试: {e}")
+            return False
+        if attempt < max_retries - 1:
+            time.sleep(attempt + 1)
+    return False
 
 
 def convert_to_wework_markdown(md_text):
@@ -348,84 +359,98 @@ LLM_MODELS = [
 ]
 
 
+class InvalidLLMResponseError(RuntimeError):
+    pass
+
+
+def extract_llm_content(response, description):
+    choices = getattr(response, "choices", None)
+    choice_count = len(choices) if choices is not None else 0
+    if not choices:
+        raise InvalidLLMResponseError(f"{description} 响应不包含 choices")
+    choice = choices[0]
+    message = getattr(choice, "message", None)
+    raw_content = getattr(message, "content", None) if message is not None else None
+    finish_reason = getattr(choice, "finish_reason", None)
+    raw_length = len(raw_content) if isinstance(raw_content, str) else 0
+    if not isinstance(raw_content, str):
+        raise InvalidLLMResponseError(
+            f"{description} 正文类型无效: choices={choice_count}, finish_reason={finish_reason}"
+        )
+    content = raw_content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:markdown)?\s*", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"\s*```\s*$", "", content)
+        content = content.strip()
+    print(
+        f"  响应诊断: choices={choice_count}, finish_reason={finish_reason}, "
+        f"raw_chars={raw_length}, content_chars={len(content)}"
+    )
+    if not content:
+        raise InvalidLLMResponseError(f"{description} 返回空正文")
+    return content
+
+
+def has_substantive_report_content(content):
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or re.fullmatch(r"[-*_—=\s]+", stripped):
+            continue
+        if re.fullmatch(r"#{1,6}\s+.+", stripped):
+            continue
+        if re.search(r"[一-鿿A-Za-z0-9]", stripped):
+            return True
+    return False
+
+
 def call_llm_with_retry(prompt, max_retries=3):
-    """
-    调用 LLM API，支持多模型降级策略
-    
-    实现多级容错：
-    1. 主模型（DeepSeek）失败时自动重试
-    2. 主模型完全不可用后，自动降级到备用模型（如 GPT-3.5）
-    3. 所有模型均失败时抛出异常
-    """
+    """调用 LLM API，并在空响应或可恢复错误时重试。"""
     from openai import OpenAI
 
+    last_error = None
     for model_index, model_config in enumerate(LLM_MODELS):
         model_name = model_config["name"]
         base_url = model_config["base_url"]
         api_key_env = model_config["api_key_env"]
         description = model_config.get("description", model_name)
-        
-        # 检查 API Key 是否配置
         api_key = os.environ.get(api_key_env, "")
         if not api_key:
             print(f"⚠️ 未配置 {api_key_env}，跳过 {description}")
             continue
-        
-        # 初始化客户端
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        
-        # 主模型重试次数更多，备用模型适当减少
-        retries = max_retries if model_index == 0 else max(1, max_retries - 1)
 
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        retries = max_retries if model_index == 0 else max(1, max_retries - 1)
         for attempt in range(retries + 1):
             try:
                 print(f"🤖 正在调用 {description} (尝试 {attempt + 1}/{retries + 1})...")
-
                 response = client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     max_tokens=2000
                 )
-
-                content = response.choices[0].message.content.strip()
-                # 去掉可能的 markdown 代码块包裹
-                if content.startswith("```"):
-                    content = re.sub(r"^```(?:markdown)?\n?", "", content)
-                    content = re.sub(r"\n?```$", "", content)
-
+                content = extract_llm_content(response, description)
                 print(f"✅ 成功使用模型: {description}")
                 return content
-
             except Exception as e:
+                last_error = e
                 error_str = str(e).lower()
-
-                # 判断是否是服务繁忙或可重试错误
-                is_retryable = (
-                    "503" in str(e) or
-                    "rate limit" in error_str or
-                    "unavailable" in error_str or
-                    "timeout" in error_str or
-                    "connection" in error_str
-                )
-
-                if is_retryable and attempt < retries:
+                retryable = isinstance(e, InvalidLLMResponseError) or any(marker in error_str for marker in (
+                    "408", "429", "500", "502", "503", "504", "rate limit",
+                    "unavailable", "timeout", "connection"
+                ))
+                if retryable and attempt < retries:
                     wait_time = (attempt + 1) * 3
-                    print(f"⚠️ {description} 服务繁忙，等待 {wait_time} 秒后重试...")
+                    print(f"⚠️ {description} 响应无效或服务繁忙，等待 {wait_time} 秒后重试: {e}")
                     time.sleep(wait_time)
                     continue
+                print(f"❌ {description} 本轮失败: {e}")
+                break
+        if model_index < len(LLM_MODELS) - 1:
+            next_model = LLM_MODELS[model_index + 1].get("description", "备用模型")
+            print(f"⚠️ 降级到 {next_model}...")
 
-                # 当前模型最终失败，尝试降级到下一个模型
-                if attempt >= retries:
-                    if model_index < len(LLM_MODELS) - 1:
-                        next_model = LLM_MODELS[model_index + 1].get("description", "备用模型")
-                        print(f"❌ {description} 不可用，降级到 {next_model}...")
-                        break
-                    else:
-                        print(f"❌ 所有模型均不可用: {e}")
-                        raise
-
-    raise Exception("所有 LLM 模型均不可用，请检查 API 配置或稍后重试")
+    raise RuntimeError(f"所有 LLM 模型均不可用: {last_error or '没有可用模型配置'}")
 
 
 SYSTEM_PROMPT_MORNING = """你是一位资深 AI 技术架构师与科技媒体主编，为资深 Java/AI 开发者写早间 AI 简报。
@@ -540,9 +565,7 @@ def main():
     news_items = extract_ai_news()
 
     if not news_items:
-        print("⚠️ 未抓取到任何 AI 相关资讯，发送提示")
-        fallback = f"> ⚠️ AI 简报\n\n未抓取到今日资讯，请检查网络或 RSS 源是否正常。"
-        push_to_wechat(fallback, webhook_url)
+        print("❌ 未抓取到任何 AI 相关资讯，不生成、不入库、不推送")
         sys.exit(1)
 
     print(f"\n📊 共抓取到 {len(news_items)} 条 AI 相关资讯\n")
@@ -557,25 +580,28 @@ def main():
         print(f"❌ LLM API 调用失败: {e}")
         sys.exit(1)
 
-    # Step 3: 保存到文件
-    header = f"# 🤖 AI 每日高价值简报 · {today}（{edition_suffix}）\n\n---\n\n"
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write(header + report)
-    print(f"💾 已保存: {report_file}")
-
-    # Step 4: 推送企业微信
-    wx_content = convert_to_wework_markdown(header + report)
-    push_to_wechat(wx_content, webhook_url)
-
-    # Step 5: 同步到 Spring Boot 后端（Web 页面数据源）
-    run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    title_text = f"【{edition_suffix}】AI 每日简报 {today}"
-    # 取前 100 字作摘要
-    summary_text = report[:100] + "..." if len(report) > 100 else report
-    if not push_to_backend(edition, title_text, header + report, summary_text, run_id):
-        print("❌ 同步到后端失败，本次日报未入库")
+    if not has_substantive_report_content(report):
+        print("❌ LLM 未生成实质正文，不写文件、不入库、不推送")
         sys.exit(1)
 
+    header = f"# 🤖 AI 每日高价值简报 · {today}（{edition_suffix}）\n\n---\n\n"
+    full_report = header + report
+    run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    title_text = f"【{edition_suffix}】AI 每日简报 {today}"
+    summary_text = report[:100] + "..." if len(report) > 100 else report
+
+    if not push_to_backend(edition, title_text, full_report, summary_text, run_id):
+        print("❌ 同步到后端失败，本次日报不继续推送")
+        sys.exit(1)
+
+    wx_content = convert_to_wework_markdown(full_report)
+    if not push_to_wechat(wx_content, webhook_url):
+        print("❌ 企业微信推送失败，报告已入库")
+        sys.exit(1)
+
+    with open(report_file, "w", encoding="utf-8") as f:
+        f.write(full_report)
+    print(f"💾 已保存: {report_file}")
     print(f"\n✅ 今日简报完成！({now_beijing().strftime('%H:%M:%S')})")
 
 

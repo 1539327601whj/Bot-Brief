@@ -156,22 +156,16 @@ def validate_quote(quote: dict[str, Any], etf: dict[str, str]) -> dict[str, Any]
 
 
 def detect_edition() -> str:
-    manual = os.environ.get("EDITION", "auto").lower()
-    mapping = {
-        "morning": "market_watch_morning",
-        "evening": "market_watch_evening",
-        "market_watch_morning": "market_watch_morning",
-        "market_watch_evening": "market_watch_evening",
-        "etf_morning": "market_watch_morning",
-        "etf_evening": "market_watch_evening",
-    }
-    if manual in mapping:
-        return mapping[manual]
-    return "market_watch_morning" if now_beijing().hour < 12 else "market_watch_evening"
+    manual = os.environ.get("EDITION", "evening").lower()
+    if manual in ("evening", "market_watch_evening", "etf_evening", "auto"):
+        return "market_watch_evening"
+    if manual in ("morning", "market_watch_morning", "etf_morning"):
+        raise RuntimeError("ETF 早间版已停用，仅生成工作日 18:00 日报")
+    raise RuntimeError(f"不支持的 ETF 日报版本: {manual}")
 
 
 def edition_label(edition: str) -> str:
-    return "早间版" if edition.endswith("morning") else "晚间版"
+    return "晚间版"
 
 
 def to_optional_float(value: Any) -> Optional[float]:
@@ -760,6 +754,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
                 "data_time": data_time,
                 "source": "东方财富ETF实时IOPV",
                 "reference_only": etf["code"] == "513100",
+                "data_status": "stale_source",
                 "error": "IOPV日期与行情日期不一致",
             }
         estimated_nav = to_optional_float(data.get("f441"))
@@ -779,6 +774,8 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
                 f"  ⚠️ {etf['name']} 折价率字段与IOPV计算差异 "
                 f"{abs(listed_rate + calculated_rate):.2f} 个百分点"
             )
+        if premium_rate is None:
+            raise RuntimeError("东方财富ETF溢价响应缺少有效IOPV和折价率")
         return {
             "premium_rate": premium_rate,
             "level": premium_level(premium_rate),
@@ -786,6 +783,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "data_time": data_time,
             "source": "东方财富ETF实时IOPV",
             "reference_only": etf["code"] == "513100",
+            "data_status": "available",
             "error": None,
         }
     except Exception as e:
@@ -795,9 +793,10 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "level": "不可确认",
             "estimated_nav": None,
             "data_time": "不可确认",
-            "source": "不可确认",
-            "reference_only": False,
-            "error": str(e),
+            "source": "东方财富ETF实时IOPV",
+            "reference_only": etf["code"] == "513100",
+            "data_status": "provider_error",
+            "error": f"东方财富ETF实时IOPV不可用: {e}",
         }
 
 
@@ -1496,6 +1495,7 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
             "data_time": "不可确认",
             "source": "不可确认",
             "reference_only": False,
+            "data_status": "stale_source",
             "error": "实时行情失败，缓存收盘不能与实时IOPV比较",
         }
     )
@@ -1619,17 +1619,29 @@ def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def build_a_share_observations() -> list[dict[str, str]]:
+def build_a_share_observations() -> dict[str, Any]:
     try:
-        stocks = [normalize_a_share(item) for item in fetch_a_share_candidates()]
+        raw_items = fetch_a_share_candidates()
+        stocks = [normalize_a_share(item) for item in raw_items]
         candidates = [stock for stock in stocks if is_a_share_candidate(stock)]
         candidates.sort(key=score_a_share, reverse=True)
         picks = candidates[:A_SHARE_PICK_COUNT]
+        status = "available" if picks else "empty"
         print(f"  ✅ A股观察候选筛选完成：{len(picks)} 只")
-        return [a_share_observation(stock) for stock in picks]
+        return {
+            "status": status,
+            "items": [a_share_observation(stock) for stock in picks],
+            "source": "东方财富A股行情",
+            "error": None,
+        }
     except Exception as e:
         print(f"  ⚠️ A股观察候选抓取失败: {e}")
-        return []
+        return {
+            "status": "provider_error",
+            "items": [],
+            "source": "东方财富A股行情",
+            "error": f"东方财富A股候选数据不可用: {e}",
+        }
 
 
 def etf_short_name(snapshot: dict[str, Any]) -> str:
@@ -1716,7 +1728,7 @@ def snapshot_data_issues(snapshot: dict[str, Any]) -> list[str]:
 def build_programmatic_report(
     snapshots: list[dict[str, Any]],
     edition: str,
-    stock_observations: Optional[list[dict[str, str]]] = None,
+    stock_observations: Optional[dict[str, Any]] = None,
 ) -> str:
     today = now_beijing().strftime("%Y-%m-%d")
     lines = [
@@ -1791,14 +1803,20 @@ def build_programmatic_report(
         lines.extend(["", "## 数据异常", *(f"- {issue}。" for issue in issues)])
 
     lines.extend(["", "## A股观察候选"])
-    if stock_observations:
-        for stock in stock_observations:
+    observation_result = stock_observations or {
+        "status": "provider_error", "items": [], "source": "不可确认", "error": "未取得候选数据"
+    }
+    if observation_result.get("status") == "available":
+        for stock in observation_result.get("items", []):
             lines.append(
                 f"- **{stock['name']}（{stock['code']}）**：{stock['reason']}"
                 f"趋势：{stock['trend']}风险：{stock['risk']}"
             )
+    elif observation_result.get("status") == "empty":
+        lines.append("- 数据源正常，按当前公开量价与估值规则未筛出合格候选。")
     else:
-        lines.append("- 候选数据不可确认，本次不提供股票观察名单。")
+        error = observation_result.get("error") or "候选数据源不可用"
+        lines.append(f"- 候选数据源异常，本次无法确认股票观察名单：{error}。")
     lines.append("- 候选基于公开量价与估值机械筛选，仅作研究线索，不代表推荐或确定性预测。")
     return sanitize_report("\n".join(lines))
 
@@ -1880,15 +1898,26 @@ def convert_to_wework_markdown(md_text: str) -> str:
     return truncated
 
 
-def push_to_wechat(content: str, webhook_url: str) -> bool:
+def push_to_wechat(content: str, webhook_url: str, max_attempts: int = 3) -> bool:
     payload = {"msgtype": "markdown", "markdown": {"content": content}}
     headers = {"Content-Type": "application/json; charset=utf-8"}
-    resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
-    data = resp.json()
-    if data.get("errcode") == 0:
-        print(f"✅ ETF 企业微信推送成功 ({len(content.encode('utf-8'))} bytes)")
-        return True
-    print(f"❌ ETF 企业微信推送失败: {data}")
+    for attempt in range(max_attempts):
+        try:
+            resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
+            data = resp.json()
+            if resp.status_code == 200 and data.get("errcode") == 0:
+                print(f"✅ ETF 企业微信推送成功 ({len(content.encode('utf-8'))} bytes)")
+                return True
+            print(f"❌ ETF 企业微信推送失败: HTTP {resp.status_code}, errcode={data.get('errcode')}")
+            if resp.status_code not in RETRYABLE_STATUS_CODES:
+                return False
+        except (requests.ConnectionError, requests.Timeout, ValueError) as e:
+            print(f"⚠️ ETF 企业微信推送失败: {e}")
+        except requests.RequestException as e:
+            print(f"❌ ETF 企业微信推送失败且不可重试: {e}")
+            return False
+        if attempt < max_attempts - 1:
+            time.sleep(attempt + 1)
     return False
 
 
@@ -1917,11 +1946,19 @@ def push_to_backend(edition: str, title: str, content: str, summary: str, run_id
                 headers={"X-Ingest-Token": ingest_token},
                 timeout=(4, 15),
             )
-            if resp.status_code == 200:
+            body = backend_result(resp, "ETF报告同步")
+            if body is not None:
                 print(f"  ✅ ETF 报告已同步到后端（第 {attempt + 1} 次尝试）")
                 return True
-            print(f"  ⚠️ 后端 API 返回 {resp.status_code}: {resp.text}")
-            if resp.status_code not in RETRYABLE_STATUS_CODES:
+            business_code = None
+            try:
+                business_code = resp.json().get("code")
+            except (ValueError, AttributeError):
+                pass
+            retryable = resp.status_code in RETRYABLE_STATUS_CODES or (
+                resp.status_code == 200 and isinstance(business_code, int) and business_code >= 500
+            )
+            if not retryable:
                 return False
         except (requests.ConnectionError, requests.Timeout) as e:
             print(f"  ⚠️ 后端 API 同步失败: {e}")
@@ -1968,6 +2005,7 @@ def unavailable_snapshot(etf: dict[str, str], error: str) -> dict[str, Any]:
             "data_time": "不可确认",
             "source": "不可确认",
             "reference_only": False,
+            "data_status": "unavailable",
             "error": error,
         },
         "valuation": {
@@ -2089,18 +2127,18 @@ def main() -> None:
         print(f"💾 已保存: {report_file}")
 
     wx_content = convert_to_wework_markdown(report)
-    if dry_run:
-        print("🧪 ETF_DRY_RUN 已开启，跳过企业微信推送")
-        print(wx_content)
-    else:
-        push_to_wechat(wx_content, webhook_url)
-
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF {today}"
     if dry_run:
-        print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储")
+        print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
+        print(wx_content)
     else:
-        push_to_backend(edition, title, report, build_summary(snapshots), run_id)
+        if not push_to_backend(edition, title, report, build_summary(snapshots), run_id):
+            print("❌ ETF 报告同步到后端失败，本次不继续推送")
+            sys.exit(1)
+        if not push_to_wechat(wx_content, webhook_url):
+            print("❌ ETF 企业微信推送失败，报告已入库")
+            sys.exit(1)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
 
