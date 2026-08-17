@@ -22,80 +22,181 @@ concurrency:
   group: bot-brief-server-deploy
   cancel-in-progress: false
 
+env:
+  DEPLOY_DIR: /opt/Bot-Brief
+  IMAGE_REPOSITORY: bot-brief-backend
+
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy Backend on Server
-        uses: appleboy/ssh-action@master
+      - name: Checkout deployment revision
+        uses: actions/checkout@v4
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: ${{ secrets.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          timeout: 30m
-          command_timeout: 30m
-          script: |
-            set -e
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.sha }}
 
-            if ! command -v docker >/dev/null 2>&1; then
-              curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-              systemctl start docker
-              systemctl enable docker
-            fi
+      - name: Build deployment image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          image_tag="${IMAGE_REPOSITORY}:${short_sha}"
+          archive="backend-${short_sha}.tar.gz"
+          docker build --pull -t "$image_tag" backend
+          docker save "$image_tag" | gzip -1 > "$RUNNER_TEMP/$archive"
+          (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
+          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "sha=$short_sha" >> "$GITHUB_OUTPUT"
 
-            cd /opt/Bot-Brief
-            git config --global http.version HTTP/1.1
-            git config --global http.postBuffer 524288000
-            for attempt in 1 2 3 4 5; do
-              if git fetch --depth=1 origin ${{ github.event.inputs.branch || github.ref_name }}; then
-                break
-              fi
-              if [ "$attempt" = "5" ]; then
-                echo "Failed to fetch latest code after 5 attempts"
-                exit 1
-              fi
-              echo "git fetch failed, retrying in 20 seconds... ($attempt/5)"
-              sleep 20
-            done
-            git checkout ${{ github.event.inputs.branch || github.ref_name }}
-            git reset --hard FETCH_HEAD
+      - name: Configure deployment SSH
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_HOST_KEY: ${{ secrets.SERVER_HOST_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SERVER_SSH_KEY" || { echo "SERVER_SSH_KEY is not configured"; exit 1; }
+          test -n "$SERVER_HOST_KEY" || { echo "SERVER_HOST_KEY is not configured"; exit 1; }
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s' "$SERVER_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SERVER_HOST_KEY" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/deploy_key" "$HOME/.ssh/known_hosts"
 
-            cat > .env.deploy <<'EOF'
-            DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}
-            DB_HOST=${{ secrets.DB_HOST }}
-            DB_PORT=${{ secrets.DB_PORT }}
-            DB_NAME=${{ secrets.DB_NAME }}
-            DB_USER=${{ secrets.DB_USER }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            JWT_EXPIRATION_HOURS=${{ secrets.JWT_EXPIRATION_HOURS }}
-            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
-            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
-            DEMO_ENABLED=${{ vars.DEMO_ENABLED || 'false' }}
-            DEMO_EMAIL=${{ vars.DEMO_EMAIL || 'demo@example.com' }}
-            DEMO_DISPLAY_NAME=${{ vars.DEMO_DISPLAY_NAME || '公开演示账号' }}
-            DEMO_TOKEN_EXPIRATION_MINUTES=${{ vars.DEMO_TOKEN_EXPIRATION_MINUTES || '30' }}
-            REPORT_INGEST_TOKEN=${{ secrets.REPORT_INGEST_TOKEN }}
-            PUSH_CHANNEL_ENCRYPTION_KEY=${{ secrets.PUSH_CHANNEL_ENCRYPTION_KEY }}
-            MAIL_HOST=${{ secrets.MAIL_HOST }}
-            MAIL_PORT=${{ secrets.MAIL_PORT }}
-            MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-            MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-            MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
-            EOF
-
-            schema_ready=$(docker run --rm \
-              --add-host=host.docker.internal:host-gateway \
-              -e MYSQL_PWD='${{ secrets.DB_PASSWORD }}' \
-              mysql:8.0 \
-              mysql -N -h '${{ secrets.DB_HOST }}' -P '${{ secrets.DB_PORT }}' \
-              -u '${{ secrets.DB_USER }}' '${{ secrets.DB_NAME }}' \
-              -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';")
-            if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
-              echo "Database schema is missing V7. Back up the database and run backend/sql/V7__market_data_history.sql before deployment."
+      - name: Prepare backend environment
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_EXPIRATION_HOURS: ${{ secrets.JWT_EXPIRATION_HOURS }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          DEMO_ENABLED: ${{ vars.DEMO_ENABLED || 'false' }}
+          DEMO_EMAIL: ${{ vars.DEMO_EMAIL || 'demo@example.com' }}
+          DEMO_DISPLAY_NAME: ${{ vars.DEMO_DISPLAY_NAME || '公开演示账号' }}
+          DEMO_TOKEN_EXPIRATION_MINUTES: ${{ vars.DEMO_TOKEN_EXPIRATION_MINUTES || '30' }}
+          REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
+          PUSH_CHANNEL_ENCRYPTION_KEY: ${{ secrets.PUSH_CHANNEL_ENCRYPTION_KEY }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          : > "$RUNNER_TEMP/backend.env"
+          for name in DEEPSEEK_API_KEY DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD JWT_SECRET JWT_EXPIRATION_HOURS ADMIN_EMAIL ADMIN_PASSWORD DEMO_ENABLED DEMO_EMAIL DEMO_DISPLAY_NAME DEMO_TOKEN_EXPIRATION_MINUTES REPORT_INGEST_TOKEN PUSH_CHANNEL_ENCRYPTION_KEY MAIL_HOST MAIL_PORT MAIL_USERNAME MAIL_PASSWORD MAIL_FROM_NAME; do
+            value="${!name}"
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+              echo "$name must not contain line breaks"
               exit 1
             fi
+            printf '%s=%s\n' "$name" "$value" >> "$RUNNER_TEMP/backend.env"
+          done
 
-            docker rm -f bot-brief-backend || true
-            docker compose --env-file .env.deploy up -d --build backend
-            docker image prune -f
+      - name: Upload backend release
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          ARCHIVE: ${{ steps.image.outputs.archive }}
+          RELEASE_SHA: ${{ steps.image.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$DEPLOY_DIR/.deploy/backend-$RELEASE_SHA"
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" "rm -rf '$release_dir' && install -d -m 700 '$release_dir'"
+          for attempt in 1 2 3; do
+            if scp "${ssh_opts[@]}" \
+              "$RUNNER_TEMP/$ARCHIVE" \
+              "$RUNNER_TEMP/$ARCHIVE.sha256" \
+              "$RUNNER_TEMP/backend.env" \
+              docker-compose.yml \
+              "$SERVER_USER@$SERVER_IP:$release_dir/"; then
+              exit 0
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "Release upload failed after 3 attempts"
+              exit 1
+            fi
+            delay=$((attempt * 20))
+            echo "Release upload failed, retrying in ${delay}s ($attempt/3)"
+            sleep "$delay"
+          done
+
+      - name: Activate backend release
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          ARCHIVE: ${{ steps.image.outputs.archive }}
+          RELEASE_SHA: ${{ steps.image.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
+            "DEPLOY_DIR='$DEPLOY_DIR' IMAGE_TAG='$IMAGE_TAG' ARCHIVE='$ARCHIVE' RELEASE_SHA='$RELEASE_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          release_dir="$DEPLOY_DIR/.deploy/backend-$RELEASE_SHA"
+          cd "$release_dir"
+          command -v docker >/dev/null 2>&1 || { echo "Docker is not installed on the server"; exit 1; }
+          docker compose version >/dev/null
+          sha256sum -c "$ARCHIVE.sha256"
+          docker load -i "$ARCHIVE"
+
+          previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-backend 2>/dev/null || true)"
+          install -m 600 backend.env "$DEPLOY_DIR/.env.deploy.new"
+          mv -f "$DEPLOY_DIR/.env.deploy.new" "$DEPLOY_DIR/.env.deploy"
+          install -m 644 docker-compose.yml "$DEPLOY_DIR/docker-compose.yml.new"
+          mv -f "$DEPLOY_DIR/docker-compose.yml.new" "$DEPLOY_DIR/docker-compose.yml"
+          cd "$DEPLOY_DIR"
+
+          docker image inspect mysql:8.0 >/dev/null 2>&1 || { echo "mysql:8.0 image must be preloaded on the server for schema checks"; exit 1; }
+          schema_ready=$(docker run --rm --pull=never \
+            --add-host=host.docker.internal:host-gateway \
+            -e MYSQL_PWD="$(awk -F= '$1 == "DB_PASSWORD" {sub(/^[^=]*=/, ""); print; exit}' .env.deploy)" \
+            mysql:8.0 \
+            mysql -N \
+            -h "$(awk -F= '$1 == "DB_HOST" {print $2; exit}' .env.deploy)" \
+            -P "$(awk -F= '$1 == "DB_PORT" {print $2; exit}' .env.deploy)" \
+            -u "$(awk -F= '$1 == "DB_USER" {print $2; exit}' .env.deploy)" \
+            "$(awk -F= '$1 == "DB_NAME" {print $2; exit}' .env.deploy)" \
+            -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';")
+          if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
+            echo "Database schema is missing V7. Back up the database and run backend/sql/V7__market_data_history.sql before deployment."
+            exit 1
+          fi
+
+          BACKEND_IMAGE="$IMAGE_TAG" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8081/api/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$healthy" != "true" ]; then
+            echo "Backend health check failed"
+            docker logs --tail 200 bot-brief-backend || true
+            if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
+              echo "Rolling back to $previous_image"
+              BACKEND_IMAGE="$previous_image" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+            fi
+            exit 1
+          fi
+
+          docker tag "$IMAGE_TAG" bot-brief-backend:local
+          rm -rf "$release_dir"
+          docker image prune -f
+          echo "Backend deployed successfully: $IMAGE_TAG"
+          REMOTE

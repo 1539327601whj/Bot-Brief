@@ -1,5 +1,6 @@
 services:
   backend:
+    image: ${BACKEND_IMAGE:-bot-brief-backend:local}
     build:
       context: ./backend
     container_name: bot-brief-backend
@@ -33,6 +34,7 @@ services:
     restart: always
 
   frontend:
+    image: ${FRONTEND_IMAGE:-bot-brief-frontend:local}
     build:
       context: ./frontend
     container_name: bot-brief-frontend

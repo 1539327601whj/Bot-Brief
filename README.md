@@ -275,10 +275,50 @@ npm --prefix frontend run build
 - `daily.yml` 和 `etf-daily.yml` 提供 `workflow_dispatch` 执行入口。
 - 生产定时触发由仓库外部的腾讯云 SCF 配置负责。
 - `deploy-frontend.yml` 和 `deploy-backend.yml` 在 `main` 分支相关目录变化时独立部署服务。
-- 部署工作流通过 SSH 进入服务器 `/opt/Bot-Brief`，使用 Docker Compose 重建对应容器。
-- 前端和后端分别绑定到服务器回环地址 `127.0.0.1:8080` 和 `127.0.0.1:8081`。
-- MySQL 是外部服务，不包含在当前 `docker-compose.yml` 中。
+- GitHub runner 检出目标提交并构建带提交 SHA 的 Docker 镜像，再通过 SSH/SCP 上传到服务器；服务器不再访问 GitHub，也不在部署阶段构建镜像。
+- 上传文件会进行 SHA256 校验，容器启动后自动检查前端首页和后端 `/api/health`；检查失败时恢复部署前的镜像。
+- 前后端共享部署并发锁，分别绑定到服务器回环地址 `127.0.0.1:8080` 和 `127.0.0.1:8081`。
+- MySQL 是外部服务，不包含在当前 `docker-compose.yml` 中；服务器需预先保留 `mysql:8.0` 镜像供部署前 schema 检查使用。
 - 域名、TLS 和 `/api` 反向代理由服务器外层网关负责，未包含在本仓库中。
+
+### 部署 SSH 配置
+
+在可信设备上创建专用部署密钥，不要给私钥设置交互式密码：
+
+```bash
+ssh-keygen -t ed25519 -C "bot-brief-deploy" -f bot_brief_deploy
+```
+
+将 `bot_brief_deploy.pub` 的内容追加到服务器部署用户的 `~/.ssh/authorized_keys`，并确保权限正确：
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+人工核对服务器 SSH 主机指纹后，将完整 known_hosts 行保存为 Secret；以下命令只用于获取候选值，必须通过服务器控制台执行 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 交叉核对：
+
+```bash
+ssh-keyscan -H <SERVER_IP>
+```
+
+在 GitHub 仓库 `Settings → Secrets and variables → Actions` 中配置：
+
+- `SERVER_IP`：服务器地址。
+- `SERVER_USER`：已安装部署公钥的用户。
+- `SERVER_SSH_KEY`：`bot_brief_deploy` 私钥的完整内容。
+- `SERVER_HOST_KEY`：核对后的服务器 known_hosts 完整行。
+- 后端工作流原有的数据库、JWT、邮件和第三方服务 Secrets。
+
+首次切换前确保服务器满足：
+
+```bash
+docker compose version
+docker image inspect mysql:8.0 >/dev/null
+mkdir -p /opt/Bot-Brief
+```
+
+新工作流验证成功后可以删除不再使用的 `SERVER_PASSWORD`。
 
 ## 当前限制与路线图
 
