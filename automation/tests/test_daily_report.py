@@ -28,6 +28,9 @@ def llm_response(content, finish_reason="stop"):
 
 
 class LlmResponseTests(unittest.TestCase):
+    def test_default_model_uses_cost_effective_flash(self):
+        self.assertEqual(report.LLM_MODELS[0]["name"], "deepseek-v4-flash")
+
     def test_rejects_missing_choices(self):
         with self.assertRaisesRegex(report.InvalidLLMResponseError, "choices"):
             report.extract_llm_content(SimpleNamespace(choices=[]), "test-model")
@@ -61,6 +64,10 @@ class LlmResponseTests(unittest.TestCase):
             result = report.call_llm_with_retry("prompt", max_retries=1)
         self.assertEqual(result, "## 要点\n正文")
         self.assertEqual(create.call_count, 2)
+        self.assertEqual(
+            create.call_args.kwargs["extra_body"],
+            {"thinking": {"type": "disabled"}},
+        )
 
 
 class DeliveryTests(unittest.TestCase):

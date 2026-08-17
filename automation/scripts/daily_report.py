@@ -349,10 +349,10 @@ def format_news_for_prompt(items, edition="morning"):
 # 支持：DeepSeek、OpenAI、Azure OpenAI 等兼容 OpenAI 协议的模型
 LLM_MODELS = [
     {
-        "name": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+        "name": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         "base_url": "https://api.deepseek.com/",
         "api_key_env": "DEEPSEEK_API_KEY",
-        "description": "DeepSeek V3 - 主用模型"
+        "description": "DeepSeek V4 Flash - 日报模型"
     },
     # 可选：配置 GPT-3.5 作为降级备选（取消注释并配置 OPENAI_API_KEY 即可启用）
     # {
@@ -432,7 +432,8 @@ def call_llm_with_retry(prompt, max_retries=3):
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
-                    max_tokens=2000
+                    max_tokens=2000,
+                    extra_body={"thinking": {"type": "disabled"}}
                 )
                 content = extract_llm_content(response, description)
                 print(f"✅ 成功使用模型: {description}")
