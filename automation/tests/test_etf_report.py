@@ -474,9 +474,21 @@ class ReportTests(unittest.TestCase):
         post.return_value = response({"code": 500, "message": "保存失败"})
         with patch.object(report.time, "sleep"):
             self.assertFalse(report.push_to_backend(
-                "market_watch_evening", "title", "content", "summary", "run"
+                "market_watch_evening", "2026-08-18", "title", "content", "summary", "run"
             ))
         self.assertEqual(post.call_count, 3)
+
+    @patch.dict(os.environ, {
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+    }, clear=False)
+    @patch.object(report.requests, "post")
+    def test_report_ingest_includes_business_date(self, post):
+        post.return_value = response({"code": 200, "data": None})
+        self.assertTrue(report.push_to_backend(
+            "market_watch_evening", "2026-08-18", "title", "content", "summary", "run"
+        ))
+        self.assertEqual(post.call_args.kwargs["json"]["reportDate"], "2026-08-18")
 
     @patch.object(report.requests, "post")
     @patch.object(report.time, "sleep")

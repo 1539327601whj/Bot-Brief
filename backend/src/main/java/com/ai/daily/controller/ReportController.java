@@ -50,6 +50,7 @@ public class ReportController {
         }
         try {
             reportService.saveReport(
+                    dto.getReportDate(),
                     dto.getEdition(),
                     dto.getTitle(),
                     dto.getContent(),

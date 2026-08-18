@@ -9,6 +9,7 @@ USE ai_daily;
 CREATE TABLE IF NOT EXISTS reports (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
     edition VARCHAR(40) NOT NULL COMMENT '版本：morning/evening/etf_morning/etf_evening/market_watch_morning/market_watch_evening',
+    report_date DATE DEFAULT NULL COMMENT '报告业务日期（北京时间）',
     title VARCHAR(255) NOT NULL COMMENT '简报标题',
     content LONGTEXT NOT NULL COMMENT '简报正文（Markdown）',
     summary VARCHAR(500) DEFAULT NULL COMMENT '摘要（列表展示用）',
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_edition (edition),
     INDEX idx_created_at (created_at),
-    UNIQUE KEY uk_reports_ingest_key (ingest_key)
+    UNIQUE KEY uk_reports_ingest_key (ingest_key),
+    UNIQUE KEY uk_reports_edition_report_date (edition, report_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 简报表';
 
 CREATE TABLE IF NOT EXISTS market_valuation_history (

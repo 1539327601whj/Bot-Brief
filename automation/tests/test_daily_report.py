@@ -80,7 +80,7 @@ class DeliveryTests(unittest.TestCase):
         response = Mock(status_code=200)
         response.json.return_value = {"code": 401, "message": "token invalid"}
         post.return_value = response
-        self.assertFalse(report.push_to_backend("morning", "title", "content", "summary", "run"))
+        self.assertFalse(report.push_to_backend("morning", "2026-08-18", "title", "content", "summary", "run"))
         self.assertEqual(post.call_count, 1)
 
     @patch.dict(os.environ, {
@@ -92,7 +92,8 @@ class DeliveryTests(unittest.TestCase):
         response = Mock(status_code=200)
         response.json.return_value = {"code": 200}
         post.return_value = response
-        self.assertTrue(report.push_to_backend("morning", "title", "content", "summary", "run"))
+        self.assertTrue(report.push_to_backend("morning", "2026-08-18", "title", "content", "summary", "run"))
+        self.assertEqual(post.call_args.kwargs["json"]["reportDate"], "2026-08-18")
 
     @patch("requests.post")
     @patch.object(report.time, "sleep")

@@ -28,7 +28,7 @@ RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 WECHAT_RETRYABLE_ERRCODES = {-1, 45009}
 
 
-def push_to_backend(edition, title, content, summary, run_id):
+def push_to_backend(edition, report_date, title, content, summary, run_id):
     """将简报 POST 到 Spring Boot 后端 API 存储。"""
     import requests as req
     backend_url = os.environ.get("BACKEND_API_URL", "")
@@ -44,6 +44,7 @@ def push_to_backend(edition, title, content, summary, run_id):
     truncated_content = content if len(content) <= max_content_length else content[:max_content_length] + "\n\n> ...(内容已截断，完整版请查看企业微信)"
     payload = {
         "edition": edition,
+        "reportDate": report_date,
         "title": title,
         "content": truncated_content,
         "summary": summary,
@@ -596,7 +597,7 @@ def main():
     title_text = f"【{edition_suffix}】AI 每日简报 {today}"
     summary_text = report[:100] + "..." if len(report) > 100 else report
 
-    if not push_to_backend(edition, title_text, full_report, summary_text, run_id):
+    if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
         print("❌ 同步到后端失败，本次日报不继续推送")
         sys.exit(1)
 

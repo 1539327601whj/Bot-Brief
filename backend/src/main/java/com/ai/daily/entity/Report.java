@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -19,6 +20,9 @@ public class Report {
 
     /** 版本：morning / evening */
     private String edition;
+
+    /** 报告业务日期（北京时间） */
+    private LocalDate reportDate;
 
     /** 简报标题，如"【早间版】AI 每日简报 2026-04-25" */
     private String title;

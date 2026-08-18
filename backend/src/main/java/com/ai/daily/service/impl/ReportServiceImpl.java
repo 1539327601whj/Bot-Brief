@@ -24,7 +24,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     private static final Pattern SUBSTANTIVE_TEXT = Pattern.compile(".*[\\p{L}\\p{N}].*");
 
     @Override
-    public void saveReport(String edition, String title, String content, String summary, String runId) {
+    public void saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId) {
         if (!hasSubstantiveContent(content)) {
             throw new IllegalArgumentException("简报缺少实质正文");
         }
@@ -34,8 +34,12 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         if (ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null) {
             return;
         }
+        if (baseMapper.findIdByEditionAndReportDate(edition, reportDate) != null) {
+            return;
+        }
         Report report = new Report();
         report.setEdition(edition);
+        report.setReportDate(reportDate);
         report.setTitle(title);
         report.setContent(content);
         report.setSummary(summary);
@@ -47,7 +51,9 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 throw new IllegalStateException("简报保存失败");
             }
         } catch (DuplicateKeyException e) {
-            if (ingestKey == null || baseMapper.findIdByIngestKey(ingestKey) == null) {
+            boolean duplicateRun = ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null;
+            boolean duplicateBusinessReport = baseMapper.findIdByEditionAndReportDate(edition, reportDate) != null;
+            if (!duplicateRun && !duplicateBusinessReport) {
                 throw e;
             }
         }
@@ -93,9 +99,18 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
 
     @Override
     public Report getLatestByEditionForDate(String edition, LocalDate date) {
+        Report report = this.lambdaQuery()
+                .eq(Report::getEdition, edition)
+                .eq(Report::getReportDate, date)
+                .last("LIMIT 1")
+                .one();
+        if (report != null) {
+            return report;
+        }
         LocalDateTime start = date.atStartOfDay();
         return this.lambdaQuery()
                 .eq(Report::getEdition, edition)
+                .isNull(Report::getReportDate)
                 .ge(Report::getCreatedAt, start)
                 .lt(Report::getCreatedAt, date.plusDays(1).atStartOfDay())
                 .orderByDesc(Report::getCreatedAt)

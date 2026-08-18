@@ -1948,7 +1948,14 @@ def push_to_wechat(content: str, webhook_url: str, max_attempts: int = 3) -> boo
     return False
 
 
-def push_to_backend(edition: str, title: str, content: str, summary: str, run_id: str) -> bool:
+def push_to_backend(
+    edition: str,
+    report_date: str,
+    title: str,
+    content: str,
+    summary: str,
+    run_id: str,
+) -> bool:
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
     if not backend_url:
@@ -1960,6 +1967,7 @@ def push_to_backend(edition: str, title: str, content: str, summary: str, run_id
 
     payload = {
         "edition": edition,
+        "reportDate": report_date,
         "title": title,
         "content": content[:30000],
         "summary": summary,
@@ -2160,7 +2168,7 @@ def main() -> None:
         print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
         print(wx_content)
     else:
-        if not push_to_backend(edition, title, report, build_summary(snapshots), run_id):
+        if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
             print("❌ ETF 报告同步到后端失败，本次不继续推送")
             sys.exit(1)
         if not push_to_wechat(wx_content, webhook_url):
