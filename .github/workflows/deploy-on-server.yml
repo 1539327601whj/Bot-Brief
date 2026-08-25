@@ -18,8 +18,11 @@ on:
       - main
     paths:
       - 'frontend/**'
+      - 'backend/**'
       - 'docker-compose.yml'
       - 'scripts/release-frontend.sh'
+      - 'scripts/release-backend.sh'
+      - 'scripts/checkout-via-proxy.sh'
       - '.github/workflows/deploy-on-server.yml'
 
 concurrency:
@@ -30,59 +33,103 @@ permissions:
   contents: read
 
 jobs:
-  frontend:
-    if: >
-      github.event_name == 'workflow_dispatch' &&
-      (inputs.target == 'frontend' || inputs.target == 'all') ||
-      github.event_name == 'push'
+  release:
     runs-on: [self-hosted, linux, bot-brief]
     steps:
       - name: Checkout via GitHub proxy
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE"
           cd "$GITHUB_WORKSPACE"
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
-
-          # gh-proxy 对 git 协议经常 404；和当初下 runner 一样，改下源码包。
-          # 不要把 token 写进 URL，否则代理会当成无效地址。
-          candidates=(
-            "https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
-            "https://gh-proxy.com/https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}"
-            "https://ghfast.top/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
-            "https://ui.ghproxy.cc/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
-            "https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/${GITHUB_REF_NAME:-main}.tar.gz"
-          )
-
-          archive="$tmp/src.tar.gz"
-          downloaded=false
-          for url in "${candidates[@]}"; do
-            echo "Downloading source archive"
-            if curl -fL --retry 2 --connect-timeout 20 --max-time 180 -o "$archive" "$url"; then
-              if tar -tzf "$archive" >/dev/null 2>&1; then
+          if [ ! -f scripts/checkout-via-proxy.sh ]; then
+            tmp="$(mktemp -d)"
+            archive="$tmp/src.tar.gz"
+            downloaded=false
+            for url in \
+              "https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz" \
+              "https://ghfast.top/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"; do
+              echo "Downloading source archive to bootstrap checkout"
+              if curl -fL --retry 2 --connect-timeout 20 --max-time 180 -o "$archive" "$url" \
+                && tar -tzf "$archive" >/dev/null 2>&1; then
                 downloaded=true
                 break
               fi
-            fi
-            rm -f "$archive"
-          done
-          if [ "$downloaded" != "true" ]; then
-            echo "Could not download the repository archive via proxy"
-            exit 1
+            done
+            test "$downloaded" = "true"
+            tar -xzf "$archive" -C "$tmp"
+            extracted="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            cp -a "$extracted"/. "$GITHUB_WORKSPACE/"
+            rm -rf "$tmp"
+            bootstrapped=true
+          fi
+          chmod +x scripts/checkout-via-proxy.sh
+          if [ "${bootstrapped:-false}" != "true" ]; then
+            ./scripts/checkout-via-proxy.sh
           fi
 
-          tar -xzf "$archive" -C "$tmp"
-          extracted="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          test -n "$extracted"
-          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          cp -a "$extracted"/. "$GITHUB_WORKSPACE/"
-          test -f scripts/release-frontend.sh
+      - name: Decide deploy targets
+        id: targets
+        env:
+          DEPLOY_TARGET: ${{ inputs.target }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          name = os.environ.get("GITHUB_EVENT_NAME")
+          frontend = backend = False
+          if name == "workflow_dispatch":
+              target = os.environ.get("DEPLOY_TARGET") or (event.get("inputs") or {}).get("target") or "frontend"
+              frontend = target in ("frontend", "all")
+              backend = target in ("backend", "all")
+          else:
+              files = set()
+              for commit in event.get("commits") or []:
+                  for key in ("added", "modified", "removed"):
+                      files.update(commit.get(key) or [])
+              head = event.get("head_commit") or {}
+              for key in ("added", "modified", "removed"):
+                  files.update(head.get(key) or [])
+
+              def hit(*prefixes):
+                  for path in files:
+                      for prefix in prefixes:
+                          if path == prefix or path.startswith(prefix.rstrip("/") + "/"):
+                              return True
+                  return False
+
+              shared = (
+                  "docker-compose.yml",
+                  "scripts/checkout-via-proxy.sh",
+                  ".github/workflows/deploy-on-server.yml",
+              )
+              frontend = hit("frontend", "scripts/release-frontend.sh", *shared)
+              backend = hit("backend", "scripts/release-backend.sh", *shared)
+              if not files:
+                  frontend = backend = True
+
+          output = os.environ["GITHUB_OUTPUT"]
+          with open(output, "a", encoding="utf-8") as handle:
+              handle.write(f"frontend={'true' if frontend else 'false'}\n")
+              handle.write(f"backend={'true' if backend else 'false'}\n")
+          print(f"frontend={frontend} backend={backend}")
+          PY
 
       - name: Release frontend on this machine
+        if: steps.targets.outputs.frontend == 'true'
         env:
           DEPLOY_DIR: /opt/Bot-Brief
         run: |
           set -euo pipefail
           chmod +x scripts/release-frontend.sh
           ./scripts/release-frontend.sh
+
+      - name: Release backend on this machine
+        if: ${{ !cancelled() && steps.targets.outputs.backend == 'true' }}
+        env:
+          DEPLOY_DIR: /opt/Bot-Brief
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release-backend.sh
+          ./scripts/release-backend.sh
