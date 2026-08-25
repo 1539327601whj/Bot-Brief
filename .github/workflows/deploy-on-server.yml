@@ -1,0 +1,49 @@
+name: Deploy on server
+
+# 在腾讯云上的 self-hosted runner 里构建并发布，避免 GitHub 托管 runner 跨境传包。
+# 服务器装好 runner 并打上 label `bot-brief` 后才会执行。
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '部署目标'
+        type: choice
+        default: frontend
+        options:
+          - frontend
+          - backend
+          - all
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - 'docker-compose.yml'
+      - 'scripts/release-frontend.sh'
+      - '.github/workflows/deploy-on-server.yml'
+
+concurrency:
+  group: bot-brief-server-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.target == 'frontend' || inputs.target == 'all') ||
+      github.event_name == 'push'
+    runs-on: [self-hosted, linux, bot-brief]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release frontend on this machine
+        env:
+          DEPLOY_DIR: /opt/Bot-Brief
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release-frontend.sh
+          ./scripts/release-frontend.sh

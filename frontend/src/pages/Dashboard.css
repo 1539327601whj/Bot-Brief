@@ -1022,6 +1022,13 @@
   margin-bottom: 12px;
 }
 
+.system-push-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .push-summary-grid div {
   background: rgba(0, 0, 0, 0.24);
   border: 1px solid #30363d;

@@ -23,11 +23,7 @@ _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from etf_allocation_analyst import (
-    analyze_snapshot,
-    format_allocation_conclusion,
-    format_allocation_section,
-)
+from etf_allocation_analyst import analyze_snapshot
 
 BEIJING_TZ = timezone(timedelta(hours=8))
 
@@ -56,11 +52,37 @@ ETF_LIST = [
 
 A_SHARE_PICK_COUNT = 2
 A_SHARE_PAGE_SIZE = 100
+A_SHARE_BOARD_PAGE_SIZE = 50
 A_SHARE_MARKET_FS = "m:1+t:2,m:0+t:6,m:0+t:80"
+A_SHARE_MARKET_BOARDS = ("m:1+t:2", "m:0+t:6", "m:0+t:80")
+A_SHARE_CLIST_FIELDS = "f12,f14,f2,f3,f6,f8,f9,f10,f15,f16,f20,f23,f24,f25,f62"
+A_SHARE_EASTMONEY_UT = "fa5fd1943c7bdc76815634f86e88ea48"
+A_SHARE_EASTMONEY_HOSTS = (
+    "https://push2delay.eastmoney.com/api/qt/clist/get",
+    "https://82.push2.eastmoney.com/api/qt/clist/get",
+    "https://push2.eastmoney.com/api/qt/clist/get",
+)
+A_SHARE_EASTMONEY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://quote.eastmoney.com/center/gridlist.html",
+    "Accept": "application/json, text/plain, */*",
+}
+A_SHARE_SINA_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://vip.stock.finance.sina.com.cn/",
+    "Accept": "application/json, text/javascript, */*;q=0.01",
+}
 A_SHARE_MIN_AMOUNT = 300000000
 A_SHARE_MIN_MARKET_CAP = 10000000000
 A_SHARE_MAX_ABS_PCT_CHANGE = 6
 A_SHARE_BANNED_NAME_KEYWORDS = ("ST", "*ST", "退")
+A_SHARE_SINA_MARKET_CAP_UNIT = 10000
 CSI300_PE_WINDOW_YEARS = 10
 CURRENT_VALUATION_MAX_STALENESS_DAYS = 15
 VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/master/json/{date}.json"
@@ -1543,30 +1565,159 @@ def sanitize_report(report: str) -> str:
     return report.rstrip() + f"\n\n> {DISCLAIMER}"
 
 
-def fetch_a_share_candidates() -> list[dict[str, Any]]:
-    resp = http_get(
-        "https://push2.eastmoney.com/api/qt/clist/get",
-        params={
-            "pn": 1,
-            "pz": A_SHARE_PAGE_SIZE,
-            "po": 1,
-            "np": 1,
-            "fltt": 2,
-            "invt": 2,
-            "fid": "f6",
-            "fs": A_SHARE_MARKET_FS,
-            "fields": "f12,f14,f2,f3,f6,f8,f9,f10,f15,f16,f20,f23,f24,f25,f62",
-        },
-        timeout=(4, 10),
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-    resp.raise_for_status()
-    body = resp.json()
+def parse_eastmoney_clist(body: Any) -> list[dict[str, Any]]:
     if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
         raise RuntimeError("东方财富A股候选响应缺少 data 对象")
     items = body["data"].get("diff")
     if not isinstance(items, list):
         raise RuntimeError("东方财富A股候选响应 diff 不是列表")
+    return items
+
+
+def summarize_a_share_error(error: Any) -> str:
+    text = str(error or "").strip()
+    if re.search(r"\b(502|Bad Gateway)\b", text, re.I):
+        return "行情列表源网关繁忙（502）"
+    if re.search(r"\b(429|503|504)\b", text):
+        return "行情列表源暂时不可用"
+    cleaned = re.sub(r"https?://\S+", "", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" :;,.。")
+    if len(cleaned) > 60:
+        cleaned = cleaned[:57] + "..."
+    return cleaned or "行情列表源暂不可用"
+
+
+def _a_share_clist_params(fs: str, page_size: int) -> dict[str, Any]:
+    return {
+        "pn": 1,
+        "pz": page_size,
+        "po": 1,
+        "np": 1,
+        "ut": A_SHARE_EASTMONEY_UT,
+        "fltt": 2,
+        "invt": 2,
+        "fid": "f6",
+        "fs": fs,
+        "fields": A_SHARE_CLIST_FIELDS,
+    }
+
+
+def _fetch_eastmoney_clist(url: str, fs: str, page_size: int) -> list[dict[str, Any]]:
+    resp = http_get(
+        url,
+        params=_a_share_clist_params(fs, page_size),
+        timeout=(3, 8),
+        headers=A_SHARE_EASTMONEY_HEADERS,
+    )
+    resp.raise_for_status()
+    return parse_eastmoney_clist(resp.json())
+
+
+def _merge_clist_items(groups: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for items in groups:
+        for item in items:
+            code = str(item.get("f12") or "")
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            merged.append(item)
+    return merged
+
+
+def fetch_a_share_candidates_from_eastmoney() -> list[dict[str, Any]]:
+    errors: list[str] = []
+    for url in A_SHARE_EASTMONEY_HOSTS:
+        try:
+            return _fetch_eastmoney_clist(url, A_SHARE_MARKET_FS, A_SHARE_PAGE_SIZE)
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+    board_groups: list[list[dict[str, Any]]] = []
+    for fs in A_SHARE_MARKET_BOARDS:
+        fetched = False
+        for url in A_SHARE_EASTMONEY_HOSTS:
+            try:
+                board_groups.append(_fetch_eastmoney_clist(url, fs, A_SHARE_BOARD_PAGE_SIZE))
+                fetched = True
+                break
+            except Exception as e:
+                errors.append(f"{fs}@{url}: {e}")
+        if not fetched:
+            continue
+    merged = _merge_clist_items(board_groups)
+    if merged:
+        return merged
+    raise RuntimeError("东方财富A股列表不可用: " + "；".join(errors[:4]))
+
+
+def sina_row_to_eastmoney_item(row: dict[str, Any]) -> dict[str, Any]:
+    market_cap = finite_positive(row.get("mktcap"))
+    return {
+        "f12": str(row.get("code") or ""),
+        "f14": str(row.get("name") or ""),
+        "f2": row.get("trade"),
+        "f3": row.get("changepercent"),
+        "f6": row.get("amount"),
+        "f8": row.get("turnoverratio"),
+        "f9": row.get("per"),
+        "f10": None,
+        "f15": row.get("high"),
+        "f16": row.get("low"),
+        "f20": market_cap * A_SHARE_SINA_MARKET_CAP_UNIT if market_cap is not None else None,
+        "f23": row.get("pb"),
+        "f24": None,
+        "f25": None,
+        "f62": None,
+    }
+
+
+def fetch_a_share_candidates_from_sina() -> list[dict[str, Any]]:
+    resp = http_get(
+        "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData",
+        params={
+            "page": 1,
+            "num": A_SHARE_PAGE_SIZE,
+            "sort": "amount",
+            "asc": 0,
+            "node": "hs_a",
+            "symbol": "",
+            "_s_r_a": "page",
+        },
+        timeout=(3, 10),
+        headers=A_SHARE_SINA_HEADERS,
+    )
+    resp.raise_for_status()
+    try:
+        body = resp.json()
+    except ValueError:
+        body = json.loads(resp.content.decode("gbk", errors="replace"))
+    if not isinstance(body, list):
+        raise RuntimeError("新浪A股候选响应不是列表")
+    items = [sina_row_to_eastmoney_item(row) for row in body if isinstance(row, dict)]
+    if body and not items:
+        raise RuntimeError("新浪A股候选响应无法识别")
+    return items
+
+
+def fetch_a_share_candidate_pool() -> tuple[list[dict[str, Any]], str]:
+    errors: list[str] = []
+    for fetcher, source in (
+        (fetch_a_share_candidates_from_eastmoney, "东方财富A股行情"),
+        (fetch_a_share_candidates_from_sina, "新浪财经A股行情"),
+    ):
+        try:
+            items = fetcher()
+            print(f"  ✅ A股候选列表来自 {source}（{len(items)} 条）")
+            return items, source
+        except Exception as e:
+            errors.append(f"{source}: {e}")
+            print(f"  ⚠️ {source}失败: {e}")
+    raise RuntimeError("；".join(errors) if errors else "A股候选数据源不可用")
+
+
+def fetch_a_share_candidates() -> list[dict[str, Any]]:
+    items, _source = fetch_a_share_candidate_pool()
     return items
 
 
@@ -1654,17 +1805,17 @@ def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
 
 def build_a_share_observations() -> AShareObservationResult:
     try:
-        raw_items = fetch_a_share_candidates()
+        raw_items, source = fetch_a_share_candidate_pool()
         stocks = [normalize_a_share(item) for item in raw_items]
         candidates = [stock for stock in stocks if is_a_share_candidate(stock)]
         candidates.sort(key=score_a_share, reverse=True)
         picks = candidates[:A_SHARE_PICK_COUNT]
         status = "available" if picks else "empty"
-        print(f"  ✅ A股观察候选筛选完成：{len(picks)} 只")
+        print(f"  ✅ A股观察候选筛选完成：{len(picks)} 只，来源 {source}")
         return {
             "status": status,
             "items": [a_share_observation(stock) for stock in picks],
-            "source": "东方财富A股行情",
+            "source": source,
             "error": None,
         }
     except Exception as e:
@@ -1672,26 +1823,13 @@ def build_a_share_observations() -> AShareObservationResult:
         return {
             "status": "provider_error",
             "items": [],
-            "source": "东方财富A股行情",
-            "error": f"东方财富A股候选数据不可用: {e}",
+            "source": "不可确认",
+            "error": summarize_a_share_error(e),
         }
 
 
 def etf_short_name(snapshot: dict[str, Any]) -> str:
     return snapshot["etf"]["name"].split()[0]
-
-
-def build_market_direction_summary(snapshots: list[dict[str, Any]]) -> str:
-    changes = [to_optional_float(snapshot["quote"].get("pct_change")) for snapshot in snapshots]
-    if any(value is None for value in changes):
-        return "部分行情数据不可确认，暂不归纳短期方向。"
-    if all(value > 0 for value in changes):
-        return "截至各自行情时点，两只ETF均上涨。"
-    if all(value < 0 for value in changes):
-        return "截至各自行情时点，两只ETF均回落。"
-    if changes[0] * changes[1] < 0:
-        return "截至各自行情时点，两只ETF表现分化。"
-    return "截至各自行情时点，两只ETF整体波动有限。"
 
 
 def data_status_label(status: Optional[str]) -> str:
@@ -1758,33 +1896,33 @@ def snapshot_data_issues(snapshot: dict[str, Any]) -> list[str]:
     return issues
 
 
-def build_programmatic_report(
-    snapshots: list[dict[str, Any]],
-    edition: str,
-    stock_observations: Optional[AShareObservationResult] = None,
-) -> str:
-    today = now_beijing().strftime("%Y-%m-%d")
-    lines = [
-        f"> **ETF 行情日报 · {today}（{edition_label(edition)}）**",
-        "",
-        "## 先看结论",
-        f"- {build_market_direction_summary(snapshots)}",
-    ]
-    for snapshot in snapshots:
-        quote = snapshot["quote"]
-        valuation = snapshot["valuation"]
-        lines.append(
-            f"- {etf_short_name(snapshot)}：该交易日 {fmt_change_pct(quote.get('pct_change'))}；"
-            f"PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}；"
-            f"PE分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}。"
-        )
-    memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
-    lines.append(f"- {format_allocation_conclusion(memos)}")
+def format_conclusion_line(snapshot: dict[str, Any], memo: Any) -> str:
+    quote = snapshot["quote"]
+    valuation = snapshot["valuation"]
+    pe_context = build_pe_context(snapshot)
+    note = ""
+    if memo["action"] == "无法判断":
+        note = "，主数据不足不下动作"
+    elif memo["vetoes"]:
+        note = f"，{memo['vetoes'][0]}"
+    return (
+        f"- {etf_short_name(snapshot)}：{memo['action']}｜"
+        f"行情价 {fmt_price(quote.get('latest_price'))}，该交易日 {fmt_change_pct(quote.get('pct_change'))}｜"
+        f"PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}，"
+        f"PE分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}，"
+        f"本次观测 {fmt_pe_change(pe_context['current'], pe_context['previous'])}{note}"
+    )
+
+
+def format_lead_conclusion(snapshots: list[dict[str, Any]], memos: list[Any]) -> list[str]:
+    lines = ["## 先看结论"]
+    lines.extend(format_conclusion_line(snapshot, memo) for snapshot, memo in zip(snapshots, memos))
     lines.append("- 两只指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
+    return lines
 
-    lines.extend(["", *format_allocation_section(memos)])
 
-    lines.extend(["", "## 两只ETF变化"])
+def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
+    lines = ["## 两只ETF变化"]
     for snapshot in snapshots:
         quote = snapshot["quote"]
         context = snapshot["price_context"]
@@ -1803,8 +1941,11 @@ def build_programmatic_report(
             f"- 历史源：{context.get('source') or '不可确认'}；"
             f"{data_status_label(context.get('data_status'))}；截至 {context.get('as_of') or '不可确认'}。",
         ])
+    return lines
 
-    lines.extend(["", "## PE分位变化"])
+
+def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
+    lines = ["## PE分位变化"]
     for snapshot in snapshots:
         premium = snapshot["premium"]
         valuation = snapshot["valuation"]
@@ -1829,17 +1970,23 @@ def build_programmatic_report(
             f"{data_status_label(valuation.get('data_status'))}；口径："
             f"{percentile_method_label(method)}。",
         ])
+    return lines
 
+
+def format_data_issue_section(snapshots: list[dict[str, Any]]) -> list[str]:
     issues = [
         f"{etf_short_name(snapshot)}：{issue}"
         for snapshot in snapshots
         for issue in snapshot_data_issues(snapshot)
         if not issue.startswith("溢折价：IOPV日期与行情日期不一致")
     ]
-    if issues:
-        lines.extend(["", "## 数据异常", *(f"- {issue}。" for issue in issues)])
+    if not issues:
+        return []
+    return ["## 数据异常", *(f"- {issue}。" for issue in issues)]
 
-    lines.extend(["", "## A股观察候选"])
+
+def format_a_share_section(stock_observations: Optional[AShareObservationResult]) -> list[str]:
+    lines = ["## A股观察候选"]
     observation_result = stock_observations or {
         "status": "provider_error", "items": [], "source": "不可确认", "error": "未取得候选数据"
     }
@@ -1852,10 +1999,50 @@ def build_programmatic_report(
     elif observation_result.get("status") == "empty":
         lines.append("- 数据源正常，按当前公开量价与估值规则未筛出合格候选。")
     else:
-        error = observation_result.get("error") or "候选数据源不可用"
+        error = summarize_a_share_error(observation_result.get("error") or "候选数据源不可用")
         lines.append(f"- 候选数据源异常，本次无法确认股票观察名单：{error}。")
     lines.append("- 候选基于公开量价与估值机械筛选，仅作研究线索，不代表推荐或确定性预测。")
+    return lines
+
+
+def report_title(edition: str) -> str:
+    today = now_beijing().strftime("%Y-%m-%d")
+    return f"> **ETF 行情日报 · {today}（{edition_label(edition)}）**"
+
+
+def build_programmatic_report(
+    snapshots: list[dict[str, Any]],
+    edition: str,
+    stock_observations: Optional[AShareObservationResult] = None,
+) -> str:
+    memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
+    lines = [
+        report_title(edition),
+        "",
+        *format_lead_conclusion(snapshots, memos),
+        "",
+        *format_price_change_section(snapshots),
+        "",
+        *format_pe_change_section(snapshots),
+    ]
+    issues = format_data_issue_section(snapshots)
+    if issues:
+        lines.extend(["", *issues])
+    lines.extend(["", *format_a_share_section(stock_observations)])
     return sanitize_report("\n".join(lines))
+
+
+def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
+    memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
+    return sanitize_report("\n".join([
+        report_title(edition),
+        "",
+        *format_lead_conclusion(snapshots, memos),
+        "",
+        *format_price_change_section(snapshots),
+        "",
+        *format_pe_change_section(snapshots),
+    ]))
 
 
 def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str) -> str:
@@ -1909,29 +2096,12 @@ def convert_to_wework_markdown(md_text: str) -> str:
     if len(result.encode("utf-8")) <= max_bytes:
         return result
 
-    summary_index = next(
-        (index for index, line in enumerate(out) if line in (
-            "> **数据异常**", "> **A股观察候选**"
-        )),
-        len(out),
-    )
-    tail = out[summary_index:]
     marker = "> ...(内容已截断)"
-    suffix = [marker, "", *tail]
-    suffix_bytes = len("\n".join(suffix).encode("utf-8"))
-    prefix = []
-    current_bytes = 0
-    for line in out[:summary_index]:
-        line_bytes = len(line.encode("utf-8")) + 1
-        if current_bytes + line_bytes + suffix_bytes > max_bytes:
-            break
-        prefix.append(line)
-        current_bytes += line_bytes
-
-    truncated = "\n".join([*prefix, *suffix])
+    prefix = list(out)
+    truncated = "\n".join([*prefix, "", marker])
     while len(truncated.encode("utf-8")) > max_bytes and prefix:
         prefix.pop()
-        truncated = "\n".join([*prefix, *suffix])
+        truncated = "\n".join([*prefix, "", marker] if prefix else [marker])
     return truncated
 
 
@@ -2177,7 +2347,7 @@ def main() -> None:
             f.write(report)
         print(f"💾 已保存: {report_file}")
 
-    wx_content = convert_to_wework_markdown(report)
+    wx_content = convert_to_wework_markdown(build_wechat_report(snapshots, edition))
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF {today}"
     if dry_run:

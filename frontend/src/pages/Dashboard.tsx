@@ -55,7 +55,14 @@ const emptyReports: ReportMap = {
 }
 
 function isToday(date?: string) {
-  return !!date && dayjs(date).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD')
+  if (!date) return false
+  const parsed = dayjs(date)
+  if (!parsed.isValid()) return false
+  return parsed.tz('Asia/Shanghai').format('YYYY-MM-DD') === dayjs.tz().format('YYYY-MM-DD')
+}
+
+function isSystemBriefEdition(edition?: string) {
+  return edition === 'morning' || edition === 'evening'
 }
 
 function toHHmm(value?: string) {
@@ -186,10 +193,13 @@ function SubscriptionCard({ subscription }: { subscription: Subscription | null 
   )
 }
 
-function PushStatusCard({ logs }: { logs: PushLog[] }) {
+function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports: Report[] }) {
   const todayLogs = logs.filter(log => isToday(log.pushedAt))
   const failed = todayLogs.filter(log => log.status === 'failed')
   const latest = todayLogs[0]
+  const systemBriefs = todayReports.filter(report => isSystemBriefEdition(report.edition))
+  const total = todayLogs.length + systemBriefs.length
+  const success = todayLogs.length - failed.length + systemBriefs.length
 
   return (
     <div className="overview-card">
@@ -198,12 +208,27 @@ function PushStatusCard({ logs }: { logs: PushLog[] }) {
         <Link to="/notifications" className="section-link">记录 →</Link>
       </div>
       <div className="push-summary-grid">
-        <div><strong>{todayLogs.length}</strong><span>今日推送</span></div>
-        <div><strong>{todayLogs.length - failed.length}</strong><span>成功</span></div>
+        <div><strong>{total}</strong><span>今日推送</span></div>
+        <div><strong>{success}</strong><span>成功</span></div>
         <div className={failed.length > 0 ? 'danger-text' : ''}><strong>{failed.length}</strong><span>失败</span></div>
       </div>
+      {systemBriefs.length > 0 && (
+        <div className="system-push-list">
+          {systemBriefs.map(report => {
+            const info = getReportEditionInfo(report.edition)
+            return (
+              <div key={report.id} className="status-row">
+                <span>{info.shortLabel}</span>
+                <span>今日 {dayjs(report.createdAt).tz('Asia/Shanghai').format('HH:mm')} 已生成</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
       {latest ? (
-        <p className="overview-muted">最近一次：{dayjs(latest.pushedAt).format('HH:mm')} · {latest.channelType}</p>
+        <p className="overview-muted">最近一次渠道投递：{dayjs(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
+      ) : systemBriefs.length > 0 ? (
+        <p className="overview-muted">系统简报已生成；你的个人渠道今天还没有投递记录。</p>
       ) : (
         <p className="overview-muted">今日暂无推送记录</p>
       )}
@@ -283,16 +308,21 @@ export default function Dashboard() {
   const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '--:--'
 
   const alerts = useMemo(() => {
-    const now = dayjs()
+    const now = dayjs.tz()
     const items: string[] = []
     if ((stats?.todayCount ?? todayReports.length) === 0) items.push('今日暂无任何报告入库')
     if (now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('AI 早间简报尚未生成')
     if (now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('AI 晚间简报尚未生成')
     if (now.hour() >= 18 && !isToday(reports.market_watch_evening?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
-    if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) items.push('订阅已开启，但今日暂无推送记录')
+    const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
+    if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) {
+      items.push(hasSystemBrief
+        ? '系统早报已生成，但你的个人渠道今天还没有投递记录'
+        : '订阅已开启，但今日暂无推送记录')
+    }
     return items
-  }, [stats, todayReports.length, reports, failedLogs.length, subscription, todayLogs.length])
+  }, [stats, todayReports, reports, failedLogs.length, subscription, todayLogs.length])
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
@@ -345,7 +375,7 @@ export default function Dashboard() {
 
       <div className="overview-main-grid">
         <SubscriptionCard subscription={subscription} />
-        <PushStatusCard logs={pushLogs} />
+        <PushStatusCard logs={pushLogs} todayReports={todayReports} />
         <div className="overview-card">
           <div className="overview-card-title">🔥 近期热点</div>
           <div className="preference-tags">

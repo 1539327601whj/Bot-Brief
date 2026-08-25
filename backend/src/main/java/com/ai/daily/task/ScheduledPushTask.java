@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -27,8 +28,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 每分钟扫描所有订阅，命中 morning_time / evening_time == 当前时间(HH:mm) 的用户，
- * 分派对应版次的最新简报。
+ * 每分钟扫描所有订阅，命中已到点或刚错过订阅时刻的用户，分派对应版次的最新简报。
+ *
+ * 简报由定时脚本先入库，生成往往晚于 08:00/20:00。若只在整分精确匹配，
+ * 报告未就绪时会直接放弃，当天不再补推，仪表盘「今日推送」也会一直为 0。
  *
  * 幂等：每个北京时间日期、版次、用户和渠道仅认领一次持久化推送记录。
  * 时区：Asia/Shanghai（与 application.yml 的 jackson.time-zone 一致）。
@@ -39,6 +42,7 @@ import java.util.stream.Collectors;
 public class ScheduledPushTask {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Duration TICK_CATCH_UP_WINDOW = Duration.ofHours(3);
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
@@ -54,12 +58,27 @@ public class ScheduledPushTask {
         LocalTime currentTime = now.toLocalTime().withSecond(0).withNano(0);
         LocalDate currentDate = now.toLocalDate();
 
-        dispatchEdition("morning", currentTime, currentDate);
-        dispatchEdition("evening", currentTime, currentDate);
+        dispatchEdition("morning", currentTime, currentDate, TICK_CATCH_UP_WINDOW);
+        dispatchEdition("evening", currentTime, currentDate, TICK_CATCH_UP_WINDOW);
+    }
+
+    /**
+     * 简报刚入库时补推：当天已过订阅时刻的用户都会尝试分发（dispatch_key 保证不重复发）。
+     */
+    public void catchUpEdition(String edition, LocalDate date) {
+        if (!"morning".equals(edition) && !"evening".equals(edition)) return;
+        ZonedDateTime now = ZonedDateTime.now(ZONE);
+        LocalDate targetDate = date != null ? date : now.toLocalDate();
+        if (!targetDate.equals(now.toLocalDate())) return;
+        dispatchEdition(edition, now.toLocalTime().withSecond(0).withNano(0), targetDate, null);
     }
 
     void dispatchEdition(String edition, LocalTime now, LocalDate date) {
-        List<Subscription> due = subscriptionService.findDueForEdition(edition, now);
+        dispatchEdition(edition, now, date, TICK_CATCH_UP_WINDOW);
+    }
+
+    void dispatchEdition(String edition, LocalTime now, LocalDate date, Duration maxLateness) {
+        List<Subscription> due = subscriptionService.findDueThrough(edition, now, maxLateness);
         if (due.isEmpty()) return;
 
         Map<Long, User> users = userMapper.selectBatchIds(

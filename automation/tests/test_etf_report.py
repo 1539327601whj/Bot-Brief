@@ -362,16 +362,70 @@ class ReportTests(unittest.TestCase):
         )
         for required in (
             "ETF 行情日报", "先看结论", "两只ETF变化", "PE分位变化",
-            "仓位备忘", "按计划买", "规则动作",
-            "PE(TTM) 12.50", "PE分位 45%", "中证 PE(TTM) 滚动10年分位",
+            "按计划买", "行情价 4.100 元", "该交易日",
+            "PE(TTM) 12.50", "PE分位 45%", "本次观测",
+            "中证 PE(TTM) 滚动10年分位",
             "估值测试源", "2026-07-27", "外部数据已校验",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
             self.assertIn(required, text)
-        for forbidden in ("加仓", "减仓", "正常定投", "今日动作", "观察线"):
+        for forbidden in (
+            "加仓", "减仓", "正常定投", "今日动作", "观察线",
+            "定额配置官", "规则动作", "数据降级",
+        ):
             self.assertNotIn(forbidden, text)
         summary = report.build_summary([complete_snapshot()])
         self.assertIn("仓位备忘 按计划买", summary)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_wechat_report_keeps_action_and_change_sections_only(self, _):
+        snapshots = [complete_snapshot(), complete_snapshot(report.ETF_LIST[1])]
+        text = report.build_wechat_report(snapshots, "market_watch_evening")
+        for required in (
+            "ETF 行情日报", "先看结论", "按计划买",
+            "两只ETF变化", "PE分位变化",
+            "行情价 4.100 元", "PE(TTM) 12.50", "PE分位 45%",
+        ):
+            self.assertIn(required, text)
+        for forbidden in (
+            "定额配置官", "规则动作", "数据降级", "A股观察候选",
+            "加仓", "减仓", "正常定投", "今日动作",
+        ):
+            self.assertNotIn(forbidden, text)
+        wx = report.convert_to_wework_markdown(text)
+        self.assertNotIn("内容已截断", wx)
+        self.assertLessEqual(len(wx.encode("utf-8")), 3800)
+        self.assertIn("两只ETF变化", wx)
+        self.assertIn("PE分位变化", wx)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_wechat_conclusion_uses_allocation_action(self, _):
+        expensive = complete_snapshot()
+        expensive["valuation"]["pe_percentile"] = 75
+        expensive["price_context"]["distance_from_month_high"] = -1
+        expensive["premium"]["premium_rate"] = 1.0
+        text = report.build_wechat_report([expensive], "market_watch_evening")
+        self.assertIn("少买", text)
+        self.assertIn("PE分位 75%", text)
+        self.assertIn("行情价 4.100 元", text)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_wechat_convert_does_not_keep_a_share_tail_after_truncate(self, _):
+        stocks = {
+            "status": "provider_error",
+            "items": [],
+            "source": "测试源",
+            "error": "502 " + ("东方财富候选数据不可用 " * 80),
+        }
+        full = report.build_programmatic_report(
+            [complete_snapshot(), complete_snapshot(report.ETF_LIST[1])],
+            "market_watch_evening",
+            stocks,
+        )
+        wx = report.convert_to_wework_markdown(full)
+        self.assertLessEqual(len(wx.encode("utf-8")), 3800)
+        self.assertIn("先看结论", wx)
+        self.assertNotIn("东方财富候选数据不可用", wx)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_allocation_memo_degrades_when_pe_is_missing(self, _):
@@ -379,7 +433,8 @@ class ReportTests(unittest.TestCase):
         snapshot["valuation"]["pe_percentile"] = None
         text = report.build_programmatic_report([snapshot], "market_watch_evening")
         self.assertIn("无法判断", text)
-        self.assertIn("数据降级", text)
+        self.assertIn("主数据不足不下动作", text)
+        self.assertNotIn("数据降级", text)
 
     def test_a_share_observation_is_conditional_and_traceable(self):
         stock = {
@@ -392,31 +447,82 @@ class ReportTests(unittest.TestCase):
         self.assertIn("若", observation["trend"])
         self.assertNotIn("必涨", "".join(observation.values()))
 
-    @patch.object(report, "fetch_a_share_candidates")
+    @patch.object(report, "fetch_a_share_candidate_pool")
     def test_a_share_selector_returns_two_scored_candidates(self, fetch):
-        fetch.return_value = [{
+        fetch.return_value = ([{
             "f12": f"60000{index}", "f14": f"测试{index}", "f2": 10,
             "f3": index, "f6": 1_000_000_000 - index, "f8": 2,
             "f9": 20 + index, "f10": 1.2, "f15": 10.5, "f16": 9.5,
             "f20": 50_000_000_000, "f23": 2, "f24": 10, "f25": 8,
             "f62": 10_000_000,
-        } for index in range(3)]
+        } for index in range(3)], "东方财富A股行情")
         observations = report.build_a_share_observations()
         self.assertEqual(observations["status"], "available")
         self.assertEqual(len(observations["items"]), 2)
+        self.assertEqual(observations["source"], "东方财富A股行情")
+
+    def test_eastmoney_clist_requires_valid_response_shape(self):
+        self.assertEqual(report.parse_eastmoney_clist({"data": {"diff": []}}), [])
+        with self.assertRaisesRegex(RuntimeError, "diff 不是列表"):
+            report.parse_eastmoney_clist({"data": {}})
+        with self.assertRaisesRegex(RuntimeError, "缺少 data 对象"):
+            report.parse_eastmoney_clist([])
 
     @patch.object(report, "http_get")
-    def test_a_share_fetcher_requires_valid_response_shape(self, get):
-        get.return_value = response({"data": {"diff": []}})
-        self.assertEqual(report.fetch_a_share_candidates(), [])
-        get.return_value = response({"data": {}})
-        with self.assertRaisesRegex(RuntimeError, "diff 不是列表"):
-            report.fetch_a_share_candidates()
-        get.return_value = response([])
-        with self.assertRaisesRegex(RuntimeError, "缺少 data 对象"):
-            report.fetch_a_share_candidates()
+    def test_a_share_eastmoney_switches_host_after_502(self, get):
+        get.side_effect = [
+            response(status=502),
+            response({"data": {"diff": [{"f12": "600000", "f14": "测试"}]}}),
+        ]
+        items = report.fetch_a_share_candidates_from_eastmoney()
+        self.assertEqual(items[0]["f12"], "600000")
+        self.assertEqual(get.call_count, 2)
+        self.assertIn("push2delay.eastmoney.com", get.call_args_list[0].args[0])
+        self.assertIn("82.push2.eastmoney.com", get.call_args_list[1].args[0])
+        self.assertEqual(get.call_args.kwargs["headers"]["Referer"], report.A_SHARE_EASTMONEY_HEADERS["Referer"])
 
-    @patch.object(report, "fetch_a_share_candidates", return_value=[])
+    @patch.object(report, "http_get")
+    def test_a_share_eastmoney_splits_boards_when_combined_hosts_fail(self, get):
+        combined_failures = [response(status=502)] * len(report.A_SHARE_EASTMONEY_HOSTS)
+        board_payloads = [
+            response({"data": {"diff": [{"f12": "600000"}]}}),
+            response({"data": {"diff": [{"f12": "000001"}]}}),
+            response({"data": {"diff": [{"f12": "300001"}]}}),
+        ]
+        get.side_effect = combined_failures + board_payloads
+        items = report.fetch_a_share_candidates_from_eastmoney()
+        self.assertEqual([item["f12"] for item in items], ["600000", "000001", "300001"])
+        self.assertEqual(get.call_count, len(report.A_SHARE_EASTMONEY_HOSTS) + 3)
+
+    @patch.object(report, "fetch_a_share_candidates_from_eastmoney", side_effect=RuntimeError("502"))
+    @patch.object(report, "fetch_a_share_candidates_from_sina")
+    def test_a_share_pool_falls_back_to_sina(self, sina, _):
+        sina.return_value = [{"f12": "600000"}]
+        items, source = report.fetch_a_share_candidate_pool()
+        self.assertEqual(items[0]["f12"], "600000")
+        self.assertEqual(source, "新浪财经A股行情")
+        sina.assert_called_once_with()
+
+    def test_sina_row_maps_market_cap_from_wan_yuan(self):
+        item = report.sina_row_to_eastmoney_item({
+            "code": "600000",
+            "name": "测试股份",
+            "trade": 10.2,
+            "changepercent": 1.5,
+            "amount": 800_000_000,
+            "turnoverratio": 1.2,
+            "per": 12.5,
+            "high": 10.5,
+            "low": 9.8,
+            "mktcap": 2_000_000,
+            "pb": 1.8,
+        })
+        stock = report.normalize_a_share(item)
+        self.assertEqual(stock["code"], "600000")
+        self.assertEqual(stock["total_market_cap"], 20_000_000_000)
+        self.assertTrue(report.is_a_share_candidate(stock))
+
+    @patch.object(report, "fetch_a_share_candidate_pool", return_value=([], "东方财富A股行情"))
     def test_a_share_selector_distinguishes_valid_empty_result(self, _):
         result = report.build_a_share_observations()
         self.assertEqual(result["status"], "empty")
@@ -424,13 +530,23 @@ class ReportTests(unittest.TestCase):
         self.assertIn("数据源正常", text)
         self.assertNotIn("候选数据源异常", text)
 
-    @patch.object(report, "fetch_a_share_candidates", side_effect=RuntimeError("502 Bad Gateway"))
+    @patch.object(
+        report,
+        "fetch_a_share_candidate_pool",
+        side_effect=RuntimeError(
+            "502 Server Error: Bad Gateway for url: "
+            "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100"
+        ),
+    )
     def test_a_share_selector_marks_provider_error(self, _):
         result = report.build_a_share_observations()
         self.assertEqual(result["status"], "provider_error")
+        self.assertEqual(result["error"], "行情列表源网关繁忙（502）")
         text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening", result)
         self.assertIn("候选数据源异常", text)
-        self.assertIn("502 Bad Gateway", text)
+        self.assertIn("行情列表源网关繁忙（502）", text)
+        self.assertNotIn("https://", text)
+        self.assertNotIn("clist/get", text)
 
     @patch.object(report, "http_get")
     def test_premium_502_returns_provider_error(self, get):

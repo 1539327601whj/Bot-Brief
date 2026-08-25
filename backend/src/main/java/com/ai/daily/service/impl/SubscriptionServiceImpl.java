@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -80,16 +81,45 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
         return this.list(wrapper);
     }
 
+    @Override
+    public List<Subscription> findDueThrough(String edition, LocalTime nowFloor, Duration maxLateness) {
+        LocalTime minute = nowFloor.withSecond(0).withNano(0);
+        LocalTime earliest = earliestCatchUpTime(minute, maxLateness);
+        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Subscription::getEnabled, true);
+        if ("morning".equals(edition)) {
+            wrapper.eq(Subscription::getMorningEnabled, true)
+                    .le(Subscription::getMorningTime, minute)
+                    .ge(Subscription::getMorningTime, earliest);
+        } else if ("evening".equals(edition)) {
+            wrapper.eq(Subscription::getEveningEnabled, true)
+                    .le(Subscription::getEveningTime, minute)
+                    .ge(Subscription::getEveningTime, earliest);
+        } else {
+            return List.of();
+        }
+        return this.list(wrapper);
+    }
+
     boolean isDueForEdition(Subscription subscription, String edition, LocalTime minute) {
+        return isDueThrough(subscription, edition, minute, Duration.ZERO);
+    }
+
+    boolean isDueThrough(Subscription subscription, String edition, LocalTime minute, Duration maxLateness) {
         LocalTime scheduled = "morning".equals(edition)
                 ? subscription.getMorningTime()
                 : "evening".equals(edition) ? subscription.getEveningTime() : null;
-        return sameMinute(scheduled, minute);
+        if (scheduled == null || minute == null) return false;
+        LocalTime scheduledMinute = scheduled.withSecond(0).withNano(0);
+        LocalTime nowMinute = minute.withSecond(0).withNano(0);
+        if (scheduledMinute.isAfter(nowMinute)) return false;
+        LocalTime earliest = earliestCatchUpTime(nowMinute, maxLateness);
+        return !scheduledMinute.isBefore(earliest);
     }
 
-    private boolean sameMinute(LocalTime first, LocalTime second) {
-        return first != null && second != null
-                && first.getHour() == second.getHour()
-                && first.getMinute() == second.getMinute();
+    private static LocalTime earliestCatchUpTime(LocalTime nowMinute, Duration maxLateness) {
+        if (maxLateness == null) return LocalTime.MIN;
+        LocalTime earliest = nowMinute.minus(maxLateness);
+        return earliest.isAfter(nowMinute) ? LocalTime.MIN : earliest;
     }
 }

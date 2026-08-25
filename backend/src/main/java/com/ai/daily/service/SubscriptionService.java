@@ -3,6 +3,7 @@ package com.ai.daily.service;
 import com.ai.daily.entity.Subscription;
 import com.baomidou.mybatisplus.extension.service.IService;
 
+import java.time.Duration;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -33,4 +34,10 @@ public interface SubscriptionService extends IService<Subscription> {
      * 查询所有 enabled 且指定版次在当前分钟到期的用户订阅
      */
     List<Subscription> findDueForEdition(String edition, LocalTime nowFloor);
+
+    /**
+     * 查询已到点或已错过订阅时刻、仍可补推的用户。
+     * {@code maxLateness} 为 null 时不限制迟到时长（用于入库后立即补推）。
+     */
+    List<Subscription> findDueThrough(String edition, LocalTime nowFloor, Duration maxLateness);
 }

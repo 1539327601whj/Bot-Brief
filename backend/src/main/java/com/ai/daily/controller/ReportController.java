@@ -4,9 +4,11 @@ import com.ai.daily.dto.ReportPushDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.entity.Report;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.task.ScheduledPushTask;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -20,12 +22,16 @@ import java.util.Map;
 /**
  * 简报控制器
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/reports")
 public class ReportController {
 
     @Autowired
     private ReportService reportService;
+
+    @Autowired
+    private ScheduledPushTask scheduledPushTask;
 
     @Value("${report.ingest-token:}")
     private String ingestToken;
@@ -57,6 +63,11 @@ public class ReportController {
                     summary,
                     dto.getRunId()
             );
+            try {
+                scheduledPushTask.catchUpEdition(dto.getEdition(), dto.getReportDate());
+            } catch (Exception e) {
+                log.warn("简报入库后补推失败 edition={} date={}", dto.getEdition(), dto.getReportDate(), e);
+            }
             return Result.ok("简报已保存", null);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());

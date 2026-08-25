@@ -43,7 +43,7 @@ class ScheduledPushTaskTest {
 
         Subscription first = subscription(1L);
         Subscription second = subscription(2L);
-        when(subscriptions.findDueForEdition("morning", LocalTime.of(8, 15))).thenReturn(List.of(first, second));
+        when(subscriptions.findDueThrough(eq("morning"), eq(LocalTime.of(8, 15)), any())).thenReturn(List.of(first, second));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L), user(2L)));
         Report canonical = report("公共简报");
         LocalDate date = LocalDate.of(2026, 7, 24);
@@ -85,7 +85,7 @@ class ScheduledPushTaskTest {
         Report databaseReport = report("数据库内容");
         Report mobileReport = report("移动端内容");
         ReportPersonalizationService.PreparedReport prepared = new ReportPersonalizationService.PreparedReport(canonical, "", List.of());
-        when(subscriptions.findDueForEdition("morning", LocalTime.of(8, 15))).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq("morning"), eq(LocalTime.of(8, 15)), any())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(reports.getLatestByEditionForDate("morning", date)).thenReturn(canonical);
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
@@ -117,7 +117,7 @@ class ScheduledPushTaskTest {
 
         Subscription demo = subscription(1L);
         Subscription disabled = subscription(2L);
-        when(subscriptions.findDueForEdition(eq("evening"), any())).thenReturn(List.of(demo, disabled));
+        when(subscriptions.findDueThrough(eq("evening"), any(), any())).thenReturn(List.of(demo, disabled));
         User demoUser = user(1L);
         demoUser.setAccountType(User.ACCOUNT_DEMO);
         User disabledUser = user(2L);
@@ -128,6 +128,49 @@ class ScheduledPushTaskTest {
 
         verify(reports, never()).getLatestByEditionForDate(any(), any());
         verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
+    }
+
+    @Test
+    void stillDispatchesWhenReportArrivesAfterTheExactMinute() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        ReportService reports = mock(ReportService.class);
+        ReportPersonalizationService personalizer = mock(ReportPersonalizationService.class);
+        PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
+        UserMapper users = mock(UserMapper.class);
+        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, reports, personalizer, dispatcher, users);
+
+        Subscription subscription = subscription(1L);
+        LocalDate date = LocalDate.of(2026, 8, 25);
+        Report canonical = report("公共简报");
+        ReportPersonalizationService.PreparedReport prepared = new ReportPersonalizationService.PreparedReport(canonical, "", List.of());
+        when(subscriptions.findDueThrough(eq("morning"), eq(LocalTime.of(8, 20)), any())).thenReturn(List.of(subscription));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
+        when(reports.getLatestByEditionForDate("morning", date)).thenReturn(canonical);
+        when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
+        when(preferences.enabledTopicItems(subscription, "morning")).thenReturn(List.of(topic("数据库", null)));
+        when(personalizer.prepare(canonical)).thenReturn(prepared);
+        when(personalizer.personalize(prepared, List.of("数据库"))).thenReturn(canonical);
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
+
+        task.dispatchEdition("morning", LocalTime.of(8, 20), date);
+
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), any(), eq("morning"), eq(date));
+    }
+
+    @Test
+    void catchUpSkipsNonAiEditions() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        ScheduledPushTask task = new ScheduledPushTask(
+                subscriptions, mock(SubscriptionPreferences.class), mock(PushChannelService.class),
+                mock(ReportService.class), mock(ReportPersonalizationService.class),
+                mock(PushDispatcher.class), mock(UserMapper.class));
+
+        task.catchUpEdition("market_watch_evening", LocalDate.of(2026, 8, 25));
+
+        verify(subscriptions, never()).findDueThrough(any(), any(), any());
     }
 
     private SubscriptionDTO.TopicScheduleItemDTO topic(String name, List<Long> channelIds) {
