@@ -35,20 +35,44 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.sha }}
 
-      - name: Build deployment image
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend static release
         id: image
         shell: bash
         run: |
           set -euo pipefail
           short_sha="$(git rev-parse --short=12 HEAD)"
           image_tag="${IMAGE_REPOSITORY}:${short_sha}"
-          archive="frontend-${short_sha}.tar.gz"
-          docker build --pull -t "$image_tag" frontend
-          docker save "$image_tag" | gzip -9 > "$RUNNER_TEMP/$archive"
+          archive="frontend-static-${short_sha}.tar.gz"
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+          stage="$RUNNER_TEMP/frontend-static"
+          rm -rf "$stage"
+          mkdir -p "$stage/dist"
+          cp -a frontend/dist/. "$stage/dist/"
+          printf '%s\n' \
+            'server {' \
+            '    listen 80;' \
+            '' \
+            '    location / {' \
+            '        root /usr/share/nginx/html;' \
+            '        index index.html index.htm;' \
+            '        try_files $uri $uri/ /index.html;' \
+            '    }' \
+            '}' \
+            > "$stage/default.conf"
+          tar -czf "$RUNNER_TEMP/$archive" -C "$stage" dist default.conf
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
           echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "Static release $(numfmt --to=iec "$(stat -c '%s' "$RUNNER_TEMP/$archive")")"
 
       - name: Configure deployment SSH
         env:
@@ -77,9 +101,9 @@ jobs:
           archive_path="$RUNNER_TEMP/$ARCHIVE"
           archive_bytes="$(stat -c '%s' "$archive_path")"
           archive_sha="$(cut -d ' ' -f 1 "$RUNNER_TEMP/$ARCHIVE.sha256")"
-          ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o Compression=no -o IPQoS=throughput -c aes128-gcm@openssh.com,chacha20-poly1305@openssh.com)
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 
-          echo "Frontend release archive: $(numfmt --to=iec "$archive_bytes") ($archive_bytes bytes)"
+          echo "Frontend static archive: $(numfmt --to=iec "$archive_bytes") ($archive_bytes bytes)"
           ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
             "DEPLOY_DIR='$DEPLOY_DIR' RELEASE_SHA='$RELEASE_SHA' ARCHIVE='$ARCHIVE' ARCHIVE_SHA='$archive_sha' bash -s" <<'REMOTE'
           set -euo pipefail
@@ -96,22 +120,21 @@ jobs:
           echo "Prepared $release_dir"
           REMOTE
 
-          for attempt in 1 2 3; do
-            echo "Uploading frontend release ($attempt/3)"
-            if timeout 300s scp -O "${ssh_opts[@]}" \
+          for attempt in 1 2; do
+            echo "Uploading frontend static release ($attempt/2)"
+            if timeout 90s scp "${ssh_opts[@]}" \
               "$archive_path" \
               "$RUNNER_TEMP/$ARCHIVE.sha256" \
               docker-compose.yml \
               "$SERVER_USER@$SERVER_IP:$release_dir/"; then
               exit 0
             fi
-            if [ "$attempt" = "3" ]; then
-              echo "Release upload failed after 3 attempts"
+            if [ "$attempt" = "2" ]; then
+              echo "Frontend static upload failed after 2 attempts"
               exit 1
             fi
-            delay=$((attempt * 10))
-            echo "Release upload interrupted, retrying in ${delay}s"
-            sleep "$delay"
+            echo "Frontend static upload interrupted, retrying in 10s"
+            sleep 10
           done
 
       - name: Activate frontend release
@@ -137,7 +160,23 @@ jobs:
             echo "Frontend archive checksum failed; the next run will upload it again"
             exit 1
           fi
-          docker load -i "$ARCHIVE"
+          tar -xzf "$ARCHIVE"
+          test -d dist
+          test -f default.conf
+          if docker image inspect nginx:alpine >/dev/null 2>&1; then
+            base_image=nginx:alpine
+          elif docker image inspect bot-brief-frontend:local >/dev/null 2>&1; then
+            base_image=bot-brief-frontend:local
+          else
+            docker pull nginx:alpine
+            base_image=nginx:alpine
+          fi
+          printf '%s\n' \
+            "FROM $base_image" \
+            'COPY dist/ /usr/share/nginx/html/' \
+            'COPY default.conf /etc/nginx/conf.d/default.conf' \
+            > Dockerfile
+          docker build --no-cache -t "$IMAGE_TAG" .
 
           previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-frontend 2>/dev/null || true)"
           had_previous_compose=false
