@@ -38,45 +38,45 @@ jobs:
     runs-on: [self-hosted, linux, bot-brief]
     steps:
       - name: Checkout via GitHub proxy
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE"
           cd "$GITHUB_WORKSPACE"
-          git config --global http.version HTTP/1.1
-          git config --global protocol.version 1
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
 
-          auth=""
-          if [ -n "${GITHUB_TOKEN:-}" ]; then
-            auth="x-access-token:${GITHUB_TOKEN}@"
-          fi
+          # gh-proxy 对 git 协议经常 404；和当初下 runner 一样，改下源码包。
+          # 不要把 token 写进 URL，否则代理会当成无效地址。
           candidates=(
-            "https://gh-proxy.com/https://${auth}github.com/${GITHUB_REPOSITORY}.git"
-            "https://mirror.ghproxy.com/https://${auth}github.com/${GITHUB_REPOSITORY}.git"
+            "https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            "https://gh-proxy.com/https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}"
+            "https://ghfast.top/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            "https://ui.ghproxy.cc/https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            "https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/${GITHUB_REF_NAME:-main}.tar.gz"
           )
 
-          fetched=false
+          archive="$tmp/src.tar.gz"
+          downloaded=false
           for url in "${candidates[@]}"; do
-            echo "Fetching commit ${GITHUB_SHA} through a GitHub proxy"
-            if [ ! -d .git ]; then
-              git init
-              git remote add origin "$url"
-            else
-              git remote set-url origin "$url"
+            echo "Downloading source archive"
+            if curl -fL --retry 2 --connect-timeout 20 --max-time 180 -o "$archive" "$url"; then
+              if tar -tzf "$archive" >/dev/null 2>&1; then
+                downloaded=true
+                break
+              fi
             fi
-            if git fetch --depth=1 origin "${GITHUB_SHA}" \
-              || git fetch --depth=1 origin "${GITHUB_REF_NAME:-main}"; then
-              fetched=true
-              break
-            fi
+            rm -f "$archive"
           done
-          if [ "$fetched" != "true" ]; then
-            echo "Could not fetch the repository from GitHub via proxy"
+          if [ "$downloaded" != "true" ]; then
+            echo "Could not download the repository archive via proxy"
             exit 1
           fi
-          git checkout --force --detach FETCH_HEAD
-          git rev-parse --short=12 HEAD
+
+          tar -xzf "$archive" -C "$tmp"
+          extracted="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$extracted"
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          cp -a "$extracted"/. "$GITHUB_WORKSPACE/"
           test -f scripts/release-frontend.sh
 
       - name: Release frontend on this machine

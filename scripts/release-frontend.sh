@@ -6,7 +6,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/Bot-Brief}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-bot-brief-frontend}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
-short_sha="$(git -C "$ROOT" rev-parse --short=12 HEAD)"
+if [ -n "${GITHUB_SHA:-}" ]; then
+  short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
+elif git -C "$ROOT" rev-parse --short=12 HEAD >/dev/null 2>&1; then
+  short_sha="$(git -C "$ROOT" rev-parse --short=12 HEAD)"
+else
+  echo "Cannot determine release SHA"
+  exit 1
+fi
 image_tag="${IMAGE_REPOSITORY}:${short_sha}"
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is required"; exit 1; }
