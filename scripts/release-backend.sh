@@ -33,15 +33,37 @@ env_value() {
   awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE"
 }
 
-for required in maven:3.9-eclipse-temurin-17 eclipse-temurin:17-jre mysql:8.0; do
-  if ! docker image inspect "$required" >/dev/null 2>&1; then
-    echo "Missing local image $required. Pull once on the server, then retry:"
-    echo "  docker pull docker.m.daocloud.io/library/mysql:8.0"
-    echo "  docker tag docker.m.daocloud.io/library/mysql:8.0 mysql:8.0"
-    echo "Maven/JRE images must already exist from a previous backend deploy, or pull them via a China mirror and retag."
-    exit 1
+ensure_image() {
+  local name="$1"
+  shift
+  if docker image inspect "$name" >/dev/null 2>&1; then
+    echo "Using local image $name"
+    return 0
   fi
-done
+  local src
+  for src in "$@"; do
+    echo "Pulling $src"
+    if docker pull "$src"; then
+      docker tag "$src" "$name"
+      return 0
+    fi
+  done
+  echo "Missing image $name. Pull it on the server via a China mirror and retag as $name."
+  return 1
+}
+
+ensure_image eclipse-temurin:17-jre \
+  docker.m.daocloud.io/library/eclipse-temurin:17-jre \
+  m.daocloud.io/docker.io/library/eclipse-temurin:17-jre \
+  eclipse-temurin:17-jre
+ensure_image maven:3.9-eclipse-temurin-17 \
+  docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17 \
+  m.daocloud.io/docker.io/library/maven:3.9-eclipse-temurin-17 \
+  maven:3.9-eclipse-temurin-17
+ensure_image mysql:8.0 \
+  docker.m.daocloud.io/library/mysql:8.0 \
+  m.daocloud.io/docker.io/library/mysql:8.0 \
+  mysql:8.0
 
 echo "Building backend $image_tag"
 docker build -t "$image_tag" "$ROOT/backend"
