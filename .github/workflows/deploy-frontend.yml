@@ -83,28 +83,55 @@ jobs:
           ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
             "DEPLOY_DIR='$DEPLOY_DIR' RELEASE_SHA='$RELEASE_SHA' ARCHIVE='$ARCHIVE' ARCHIVE_SHA='$archive_sha' bash -s" <<'REMOTE'
           set -euo pipefail
+          install -d -m 755 "$DEPLOY_DIR"
           install -d -m 700 "$DEPLOY_DIR/.deploy"
           release_dir="$DEPLOY_DIR/.deploy/frontend-$RELEASE_SHA"
           install -d -m 700 "$release_dir"
+          test -d "$release_dir"
           find "$DEPLOY_DIR/.deploy" -mindepth 1 -maxdepth 1 -type d -mmin +1440 ! -path "$release_dir" -exec rm -rf -- {} +
           if [ "$(cat "$release_dir/.archive-sha256" 2>/dev/null || true)" != "$ARCHIVE_SHA" ]; then
             rm -f "$release_dir/$ARCHIVE"
           fi
           printf '%s\n' "$ARCHIVE_SHA" > "$release_dir/.archive-sha256"
+          echo "Prepared $release_dir"
           REMOTE
 
-          batch_file="$RUNNER_TEMP/frontend-sftp.batch"
-          printf 'reput %s %s\nput %s %s\nput %s %s\n' \
-            "$archive_path" "$release_dir/$ARCHIVE" \
-            "$RUNNER_TEMP/$ARCHIVE.sha256" "$release_dir/$ARCHIVE.sha256" \
-            "docker-compose.yml" "$release_dir/docker-compose.yml" > "$batch_file"
+          remote_size() {
+            ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
+              "stat -c '%s' '$release_dir/$ARCHIVE' 2>/dev/null || printf '0'" || printf '0'
+          }
 
+          write_sftp_batch() {
+            local resume_flag="$1"
+            {
+              echo "-mkdir $DEPLOY_DIR"
+              echo "-mkdir $DEPLOY_DIR/.deploy"
+              echo "-mkdir $release_dir"
+              if [ "$resume_flag" = "1" ]; then
+                echo "reput $archive_path $release_dir/$ARCHIVE"
+              else
+                echo "put $archive_path $release_dir/$ARCHIVE"
+              fi
+              echo "put $RUNNER_TEMP/$ARCHIVE.sha256 $release_dir/$ARCHIVE.sha256"
+              echo "put docker-compose.yml $release_dir/docker-compose.yml"
+            } > "$batch_file"
+          }
+
+          batch_file="$RUNNER_TEMP/frontend-sftp.batch"
           for attempt in 1 2 3; do
-            echo "Uploading frontend release with resume support ($attempt/3)"
+            uploaded_bytes="$(remote_size)"
+            if [[ "$uploaded_bytes" =~ ^[0-9]+$ ]] && [ "$uploaded_bytes" -gt 0 ] && [ "$uploaded_bytes" -lt "$archive_bytes" ]; then
+              resume=1
+              echo "Resuming frontend upload from $(numfmt --to=iec "$uploaded_bytes")"
+            else
+              resume=0
+              echo "Uploading frontend release ($attempt/3)"
+            fi
+            write_sftp_batch "$resume"
             sftp "${ssh_opts[@]}" -b "$batch_file" "$SERVER_USER@$SERVER_IP" &
             upload_pid=$!
             while kill -0 "$upload_pid" 2>/dev/null; do
-              uploaded_bytes="$(ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" "stat -c '%s' '$release_dir/$ARCHIVE' 2>/dev/null || printf '0'" || printf '0')"
+              uploaded_bytes="$(remote_size)"
               if [[ "$uploaded_bytes" =~ ^[0-9]+$ ]]; then
                 percent=$((uploaded_bytes * 100 / archive_bytes))
                 [ "$percent" -le 100 ] || percent=100
@@ -116,11 +143,11 @@ jobs:
               exit 0
             fi
             if [ "$attempt" = "3" ]; then
-              echo "Release upload failed after 3 resumable attempts"
+              echo "Release upload failed after 3 attempts"
               exit 1
             fi
             delay=$((attempt * 20))
-            echo "Release upload interrupted, resuming in ${delay}s"
+            echo "Release upload interrupted, retrying in ${delay}s"
             sleep "$delay"
           done
 
