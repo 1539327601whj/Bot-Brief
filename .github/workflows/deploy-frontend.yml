@@ -176,14 +176,40 @@ jobs:
           tar -xzf "$ARCHIVE"
           test -d dist
           test -f default.conf
-          if docker image inspect nginx:alpine >/dev/null 2>&1; then
-            base_image=nginx:alpine
-          elif docker image inspect bot-brief-frontend:local >/dev/null 2>&1; then
-            base_image=bot-brief-frontend:local
-          else
-            docker pull nginx:alpine
-            base_image=nginx:alpine
+          base_image=""
+          for candidate in bot-brief-frontend:local bot-brief-frontend:previous nginx:alpine; do
+            if docker image inspect "$candidate" >/dev/null 2>&1; then
+              base_image="$candidate"
+              break
+            fi
+          done
+          if [ -z "$base_image" ]; then
+            running_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-frontend 2>/dev/null || true)"
+            if [ -n "$running_image" ] && docker image inspect "$running_image" >/dev/null 2>&1; then
+              base_image="$running_image"
+            fi
           fi
+          if [ -z "$base_image" ]; then
+            base_image="$(docker image ls bot-brief-frontend --format '{{.Repository}}:{{.Tag}}' | awk 'NF && $0 !~ /<none>/ {print; exit}')"
+          fi
+          if [ -z "$base_image" ]; then
+            echo "No local frontend/nginx image; pulling nginx:alpine via mirror, not Docker Hub"
+            for mirror in \
+              docker.m.daocloud.io/library/nginx:alpine \
+              docker.1ms.run/library/nginx:alpine \
+              nginx:alpine; do
+              if docker pull "$mirror"; then
+                [ "$mirror" = "nginx:alpine" ] || docker tag "$mirror" nginx:alpine
+                base_image=nginx:alpine
+                break
+              fi
+            done
+          fi
+          if [ -z "$base_image" ]; then
+            echo "Cannot obtain a base image. On the server keep bot-brief-frontend:local or run: docker pull nginx:alpine"
+            exit 1
+          fi
+          echo "Using local base image: $base_image"
           printf '%s\n' \
             "FROM $base_image" \
             'COPY dist/ /usr/share/nginx/html/' \
