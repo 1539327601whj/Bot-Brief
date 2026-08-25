@@ -1,5 +1,6 @@
 name: Deploy Frontend
 
+# 海外托管 runner 跨境传包，仅作应急手动备份。日常请用 Deploy on server。
 on:
   workflow_dispatch:
     inputs:
@@ -7,13 +8,6 @@ on:
         description: '要部署的分支'
         required: true
         default: 'main'
-  push:
-    branches:
-      - main
-    paths:
-      - 'frontend/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/deploy-frontend.yml'
 
 permissions:
   contents: read

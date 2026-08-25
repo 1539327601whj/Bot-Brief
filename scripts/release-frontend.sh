@@ -90,5 +90,20 @@ if [ "$healthy" != "true" ]; then
   exit 1
 fi
 
+if [ -n "$previous_image" ] && [ "$previous_image" != "$image_tag" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
+  docker tag "$previous_image" bot-brief-frontend:previous
+else
+  docker image rm bot-brief-frontend:previous >/dev/null 2>&1 || true
+fi
 docker tag "$image_tag" bot-brief-frontend:local
+current_id="$(docker image inspect --format '{{.Id}}' "$image_tag")"
+previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-frontend:previous 2>/dev/null || true)"
+while IFS= read -r old_image; do
+  [ -n "$old_image" ] || continue
+  old_id="$(docker image inspect --format '{{.Id}}' "$old_image" 2>/dev/null || true)"
+  if [ "$old_id" != "$current_id" ] && [ "$old_id" != "$previous_id" ]; then
+    docker image rm "$old_image" >/dev/null 2>&1 || true
+  fi
+done < <(docker image ls bot-brief-frontend --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-frontend:[0-9a-f]{12,}$' || true)
+docker image prune -f
 echo "Frontend deployed: $image_tag"
