@@ -19,6 +19,16 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from etf_allocation_analyst import (
+    analyze_snapshot,
+    format_allocation_conclusion,
+    format_allocation_section,
+)
+
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 ETF_LIST = [
@@ -1768,7 +1778,11 @@ def build_programmatic_report(
             f"PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}；"
             f"PE分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}。"
         )
+    memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
+    lines.append(f"- {format_allocation_conclusion(memos)}")
     lines.append("- 两只指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
+
+    lines.extend(["", *format_allocation_section(memos)])
 
     lines.extend(["", "## 两只ETF变化"])
     for snapshot in snapshots:
@@ -2010,11 +2024,13 @@ def build_summary(snapshots: list[dict[str, Any]]) -> str:
     for snapshot in snapshots:
         quote = snapshot["quote"]
         valuation = snapshot["valuation"]
+        memo = analyze_snapshot(snapshot)
         parts.append(
             f"{etf_short_name(snapshot)}截至{quote.get('data_time') or '不可确认'} "
             f"{fmt_change_pct(quote.get('pct_change'))}，PE {fmt_number(valuation.get('pe_ttm'), 2)}，"
             f"分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}，"
-            f"估值状态 {data_status_label(valuation.get('data_status'))}"
+            f"估值状态 {data_status_label(valuation.get('data_status'))}，"
+            f"仓位备忘 {memo['action']}"
         )
     return "；".join(parts) + "。"
 

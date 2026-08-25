@@ -58,6 +58,10 @@ def complete_snapshot(etf=ETF):
             "month_baseline": 3.8,
             "month_baseline_date": "2026-06-27",
             "month_pct_change": 7.89,
+            "month_high": 4.30,
+            "month_low": 3.80,
+            "distance_from_month_high": -4.65,
+            "month_range_position": 60.0,
             "source": "前复权测试源",
             "data_status": "external_cached",
             "as_of": "2026-07-24",
@@ -358,6 +362,7 @@ class ReportTests(unittest.TestCase):
         )
         for required in (
             "ETF 行情日报", "先看结论", "两只ETF变化", "PE分位变化",
+            "仓位备忘", "按计划买", "规则动作",
             "PE(TTM) 12.50", "PE分位 45%", "中证 PE(TTM) 滚动10年分位",
             "估值测试源", "2026-07-27", "外部数据已校验",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
@@ -365,6 +370,16 @@ class ReportTests(unittest.TestCase):
             self.assertIn(required, text)
         for forbidden in ("加仓", "减仓", "正常定投", "今日动作", "观察线"):
             self.assertNotIn(forbidden, text)
+        summary = report.build_summary([complete_snapshot()])
+        self.assertIn("仓位备忘 按计划买", summary)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_allocation_memo_degrades_when_pe_is_missing(self, _):
+        snapshot = complete_snapshot()
+        snapshot["valuation"]["pe_percentile"] = None
+        text = report.build_programmatic_report([snapshot], "market_watch_evening")
+        self.assertIn("无法判断", text)
+        self.assertIn("数据降级", text)
 
     def test_a_share_observation_is_conditional_and_traceable(self):
         stock = {

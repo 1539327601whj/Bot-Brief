@@ -22,7 +22,7 @@ interface WatchCardConfig {
 }
 
 const watchCards: WatchCardConfig[] = [
-  { edition: 'market_watch_evening', title: 'ETF 行情日报', subtitle: '工作日 18:00 更新全天行情、估值变化、数据风险和两只 A 股观察候选', icon: '报' },
+  { edition: 'market_watch_evening', title: 'ETF 行情日报', subtitle: '工作日 18:00 更新全天行情、估值变化、仓位备忘、数据风险和两只 A 股观察候选', icon: '报' },
 ]
 
 const featureCards = [
