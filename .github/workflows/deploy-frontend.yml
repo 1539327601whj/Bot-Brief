@@ -120,20 +120,33 @@ jobs:
           echo "Prepared $release_dir"
           REMOTE
 
+          bundle="$RUNNER_TEMP/frontend-upload-bundle"
+          rm -rf "$bundle"
+          mkdir -p "$bundle"
+          cp "$archive_path" "$bundle/"
+          cp "$RUNNER_TEMP/$ARCHIVE.sha256" "$bundle/"
+          cp docker-compose.yml "$bundle/"
+
           for attempt in 1 2; do
-            echo "Uploading frontend static release ($attempt/2)"
-            if timeout 90s scp "${ssh_opts[@]}" \
-              "$archive_path" \
-              "$RUNNER_TEMP/$ARCHIVE.sha256" \
-              docker-compose.yml \
-              "$SERVER_USER@$SERVER_IP:$release_dir/"; then
+            echo "Uploading frontend static release over SSH ($attempt/2)"
+            set +e
+            timeout 90s tar -C "$bundle" -czf - . | ssh "${ssh_opts[@]}" \
+              "$SERVER_USER@$SERVER_IP" "tar -C '$release_dir' -xzf -"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              echo "Frontend static upload succeeded"
               exit 0
+            fi
+            echo "Frontend static upload failed with exit code $status"
+            if [ "$status" -eq 124 ]; then
+              echo "The SSH pipe hit the 90s timeout; the control SSH works, but the transfer stalled."
             fi
             if [ "$attempt" = "2" ]; then
               echo "Frontend static upload failed after 2 attempts"
               exit 1
             fi
-            echo "Frontend static upload interrupted, retrying in 10s"
+            echo "Retrying in 10s"
             sleep 10
           done
 
