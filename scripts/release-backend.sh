@@ -7,6 +7,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/Bot-Brief}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-bot-brief-backend}"
 ENV_FILE="$DEPLOY_DIR/.env.deploy"
+COMPOSE_ENV_FILE="$ENV_FILE"
+readable_env_copy=""
+
+cleanup() {
+  if [ -n "$readable_env_copy" ]; then
+    rm -f "$readable_env_copy"
+  fi
+}
+trap cleanup EXIT
 
 if [ -n "${GITHUB_SHA:-}" ]; then
   short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
@@ -24,14 +33,50 @@ test -f "$ROOT/backend/Dockerfile"
 test -f "$ROOT/docker-compose.yml"
 mkdir -p "$DEPLOY_DIR"
 
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Missing $ENV_FILE. Keep the existing production env file on the server."
+prepare_env_file() {
+  if [ ! -e "$ENV_FILE" ]; then
+    echo "Missing $ENV_FILE. Keep the existing production env file on the server."
+    exit 1
+  fi
+  if [ -r "$ENV_FILE" ]; then
+    return 0
+  fi
+
+  echo "Cannot read $ENV_FILE as $(id -un)."
+  ls -l "$ENV_FILE" 2>/dev/null || sudo -n ls -l "$ENV_FILE" 2>/dev/null || true
+
+  if sudo -n cat "$ENV_FILE" >/dev/null 2>&1; then
+    readable_env_copy="$(mktemp)"
+    sudo -n cat "$ENV_FILE" > "$readable_env_copy"
+    chmod 600 "$readable_env_copy"
+    ENV_FILE="$readable_env_copy"
+    COMPOSE_ENV_FILE="$readable_env_copy"
+    echo "Using a temporary readable copy of the deploy env file."
+    return 0
+  fi
+
+  echo "Grant the GitHub Actions runner read access, then rerun deploy:"
+  echo "  sudo chmod 640 $DEPLOY_DIR/.env.deploy"
+  echo "  sudo chgrp $(id -gn) $DEPLOY_DIR/.env.deploy"
   exit 1
-fi
+}
 
 env_value() {
-  awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE"
+  awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); gsub(/\r/, ""); print; exit}' "$ENV_FILE"
 }
+
+require_env() {
+  local key="$1"
+  local value
+  value="$(env_value "$key")"
+  if [ -z "$value" ]; then
+    echo "Missing or empty $key in deploy env file"
+    exit 1
+  fi
+  printf '%s' "$value"
+}
+
+prepare_env_file
 
 ensure_image() {
   local name="$1"
@@ -68,16 +113,21 @@ ensure_image mysql:8.0 \
 echo "Building backend $image_tag"
 docker build -t "$image_tag" "$ROOT/backend"
 
+db_host="$(require_env DB_HOST)"
+db_port="$(require_env DB_PORT)"
+db_user="$(require_env DB_USER)"
+db_name="$(require_env DB_NAME)"
+db_password="$(require_env DB_PASSWORD)"
 schema_ready="$(
   docker run --rm --pull=never \
     --add-host=host.docker.internal:host-gateway \
-    -e MYSQL_PWD="$(env_value DB_PASSWORD)" \
+    -e MYSQL_PWD="$db_password" \
     mysql:8.0 \
     mysql -N \
-    -h "$(env_value DB_HOST)" \
-    -P "$(env_value DB_PORT)" \
-    -u "$(env_value DB_USER)" \
-    "$(env_value DB_NAME)" \
+    -h "$db_host" \
+    -P "$db_port" \
+    -u "$db_user" \
+    "$db_name" \
     -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'etf_price_history' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'market_valuation_history' AND column_name = 'percentile_method';"
 )"
 if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
@@ -94,7 +144,7 @@ if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
 fi
 install -m 644 "$ROOT/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
 cd "$DEPLOY_DIR"
-BACKEND_IMAGE="$image_tag" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+BACKEND_IMAGE="$image_tag" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend
 
 healthy=false
 for _ in $(seq 1 30); do
@@ -112,7 +162,7 @@ if [ "$healthy" != "true" ]; then
     install -m 644 "$DEPLOY_DIR/docker-compose.yml.previous" "$DEPLOY_DIR/docker-compose.yml"
   fi
   if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
-    BACKEND_IMAGE="$previous_image" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+    BACKEND_IMAGE="$previous_image" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend
   fi
   docker image rm "$image_tag" >/dev/null 2>&1 || true
   rm -f "$DEPLOY_DIR/docker-compose.yml.previous"
