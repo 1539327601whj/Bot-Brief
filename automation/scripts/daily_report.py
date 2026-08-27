@@ -558,14 +558,15 @@ def main():
     report_file = f"AI日报_{today}（{edition_suffix}）.md"
 
     webhook_url = os.environ.get("WECHAT_WEBHOOK", "")
+    backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
 
     # 检查是否有任意一个模型的 API Key 配置
     has_api_key = any(os.environ.get(m["api_key_env"]) for m in LLM_MODELS)
     if not has_api_key:
         print("❌ 缺少 API Key 环境变量，请配置 DEEPSEEK_API_KEY")
         sys.exit(1)
-    if not webhook_url:
-        print("❌ 缺少 WECHAT_WEBHOOK 环境变量")
+    if not backend_configured and not webhook_url:
+        print("❌ 缺少 WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
     # Step 1: 抓取资讯
@@ -597,14 +598,16 @@ def main():
     title_text = f"【{edition_suffix}】AI 每日简报 {today}"
     summary_text = report[:100] + "..." if len(report) > 100 else report
 
-    if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
-        print("❌ 同步到后端失败，本次日报不继续推送")
-        sys.exit(1)
-
-    wx_content = convert_to_wework_markdown(full_report)
-    if not push_to_wechat(wx_content, webhook_url):
-        print("❌ 企业微信推送失败，报告已入库")
-        sys.exit(1)
+    if backend_configured:
+        if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
+            print("❌ 同步到后端失败，本次日报不继续推送")
+            sys.exit(1)
+        print("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
+    else:
+        wx_content = convert_to_wework_markdown(full_report)
+        if not push_to_wechat(wx_content, webhook_url):
+            print("❌ 企业微信推送失败")
+            sys.exit(1)
 
     try:
         with open(report_file, "w", encoding="utf-8") as f:

@@ -37,7 +37,7 @@ public class ReportController {
     private String ingestToken;
 
     @PostMapping("/ingest")
-    public Result<String> ingestReport(
+    public Result<Boolean> ingestReport(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody ReportPushDTO dto) {
         if (ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token)) {
@@ -46,7 +46,7 @@ public class ReportController {
         return saveReport(dto);
     }
 
-    private Result<String> saveReport(ReportPushDTO dto) {
+    private Result<Boolean> saveReport(ReportPushDTO dto) {
         String summary = dto.getSummary();
         if (summary == null || summary.isBlank()) {
             // 自动截取前 100 字作为摘要
@@ -55,7 +55,7 @@ public class ReportController {
                     : dto.getContent();
         }
         try {
-            reportService.saveReport(
+            boolean created = reportService.saveReport(
                     dto.getReportDate(),
                     dto.getEdition(),
                     dto.getTitle(),
@@ -68,7 +68,7 @@ public class ReportController {
             } catch (Exception e) {
                 log.warn("简报入库后补推失败 edition={} date={}", dto.getEdition(), dto.getReportDate(), e);
             }
-            return Result.ok("简报已保存", null);
+            return Result.ok(created ? "简报已保存" : "简报已存在", created);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
         }

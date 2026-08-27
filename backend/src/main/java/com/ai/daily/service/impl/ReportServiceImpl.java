@@ -24,7 +24,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     private static final Pattern SUBSTANTIVE_TEXT = Pattern.compile(".*[\\p{L}\\p{N}].*");
 
     @Override
-    public void saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId) {
+    public boolean saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId) {
         if (!hasSubstantiveContent(content)) {
             throw new IllegalArgumentException("简报缺少实质正文");
         }
@@ -32,10 +32,10 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 ? edition + ":" + runId
                 : null;
         if (ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null) {
-            return;
+            return false;
         }
         if (baseMapper.findIdByEditionAndReportDate(edition, reportDate) != null) {
-            return;
+            return false;
         }
         Report report = new Report();
         report.setEdition(edition);
@@ -50,12 +50,14 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             if (!this.save(report)) {
                 throw new IllegalStateException("简报保存失败");
             }
+            return true;
         } catch (DuplicateKeyException e) {
             boolean duplicateRun = ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null;
             boolean duplicateBusinessReport = baseMapper.findIdByEditionAndReportDate(edition, reportDate) != null;
             if (!duplicateRun && !duplicateBusinessReport) {
                 throw e;
             }
+            return false;
         }
     }
 

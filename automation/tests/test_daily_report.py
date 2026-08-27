@@ -132,6 +132,25 @@ class DeliveryTests(unittest.TestCase):
         backend.assert_not_called()
         wechat.assert_not_called()
 
+    @patch.dict(os.environ, {
+        "DEEPSEEK_API_KEY": "secret",
+        "WECHAT_WEBHOOK": "https://wechat.test",
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+        "EDITION": "evening",
+    }, clear=False)
+    @patch.object(report, "extract_ai_news", return_value=[{"title": "AI", "summary": "news"}])
+    @patch.object(report, "format_news_for_prompt", return_value="news")
+    @patch.object(report, "build_prompt", return_value="prompt")
+    @patch.object(report, "call_llm_with_retry", return_value="## 要点\n正文")
+    @patch.object(report, "push_to_backend", return_value=True)
+    @patch.object(report, "push_to_wechat")
+    @patch("builtins.open", new_callable=mock_open)
+    def test_backend_ingest_skips_script_wechat(self, opened, wechat, backend, *_):
+        report.main()
+        backend.assert_called_once()
+        wechat.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

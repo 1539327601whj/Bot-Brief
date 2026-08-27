@@ -55,10 +55,10 @@ class ReportServiceImplTest {
         ReportServiceImpl service = new ReportServiceImpl();
         ReflectionTestUtils.setField(service, "baseMapper", mapper);
 
-        service.saveReport(
+        assertThat(service.saveReport(
                 LocalDate.of(2026, 8, 18),
                 "morning", "测试早报", "## 要点\n\n这是有效正文。", "摘要", "run-1"
-        );
+        )).isFalse();
 
         verify(mapper, never()).insert(any());
     }
@@ -71,10 +71,10 @@ class ReportServiceImplTest {
         ReportServiceImpl service = new ReportServiceImpl();
         ReflectionTestUtils.setField(service, "baseMapper", mapper);
 
-        service.saveReport(
+        assertThat(service.saveReport(
                 reportDate,
                 "morning", "测试早报", "## 要点\n\n这是有效正文。", "摘要", "run-2"
-        );
+        )).isFalse();
 
         verify(mapper, never()).insert(any());
     }
@@ -89,10 +89,10 @@ class ReportServiceImplTest {
         when(mapper.insert(any())).thenReturn(1);
         LocalDate reportDate = LocalDate.of(2026, 8, 18);
 
-        service.saveReport(
+        assertThat(service.saveReport(
                 reportDate,
                 "morning", "测试早报", "## 要点\n\n这是有效正文。", "摘要", "run-2"
-        );
+        )).isTrue();
 
         ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
         verify(mapper).insert(captor.capture());
@@ -114,10 +114,10 @@ class ReportServiceImplTest {
         };
         ReflectionTestUtils.setField(service, "baseMapper", mapper);
 
-        service.saveReport(
+        assertThat(service.saveReport(
                 reportDate,
                 "morning", "测试早报", "## 要点\n\n这是有效正文。", "摘要", "run-2"
-        );
+        )).isFalse();
     }
 
     @Test
