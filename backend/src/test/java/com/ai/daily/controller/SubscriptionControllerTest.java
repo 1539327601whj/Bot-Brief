@@ -7,6 +7,7 @@ import com.ai.daily.entity.Subscription;
 import com.ai.daily.security.UserPrincipal;
 import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.SubscriptionPreferences;
+import com.ai.daily.service.SubscriptionProgressService;
 import com.ai.daily.service.SubscriptionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -36,7 +37,10 @@ class SubscriptionControllerTest {
         subscriptionService = mock(SubscriptionService.class);
         pushChannelService = mock(PushChannelService.class);
         controller = new SubscriptionController(
-                subscriptionService, new SubscriptionPreferences(new ObjectMapper()), pushChannelService);
+                subscriptionService,
+                new SubscriptionPreferences(new ObjectMapper()),
+                pushChannelService,
+                mock(SubscriptionProgressService.class));
 
         UserPrincipal principal = new UserPrincipal(7L, "user@example.com", "USER", "PAID", "hash", true);
         SecurityContextHolder.getContext().setAuthentication(
