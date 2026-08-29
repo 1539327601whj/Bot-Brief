@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
  */
 public final class ChatReportRanker {
 
-    enum Intent { TECH, MARKET, GENERAL }
+    public enum Intent { TECH, MARKET, GENERAL }
 
     private static final Pattern ENGLISH = Pattern.compile("[a-z][a-z0-9+\\-]{1,}");
     private static final Pattern CJK_RUN = Pattern.compile("[\\u4e00-\\u9fff]{2,8}");
@@ -53,7 +53,7 @@ public final class ChatReportRanker {
     private ChatReportRanker() {
     }
 
-    static Intent classify(String question) {
+    public static Intent classify(String question) {
         String text = normalize(question);
         int tech = countHints(text, TECH_HINTS);
         int market = countHints(text, MARKET_HINTS);
@@ -62,7 +62,7 @@ public final class ChatReportRanker {
         return Intent.GENERAL;
     }
 
-    static List<String> extractKeywords(String question) {
+    public static List<String> extractKeywords(String question) {
         String text = normalize(question);
         Set<String> keywords = new LinkedHashSet<>();
         addContained(text, TECH_KEYWORDS, keywords);
