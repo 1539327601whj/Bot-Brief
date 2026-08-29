@@ -85,8 +85,10 @@ public class PushChannelController {
         try {
             PushChannel channel = pushChannelService.getByIdForUser(id, userId);
             if (channel == null) return Result.error(404, "渠道不存在");
-            Report report = reportService.getLatestReport();
-            if (report == null) return Result.error(404, "暂无简报可推送");
+            Report report = reportService.getLatestForUser(userId, "morning");
+            if (report == null) report = reportService.getLatestForUser(userId, "evening");
+            if (report == null) report = reportService.getLatestByEdition("market_watch_evening");
+            if (report == null) return Result.error(404, "暂无属于你的简报可推送，请先勾选兴趣并等待生成");
             pushDispatcher.sendOne(channel, report);
             return Result.ok("测试推送已发出，请到目标渠道查看", null);
         } catch (IllegalStateException e) {

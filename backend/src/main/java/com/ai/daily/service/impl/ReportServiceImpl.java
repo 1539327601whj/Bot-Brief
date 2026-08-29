@@ -38,6 +38,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             return false;
         }
         Report report = new Report();
+        report.setUserId(Report.PUBLIC_OWNER_ID);
         report.setEdition(edition);
         report.setReportDate(reportDate);
         report.setTitle(title);
@@ -61,7 +62,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         }
     }
 
-    static boolean hasSubstantiveContent(String content) {
+    public static boolean hasSubstantiveContent(String content) {
         if (content == null || content.isBlank()) {
             return false;
         }
@@ -83,8 +84,43 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     }
 
     @Override
+    public Report saveUserReport(Long userId, LocalDate reportDate, String edition, String title, String content, String summary) {
+        if (userId == null || userId == Report.PUBLIC_OWNER_ID) {
+            throw new IllegalArgumentException("用户简报必须指定用户");
+        }
+        if (!hasSubstantiveContent(content)) {
+            throw new IllegalArgumentException("简报缺少实质正文");
+        }
+        Long existingId = baseMapper.findIdByUserEditionAndReportDate(userId, edition, reportDate);
+        if (existingId != null) {
+            return this.getById(existingId);
+        }
+        Report report = new Report();
+        report.setUserId(userId);
+        report.setEdition(edition);
+        report.setReportDate(reportDate);
+        report.setTitle(title);
+        report.setContent(content);
+        report.setSummary(summary);
+        report.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
+        try {
+            if (!this.save(report)) {
+                throw new IllegalStateException("用户简报保存失败");
+            }
+            return report;
+        } catch (DuplicateKeyException e) {
+            Long raced = baseMapper.findIdByUserEditionAndReportDate(userId, edition, reportDate);
+            if (raced != null) {
+                return this.getById(raced);
+            }
+            throw e;
+        }
+    }
+
+    @Override
     public Report getLatestReport() {
         return this.lambdaQuery()
+                .eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
                 .orderByDesc(Report::getCreatedAt)
                 .last("LIMIT 1")
                 .one();
@@ -93,6 +129,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     @Override
     public Report getLatestByEdition(String edition) {
         return this.lambdaQuery()
+                .eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
                 .eq(Report::getEdition, edition)
                 .orderByDesc(Report::getCreatedAt)
                 .last("LIMIT 1")
@@ -102,6 +139,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     @Override
     public Report getLatestByEditionForDate(String edition, LocalDate date) {
         Report report = this.lambdaQuery()
+                .eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
                 .eq(Report::getEdition, edition)
                 .eq(Report::getReportDate, date)
                 .last("LIMIT 1")
@@ -111,6 +149,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         }
         LocalDateTime start = date.atStartOfDay();
         return this.lambdaQuery()
+                .eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
                 .eq(Report::getEdition, edition)
                 .isNull(Report::getReportDate)
                 .ge(Report::getCreatedAt, start)
@@ -118,5 +157,42 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 .orderByDesc(Report::getCreatedAt)
                 .last("LIMIT 1")
                 .one();
+    }
+
+    @Override
+    public Report getByUserEditionDate(Long userId, String edition, LocalDate date) {
+        if (userId == null || edition == null || date == null) return null;
+        return this.lambdaQuery()
+                .eq(Report::getUserId, userId)
+                .eq(Report::getEdition, edition)
+                .eq(Report::getReportDate, date)
+                .last("LIMIT 1")
+                .one();
+    }
+
+    @Override
+    public Report getLatestForUser(Long userId, String edition) {
+        if (userId == null) return null;
+        return this.lambdaQuery()
+                .eq(Report::getUserId, userId)
+                .eq(edition != null && !edition.isBlank(), Report::getEdition, edition)
+                .orderByDesc(Report::getCreatedAt)
+                .last("LIMIT 1")
+                .one();
+    }
+
+    @Override
+    public Report getLatestPublicMarketWatch() {
+        return this.lambdaQuery()
+                .eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
+                .likeRight(Report::getEdition, "market_watch")
+                .orderByDesc(Report::getCreatedAt)
+                .last("LIMIT 1")
+                .one();
+    }
+
+    @Override
+    public boolean publicReportExists(String edition, LocalDate date) {
+        return date != null && edition != null && baseMapper.findIdByEditionAndReportDate(edition, date) != null;
     }
 }

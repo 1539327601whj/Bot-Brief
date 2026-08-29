@@ -101,6 +101,20 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
         return this.list(wrapper);
     }
 
+    @Override
+    public List<Subscription> listEnabledForEdition(String edition) {
+        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Subscription::getEnabled, true);
+        if ("morning".equals(edition)) {
+            wrapper.eq(Subscription::getMorningEnabled, true);
+        } else if ("evening".equals(edition)) {
+            wrapper.eq(Subscription::getEveningEnabled, true);
+        } else {
+            return List.of();
+        }
+        return this.list(wrapper);
+    }
+
     boolean isDueForEdition(Subscription subscription, String edition, LocalTime minute) {
         return isDueThrough(subscription, edition, minute, Duration.ZERO);
     }

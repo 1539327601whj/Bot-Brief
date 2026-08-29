@@ -2,9 +2,9 @@ package com.ai.daily.controller;
 
 import com.ai.daily.dto.Result;
 import com.ai.daily.entity.Report;
-import com.ai.daily.service.ReportService;
+import com.ai.daily.security.SecurityUtils;
+import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.util.MarkdownUtils;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,24 +40,20 @@ public class StatsController {
     ));
 
     @Autowired
-    private ReportService reportService;
+    private ReportQueryService reportQueryService;
 
     @GetMapping("/dashboard")
     public Result<Map<String, Object>> dashboard() {
         LocalDateTime now = ZonedDateTime.now(BEIJING).toLocalDateTime();
         LocalDate today = now.toLocalDate();
+        Long userId = SecurityUtils.currentUserId();
+        boolean demo = SecurityUtils.isDemo();
 
-        long totalCount = reportService.count();
-
-        LambdaQueryWrapper<Report> todayWrapper = new LambdaQueryWrapper<Report>()
-                .ge(Report::getCreatedAt, today.atStartOfDay())
-                .lt(Report::getCreatedAt, today.plusDays(1).atStartOfDay());
-        long todayCount = reportService.count(todayWrapper);
-
-        LambdaQueryWrapper<Report> weekWrapper = new LambdaQueryWrapper<Report>()
-                .ge(Report::getCreatedAt, today.minusDays(6).atStartOfDay())
-                .select(Report::getTitle, Report::getSummary);
-        List<Report> weekReports = reportService.list(weekWrapper);
+        long totalCount = reportQueryService.countVisible(userId, demo, null, null);
+        long todayCount = reportQueryService.countVisible(
+                userId, demo, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        List<Report> weekReports = reportQueryService.listVisibleForStats(
+                userId, demo, today.minusDays(6).atStartOfDay());
 
         List<String> hotTags = extractHotTags(weekReports, 5);
 

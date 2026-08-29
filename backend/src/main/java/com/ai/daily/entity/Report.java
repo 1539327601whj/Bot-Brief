@@ -15,8 +15,13 @@ import java.time.LocalDateTime;
 @TableName("reports")
 public class Report {
 
+    public static final long PUBLIC_OWNER_ID = 0L;
+
     @TableId(type = IdType.AUTO)
     private Long id;
+
+    /** 0=公共简报（Demo/行情），其他=用户拼装简报 */
+    private Long userId;
 
     /** 版本：morning / evening */
     private String edition;
@@ -41,4 +46,16 @@ public class Report {
 
     /** 创建时间 */
     private LocalDateTime createdAt;
+
+    public static boolean isPublicOwner(Long ownerId) {
+        return ownerId == null || ownerId == PUBLIC_OWNER_ID;
+    }
+
+    public static boolean isPersonalizedEdition(String edition) {
+        return "morning".equals(edition) || "evening".equals(edition);
+    }
+
+    public static boolean isSharedPublicEdition(String edition) {
+        return edition != null && edition.startsWith("market_watch");
+    }
 }

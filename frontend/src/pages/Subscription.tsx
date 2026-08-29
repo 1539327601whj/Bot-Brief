@@ -242,7 +242,7 @@ export default function Subscription() {
       if (res.data?.code === 200) {
         setData(normalizeSubscription(res.data.data || payload))
         setTimeWarning('')
-        setMessage('设置已保存，早报和晚报会按各自的 Web 展示时间显示匹配内容')
+        setMessage('设置已保存。早报和晚报只会显示你勾选的主题')
       } else setMessage('保存失败：' + (res.data?.message || ''))
     } catch (error: any) {
       setMessage('请求失败：' + (error?.response?.data?.message || error?.message || ''))
@@ -347,7 +347,7 @@ export default function Subscription() {
           />
           <button type="button" disabled={isDemo || !enabled} onClick={() => addCustomInterest(edition)}>添加兴趣</button>
         </div>
-        <p className="interest-help">系统会优先筛选与所选兴趣相关的简报内容；当天没有匹配内容时发送完整简报。</p>
+        <p className="interest-help">只有勾选的主题会出现在网页和推送里。当天某个主题没有内容时，这一段会跳过，不会改发完整公共简报。</p>
       </div>
     )
   }
@@ -364,7 +364,7 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">选择你关注的内容，并为早报和晚报分别设置 Web 展示时间</p>
+        <p className="page-desc">勾选兴趣后，早报和晚报只包含这些主题；未勾选的内容不会出现</p>
       </div>
 
       <div className="subscription-summary">

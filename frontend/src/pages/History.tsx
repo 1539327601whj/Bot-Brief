@@ -7,6 +7,7 @@ import zhCN from 'antd/locale/zh_CN'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo } from '../utils/reportEdition'
+import { useAuth } from '../context/AuthContext'
 import './History.css'
 
 const { RangePicker } = DatePicker
@@ -29,6 +30,8 @@ interface PageData {
 }
 
 export default function History() {
+  const { user } = useAuth()
+  const isDemo = user?.accountType === 'DEMO'
   const navigate = useNavigate()
   const [pageData, setPageData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -157,7 +160,7 @@ export default function History() {
         <div className="history-header">
           <div className="header-info">
             <h2>📋 历史简报</h2>
-            <p className="header-desc">查看和筛选已生成的 AI 简报与市场观察</p>
+            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : 'AI 早报/晚报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
           </div>
           <div className="header-stats">
             <div className="stat-badge">
@@ -224,7 +227,7 @@ export default function History() {
           </div>
         ) : reports.length === 0 ? (
           <div className="empty-state">
-            <p>{hasFilter ? '当前条件下暂无匹配的简报' : '暂无历史简报'}</p>
+            <p>{hasFilter ? '当前条件下暂无匹配的简报' : (isDemo ? '暂无历史简报' : '暂无属于你的简报，请先在订阅里勾选兴趣')}</p>
           </div>
         ) : (
           <>

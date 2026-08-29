@@ -80,7 +80,7 @@ async function safeGet<T>(url: string, config?: Record<string, unknown>): Promis
   }
 }
 
-function ReportMiniCard({ report, edition }: { report: Report | null; edition: EditionKey }) {
+function ReportMiniCard({ report, edition, emptyHint }: { report: Report | null; edition: EditionKey; emptyHint?: string }) {
   const [expanded, setExpanded] = useState(false)
   const info = getReportEditionInfo(edition)
   const fresh = isToday(report?.createdAt)
@@ -99,7 +99,7 @@ function ReportMiniCard({ report, edition }: { report: Report | null; edition: E
       {!report ? (
         <div className="overview-empty">
           <span>今日暂无内容</span>
-          <small>预计 {info.expectedLabel} 推送</small>
+          <small>{emptyHint || `预计 ${info.expectedLabel} 推送`}</small>
         </div>
       ) : (
         <>
@@ -310,25 +310,30 @@ export default function Dashboard() {
   const alerts = useMemo(() => {
     const now = dayjs.tz()
     const items: string[] = []
-    if ((stats?.todayCount ?? todayReports.length) === 0) items.push('今日暂无任何报告入库')
-    if (now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('AI 早间简报尚未生成')
-    if (now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('AI 晚间简报尚未生成')
+    const hasTopics = (subscription?.preferenceFields?.length ?? 0) > 0
+    if ((stats?.todayCount ?? todayReports.length) === 0) {
+      items.push(isDemo ? '今日暂无任何报告入库' : '今日暂无属于你的简报')
+    }
+    if (hasTopics && now.hour() >= 9 && !isToday(reports.morning?.createdAt)) items.push('你勾选的早间主题尚未生成')
+    if (hasTopics && now.hour() >= 21 && !isToday(reports.evening?.createdAt)) items.push('你勾选的晚间主题尚未生成')
     if (now.hour() >= 18 && !isToday(reports.market_watch_evening?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
     if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) {
       items.push(hasSystemBrief
-        ? '系统早报已生成，但你的个人渠道今天还没有投递记录'
+        ? '你的简报已生成，但个人渠道今天还没有投递记录'
         : '订阅已开启，但今日暂无推送记录')
     }
     return items
-  }, [stats, todayReports, reports, failedLogs.length, subscription, todayLogs.length])
+  }, [stats, todayReports, reports, failedLogs.length, subscription, todayLogs.length, isDemo])
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
     if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
     if (subscription && (!subscription.preferenceFields || subscription.preferenceFields.length === 0)) return ['完善关注领域，让后续内容更贴合你的偏好。']
-    if (!isToday(reports.morning?.createdAt) || !isToday(reports.evening?.createdAt)) return ['今日 AI 简报未完全生成，建议检查 GitHub Actions 运行记录。']
+    if ((subscription?.preferenceFields?.length ?? 0) > 0 && (!isToday(reports.morning?.createdAt) || !isToday(reports.evening?.createdAt))) {
+      return ['今日勾选主题尚未完全生成，可以先查看已有段落或等待下次生成。']
+    }
     if (isToday(reports.market_watch_evening?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
     return ['今日数据状态正常，建议先查看今日重点和近期热点。']
   }, [failedLogs.length, subscription, reports])
@@ -342,7 +347,7 @@ export default function Dashboard() {
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
           <h1 className="welcome-title">今日概览</h1>
-          <p className="welcome-subtitle">集中查看 AI 简报、ETF/A股观察、订阅和推送状态</p>
+          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
         </div>
         <div className="overview-hero-stats">
           <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
@@ -362,8 +367,16 @@ export default function Dashboard() {
         <Link to="/reports" className="section-link">历史简报 →</Link>
       </div>
       <div className="overview-two-grid">
-        <ReportMiniCard report={reports.morning} edition="morning" />
-        <ReportMiniCard report={reports.evening} edition="evening" />
+        <ReportMiniCard
+          report={reports.morning}
+          edition="morning"
+          emptyHint={isDemo ? undefined : '请先在订阅里勾选兴趣，或等待今日主题生成'}
+        />
+        <ReportMiniCard
+          report={reports.evening}
+          edition="evening"
+          emptyHint={isDemo ? undefined : '请先在订阅里勾选兴趣，或等待今日主题生成'}
+        />
       </div>
 
       <div className="overview-section-header">

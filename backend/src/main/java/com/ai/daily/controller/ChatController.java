@@ -3,6 +3,7 @@ package com.ai.daily.controller;
 import com.ai.daily.dto.ChatRequestDTO;
 import com.ai.daily.dto.ChatResponseDTO;
 import com.ai.daily.dto.Result;
+import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ChatService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +25,7 @@ public class ChatController {
      */
     @PostMapping
     public Result<ChatResponseDTO> chat(@Valid @RequestBody ChatRequestDTO request) {
-        ChatResponseDTO response = chatService.chat(request.getQuestion());
+        ChatResponseDTO response = chatService.chat(request.getQuestion(), SecurityUtils.currentUserId());
         return Result.ok(response);
     }
 }

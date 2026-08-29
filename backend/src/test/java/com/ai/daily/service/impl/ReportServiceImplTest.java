@@ -97,6 +97,7 @@ class ReportServiceImplTest {
         ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
         verify(mapper).insert(captor.capture());
         assertThat(captor.getValue().getReportDate()).isEqualTo(reportDate);
+        assertThat(captor.getValue().getUserId()).isEqualTo(Report.PUBLIC_OWNER_ID);
         assertThat(captor.getValue().getIngestKey()).isEqualTo("morning:run-2");
     }
 

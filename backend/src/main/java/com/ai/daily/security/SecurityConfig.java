@@ -44,7 +44,10 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/api/auth/login", "/api/auth/register", "/api/auth/demo").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
-                                "/api/reports/ingest", "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
+                                "/api/reports/ingest", "/api/reports/sections/ingest",
+                                "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/reports/subscribed-topics").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/market-valuations/*/latest", "/api/etf-prices/*/latest", "/api/health").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,

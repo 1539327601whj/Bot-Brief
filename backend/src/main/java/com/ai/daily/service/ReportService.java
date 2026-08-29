@@ -16,11 +16,24 @@ public interface ReportService extends IService<Report> {
     boolean saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId);
 
     /**
-     * 获取最新简报
+     * 保存或返回用户当日拼装简报。同一用户同一业务日同一版次已存在时返回已有记录。
+     */
+    Report saveUserReport(Long userId, LocalDate reportDate, String edition, String title, String content, String summary);
+
+    /**
+     * 获取最新公共简报
      */
     Report getLatestReport();
 
     Report getLatestByEdition(String edition);
 
     Report getLatestByEditionForDate(String edition, LocalDate date);
+
+    Report getByUserEditionDate(Long userId, String edition, LocalDate date);
+
+    Report getLatestForUser(Long userId, String edition);
+
+    Report getLatestPublicMarketWatch();
+
+    boolean publicReportExists(String edition, LocalDate date);
 }

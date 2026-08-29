@@ -143,6 +143,7 @@ class DeliveryTests(unittest.TestCase):
     @patch.object(report, "format_news_for_prompt", return_value="news")
     @patch.object(report, "build_prompt", return_value="prompt")
     @patch.object(report, "call_llm_with_retry", return_value="## 要点\n正文")
+    @patch.object(report, "fetch_subscribed_topics", return_value=[])
     @patch.object(report, "push_to_backend", return_value=True)
     @patch.object(report, "push_to_wechat")
     @patch("builtins.open", new_callable=mock_open)
@@ -150,6 +151,39 @@ class DeliveryTests(unittest.TestCase):
         report.main()
         backend.assert_called_once()
         wechat.assert_not_called()
+
+
+class TopicSectionTests(unittest.TestCase):
+    def test_selects_only_matching_topic_news(self):
+        items = [
+            {"title": "PostgreSQL 18 发布", "summary": "数据库查询更快", "score": 10},
+            {"title": "Flutter 新版本", "summary": "移动端体验", "score": 9},
+            {"title": "无关财经新闻", "summary": "股市上涨", "score": 8},
+        ]
+        selected = report.select_news_for_topic(items, "数据库")
+        self.assertEqual([item["title"] for item in selected], ["PostgreSQL 18 发布"])
+
+    def test_skips_topic_generation_when_no_matching_news(self):
+        saved = report.generate_topic_sections(
+            [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
+            "morning",
+            ["数据库"],
+            "2026-08-28",
+            "run-1",
+        )
+        self.assertEqual(saved, 0)
+
+    @patch.dict(os.environ, {
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+    }, clear=False)
+    @patch("requests.get")
+    def test_fetch_subscribed_topics_reads_backend_list(self, get):
+        response = Mock(status_code=200)
+        response.json.return_value = {"code": 200, "data": {"topics": ["AI大模型", "安全"]}}
+        get.return_value = response
+        self.assertEqual(report.fetch_subscribed_topics("morning"), ["AI大模型", "安全"])
+        self.assertIn("subscribed-topics", get.call_args.args[0])
 
 
 if __name__ == "__main__":

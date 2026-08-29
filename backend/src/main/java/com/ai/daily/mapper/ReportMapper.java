@@ -17,8 +17,15 @@ public interface ReportMapper extends BaseMapper<Report> {
     @Select("SELECT id FROM reports WHERE ingest_key = #{ingestKey} LIMIT 1")
     Long findIdByIngestKey(@Param("ingestKey") String ingestKey);
 
-    @Select("SELECT id FROM reports WHERE edition = #{edition} AND report_date = #{reportDate} LIMIT 1")
+    @Select("SELECT id FROM reports WHERE user_id = 0 AND edition = #{edition} AND report_date = #{reportDate} LIMIT 1")
     Long findIdByEditionAndReportDate(
+            @Param("edition") String edition,
+            @Param("reportDate") LocalDate reportDate
+    );
+
+    @Select("SELECT id FROM reports WHERE user_id = #{userId} AND edition = #{edition} AND report_date = #{reportDate} LIMIT 1")
+    Long findIdByUserEditionAndReportDate(
+            @Param("userId") Long userId,
             @Param("edition") String edition,
             @Param("reportDate") LocalDate reportDate
     );

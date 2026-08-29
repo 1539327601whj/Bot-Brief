@@ -5,9 +5,8 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
-import com.ai.daily.service.ReportPersonalizationService;
 import com.ai.daily.service.PushChannelService;
-import com.ai.daily.service.ReportService;
+import com.ai.daily.service.ReportAssemblyService;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.dto.SubscriptionDTO;
@@ -47,8 +46,7 @@ public class ScheduledPushTask {
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
     private final PushChannelService pushChannelService;
-    private final ReportService reportService;
-    private final ReportPersonalizationService reportPersonalizationService;
+    private final ReportAssemblyService reportAssemblyService;
     private final PushDispatcher pushDispatcher;
     private final UserMapper userMapper;
 
@@ -66,7 +64,7 @@ public class ScheduledPushTask {
      * 简报刚入库时补推：当天已过订阅时刻的用户都会尝试分发（dispatch_key 保证不重复发）。
      */
     public void catchUpEdition(String edition, LocalDate date) {
-        if (!"morning".equals(edition) && !"evening".equals(edition)) return;
+        if (!Report.isPersonalizedEdition(edition)) return;
         ZonedDateTime now = ZonedDateTime.now(ZONE);
         LocalDate targetDate = date != null ? date : now.toLocalDate();
         if (!targetDate.equals(now.toLocalDate())) return;
@@ -95,18 +93,22 @@ public class ScheduledPushTask {
                 .toList();
         if (due.isEmpty()) return;
 
-        Report report = reportService.getLatestByEditionForDate(edition, date);
-        if (report == null) {
-            log.warn("有 {} 个用户订阅了 {} 版但暂无对应简报", due.size(), edition);
-            return;
-        }
-
-        ReportPersonalizationService.PreparedReport prepared = reportPersonalizationService.prepare(report);
         for (Subscription s : due) {
             try {
+                List<SubscriptionDTO.TopicScheduleItemDTO> items = subscriptionPreferences.enabledTopicItems(s, edition);
+                if (items.isEmpty()) {
+                    log.info("[{}] user={} 未勾选主题，跳过推送", edition, s.getUserId());
+                    continue;
+                }
+                List<String> allTopics = items.stream().map(SubscriptionDTO.TopicScheduleItemDTO::getTopic).toList();
+                Report persisted = reportAssemblyService.assembleAndPersist(s.getUserId(), edition, date, allTopics);
+                if (persisted == null) {
+                    log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", edition, s.getUserId(), allTopics.size());
+                    continue;
+                }
+
                 List<PushChannel> channels = pushChannelService.listEnabledByUser(s.getUserId());
                 Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
-                List<SubscriptionDTO.TopicScheduleItemDTO> items = subscriptionPreferences.enabledTopicItems(s, edition);
                 for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
                     if (item.getChannelIds() == null) {
                         channels.forEach(channel -> interestsByChannel
@@ -123,8 +125,15 @@ public class ScheduledPushTask {
                 }
                 Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
                 for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
-                    reportsByChannel.put(entry.getKey(), reportPersonalizationService.personalize(
-                            prepared, entry.getValue()));
+                    Report personalized = reportAssemblyService.assembleEphemeral(
+                            persisted.getId(), edition, date, entry.getValue());
+                    if (personalized != null) {
+                        reportsByChannel.put(entry.getKey(), personalized);
+                    }
+                }
+                if (reportsByChannel.isEmpty()) {
+                    log.warn("[{}] user={} 已拼装简报但各渠道主题均无内容", edition, s.getUserId());
+                    continue;
                 }
                 PushDispatcher.DispatchResult r = pushDispatcher.dispatchScheduledByChannel(
                         s.getUserId(), reportsByChannel, edition, date);

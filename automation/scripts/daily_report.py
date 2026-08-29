@@ -87,6 +87,72 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
     return False
 
 
+def fetch_subscribed_topics(edition):
+    """询问后端：当天该版次有哪些主题被普通用户勾选。"""
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return []
+    try:
+        resp = req.get(
+            f"{backend_url}/api/reports/subscribed-topics",
+            params={"edition": edition},
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 30),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
+            data = body.get("data")
+            topics = data.get("topics") if isinstance(data, dict) else data
+            if isinstance(topics, list):
+                return [topic.strip() for topic in topics if isinstance(topic, str) and topic.strip()]
+        print(f"  ⚠️ 获取订阅主题失败: HTTP {resp.status_code}")
+    except req.RequestException as e:
+        print(f"  ⚠️ 获取订阅主题失败: {e}")
+    return []
+
+
+def push_topic_section(edition, report_date, topic, title, content, summary, run_id):
+    """将单个主题段落入库。失败不影响其他主题和公共简报。"""
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    payload = {
+        "edition": edition,
+        "reportDate": report_date,
+        "topic": topic,
+        "title": title,
+        "content": content,
+        "summary": summary,
+        "runId": run_id,
+    }
+    try:
+        resp = req.post(
+            f"{backend_url}/api/reports/sections/ingest",
+            json=payload,
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 60),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
+            print(f"  ✅ 主题「{topic}」已入库")
+            return True
+        message = body.get("message") if isinstance(body, dict) else "响应不是有效 JSON"
+        print(f"  ⚠️ 主题「{topic}」入库失败: {message}")
+    except req.RequestException as e:
+        print(f"  ⚠️ 主题「{topic}」入库失败: {e}")
+    return False
+
+
 # ─── 企业微信推送 ───────────────────────────────────────────────
 
 def push_to_wechat(content, webhook_url, max_retries=3):
@@ -523,6 +589,109 @@ def build_prompt(news_text, edition="morning"):
 请根据以上候选资讯，生成{edition_hint}。优先使用候选中的高分和国内热点，但不要机械照搬候选顺序。"""
 
 
+TOPIC_KEYWORDS = {
+    "AI大模型": ["人工智能", "大模型", "llm", "gpt", "claude", "gemini", "deepseek", "qwen", "通义", "智谱"],
+    "Web开发": ["web", "前端", "后端", "浏览器", "javascript", "typescript", "react", "vue", "spring", "api"],
+    "移动端": ["移动端", "android", "ios", "flutter", "react native"],
+    "云原生": ["云原生", "kubernetes", "k8s", "容器", "docker", "serverless"],
+    "数据库": ["数据库", "mysql", "postgresql", "redis", "向量数据库"],
+    "安全": ["安全", "漏洞", "攻击", "隐私", "鉴权", "供应链安全"],
+    "DevOps": ["devops", "ci/cd", "github actions", "部署", "可观测性"],
+    "数据分析": ["数据分析", "数据工程", "bi", "分析平台"],
+    "机器学习": ["机器学习", "深度学习", "训练", "推理", "mlops"],
+    "区块链": ["区块链", "web3", "智能合约", "加密货币"],
+}
+
+
+def topic_keywords(topic):
+    return TOPIC_KEYWORDS.get(topic, [topic])
+
+
+def topic_match_score(item, topic):
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    return sum(1 for keyword in topic_keywords(topic) if keyword.lower() in text)
+
+
+def select_news_for_topic(items, topic, limit=8):
+    scored = []
+    for item in items:
+        hits = topic_match_score(item, topic)
+        if hits > 0:
+            scored.append((hits, item.get("score", 0), item))
+    scored.sort(key=lambda row: (-row[0], -row[1]))
+    return [item for _, _, item in scored[:limit]]
+
+
+def format_topic_news_for_prompt(items, topic, edition="morning"):
+    today = now_beijing().strftime("%Y-%m-%d")
+    edition_focus = "昨日夜间 + 今日早晨" if edition == "morning" else "今日全天"
+    lines = [
+        f"日期：{today}",
+        f"主题：{topic}",
+        f"版本：{edition_focus}",
+        f"候选资讯：{len(items)} 条",
+        "",
+    ]
+    for i, item in enumerate(items, 1):
+        lines.append(f"[{i}] {item.get('source', '')}")
+        lines.append(f"标题：{item.get('title', '')}")
+        lines.append(f"摘要：{item.get('summary', '')}")
+        if item.get("link"):
+            lines.append(f"链接：{item['link']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_topic_prompt(news_text, topic, edition="morning"):
+    edition_hint = "晚间" if edition == "evening" else "早间"
+    return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}简报段落。
+
+【要求】
+1. 只覆盖与该主题直接相关的资讯，不要写成全站综合简报。
+2. 拒绝水文、公关稿、股价新闻。
+3. 若候选资讯不够相关，宁可少写，不要硬凑。
+
+【输出格式】
+## {topic}
+
+**要点：** 70-90字，说明今天这个主题发生了什么。
+
+**影响：** 40-70字，说明对开发者或从业者的具体影响。
+
+只输出这一段，总字数控制在 280 字以内。
+
+---
+
+{news_text}
+"""
+
+
+def generate_topic_sections(news_items, edition, topics, report_date, run_id):
+    """只为有人勾选的主题生成段落；单个主题失败不影响其余主题。"""
+    saved = 0
+    for topic in topics:
+        selected = select_news_for_topic(news_items, topic)
+        if not selected:
+            print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
+            continue
+        prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition), topic, edition)
+        try:
+            content = call_llm_with_retry(prompt)
+        except Exception as e:
+            print(f"  ⚠️ 主题「{topic}」生成失败，跳过: {e}")
+            continue
+        if not has_substantive_report_content(content):
+            print(f"  ⏭️ 主题「{topic}」没有实质正文，跳过")
+            continue
+        if not content.lstrip().startswith("##"):
+            content = f"## {topic}\n\n{content.strip()}"
+        title = f"{topic} · {report_date}"
+        summary = content[:100] + "..." if len(content) > 100 else content
+        if push_topic_section(edition, report_date, topic, title, content, summary, run_id):
+            saved += 1
+    return saved
+
+
 def detect_edition():
     """
     自动检测是早间版还是晚间版
@@ -599,6 +768,12 @@ def main():
     summary_text = report[:100] + "..." if len(report) > 100 else report
 
     if backend_configured:
+        topics = fetch_subscribed_topics(edition)
+        if topics:
+            print(f"🧩 将为 {len(topics)} 个已订阅主题生成段落（同主题只生成一次）")
+            generate_topic_sections(news_items, edition, topics, today, run_id)
+        else:
+            print("🧩 当前没有普通用户勾选主题，跳过主题段生成")
         if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
             print("❌ 同步到后端失败，本次日报不继续推送")
             sys.exit(1)

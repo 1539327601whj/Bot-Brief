@@ -42,11 +42,11 @@ public class ChatServiceImpl implements ChatService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public ChatResponseDTO chat(String question) {
+    public ChatResponseDTO chat(String question, Long userId) {
         ChatResponseDTO response = new ChatResponseDTO();
         
         // 1. 检索相关简报
-        List<Report> reports = searchReports(question);
+        List<Report> reports = searchReports(question, userId);
         
         if (reports.isEmpty()) {
             response.setAnswer("抱歉，数据库中暂无相关简报内容。");
@@ -77,11 +77,18 @@ public class ChatServiceImpl implements ChatService {
     /**
      * 简单关键词检索
      */
-    private List<Report> searchReports(String question) {
+    private List<Report> searchReports(String question, Long userId) {
         // 获取最近的 20 条简报作为候选
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Report> page = 
             new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20);
         var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Report>();
+        if (userId != null) {
+            wrapper.and(w -> w.eq(Report::getUserId, userId)
+                    .or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
+                            .likeRight(Report::getEdition, "market_watch")));
+        } else {
+            wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID);
+        }
         wrapper.orderByDesc(Report::getCreatedAt);
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Report> result = 
             reportService.page(page, wrapper);

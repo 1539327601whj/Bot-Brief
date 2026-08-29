@@ -2,10 +2,14 @@ package com.ai.daily.controller;
 
 import com.ai.daily.dto.ReportPushDTO;
 import com.ai.daily.dto.Result;
+import com.ai.daily.dto.TopicSectionPushDTO;
 import com.ai.daily.entity.Report;
+import com.ai.daily.security.SecurityUtils;
+import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.service.SubscribedTopicService;
+import com.ai.daily.service.TopicSectionService;
 import com.ai.daily.task.ScheduledPushTask;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +21,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,6 +36,15 @@ public class ReportController {
     private ReportService reportService;
 
     @Autowired
+    private ReportQueryService reportQueryService;
+
+    @Autowired
+    private TopicSectionService topicSectionService;
+
+    @Autowired
+    private SubscribedTopicService subscribedTopicService;
+
+    @Autowired
     private ScheduledPushTask scheduledPushTask;
 
     @Value("${report.ingest-token:}")
@@ -40,16 +54,57 @@ public class ReportController {
     public Result<Boolean> ingestReport(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody ReportPushDTO dto) {
-        if (ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token)) {
+        if (invalidIngestToken(token)) {
             return Result.error(401, "入库 token 无效");
         }
         return saveReport(dto);
     }
 
+    @GetMapping("/subscribed-topics")
+    public Result<Map<String, List<String>>> subscribedTopics(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @RequestParam String edition) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        if (!Report.isPersonalizedEdition(edition)) {
+            return Result.error(400, "edition 只支持 morning 或 evening");
+        }
+        return Result.ok(Map.of("topics", subscribedTopicService.listTopics(edition)));
+    }
+
+    @PostMapping("/sections/ingest")
+    public Result<Boolean> ingestTopicSection(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @Valid @RequestBody TopicSectionPushDTO dto) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        String summary = dto.getSummary();
+        if (summary == null || summary.isBlank()) {
+            summary = dto.getContent().length() > 100
+                    ? dto.getContent().substring(0, 100) + "..."
+                    : dto.getContent();
+        }
+        try {
+            boolean created = topicSectionService.saveSection(
+                    dto.getReportDate(),
+                    dto.getEdition(),
+                    dto.getTopic(),
+                    dto.getTitle(),
+                    dto.getContent(),
+                    summary,
+                    dto.getRunId()
+            );
+            return Result.ok(created ? "主题段落已保存" : "主题段落已存在", created);
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
+    }
+
     private Result<Boolean> saveReport(ReportPushDTO dto) {
         String summary = dto.getSummary();
         if (summary == null || summary.isBlank()) {
-            // 自动截取前 100 字作为摘要
             summary = dto.getContent().length() > 100
                     ? dto.getContent().substring(0, 100) + "..."
                     : dto.getContent();
@@ -90,21 +145,19 @@ public class ReportController {
             return Result.error(400, "分页参数无效：page 必须大于等于 1，size 必须在 1 到 50 之间");
         }
 
-        Page<Report> pageObj = new Page<>(page, size);
-        LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(edition != null && !edition.isBlank(), Report::getEdition, edition);
-        if (startDate != null && !startDate.isBlank()) {
-            wrapper.ge(Report::getCreatedAt, LocalDateTime.of(LocalDate.parse(startDate), LocalTime.MIN));
+        Long userId = SecurityUtils.currentUserId();
+        boolean demo = SecurityUtils.isDemo();
+        LocalDateTime start = parseStart(startDate);
+        LocalDateTime end = parseEnd(endDate);
+        if (startDate != null && !startDate.isBlank() && start == null) {
+            return Result.error(400, "开始日期无效");
         }
-        if (endDate != null && !endDate.isBlank()) {
-            wrapper.le(Report::getCreatedAt, LocalDateTime.of(LocalDate.parse(endDate), LocalTime.MAX));
+        if (endDate != null && !endDate.isBlank() && end == null) {
+            return Result.error(400, "结束日期无效");
         }
-        if (keyword != null && !keyword.isBlank()) {
-            wrapper.and(w -> w.like(Report::getTitle, keyword).or().like(Report::getSummary, keyword));
-        }
-        wrapper.orderByDesc(Report::getCreatedAt);
 
-        Page<Report> result = reportService.page(pageObj, wrapper);
+        Page<Report> result = reportQueryService.pageVisible(
+                userId, demo, new Page<>(page, size), edition, start, end, keyword);
 
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
@@ -123,11 +176,7 @@ public class ReportController {
     @GetMapping("/latest")
     public Result<Report> getLatest(
             @RequestParam(required = false) String edition) {
-        LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(edition != null, Report::getEdition, edition)
-               .orderByDesc(Report::getCreatedAt)
-               .last("LIMIT 1");
-        Report report = reportService.getOne(wrapper);
+        Report report = reportQueryService.getLatest(SecurityUtils.currentUserId(), SecurityUtils.isDemo(), edition);
         if (report == null) {
             return Result.error(404, "暂无简报");
         }
@@ -140,10 +189,32 @@ public class ReportController {
      */
     @GetMapping("/{id}")
     public Result<Report> getById(@PathVariable Long id) {
-        Report report = reportService.getById(id);
+        Report report = reportQueryService.getById(SecurityUtils.currentUserId(), SecurityUtils.isDemo(), id);
         if (report == null) {
             return Result.error(404, "简报不存在");
         }
         return Result.ok(report);
+    }
+
+    private boolean invalidIngestToken(String token) {
+        return ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token);
+    }
+
+    private LocalDateTime parseStart(String startDate) {
+        if (startDate == null || startDate.isBlank()) return null;
+        try {
+            return LocalDateTime.of(LocalDate.parse(startDate), LocalTime.MIN);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private LocalDateTime parseEnd(String endDate) {
+        if (endDate == null || endDate.isBlank()) return null;
+        try {
+            return LocalDateTime.of(LocalDate.parse(endDate), LocalTime.MAX);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

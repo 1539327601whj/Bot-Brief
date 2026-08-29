@@ -1,5 +1,6 @@
 package com.ai.daily.security;
 
+import com.ai.daily.entity.User;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -29,5 +30,10 @@ public final class SecurityUtils {
     public static boolean isAdmin() {
         UserPrincipal up = currentUserOrNull();
         return up != null && "ADMIN".equals(up.getRole());
+    }
+
+    public static boolean isDemo() {
+        UserPrincipal up = currentUserOrNull();
+        return up != null && User.ACCOUNT_DEMO.equals(up.getAccountType());
     }
 }

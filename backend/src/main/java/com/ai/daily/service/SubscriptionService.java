@@ -40,4 +40,9 @@ public interface SubscriptionService extends IService<Subscription> {
      * {@code maxLateness} 为 null 时不限制迟到时长（用于入库后立即补推）。
      */
     List<Subscription> findDueThrough(String edition, LocalTime nowFloor, Duration maxLateness);
+
+    /**
+     * 该版次已开启接收的有效订阅（不限是否到点）。
+     */
+    List<Subscription> listEnabledForEdition(String edition);
 }
