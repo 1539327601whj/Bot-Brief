@@ -65,7 +65,7 @@ public class ScheduledPushTask {
     }
 
     void dispatchDue(LocalTime now, LocalDate date, Duration maxLateness) {
-        List<Subscription> due = subscriptionService.findDueThrough(now, maxLateness);
+        List<Subscription> due = subscriptionService.findDueThrough(now, date, maxLateness);
         if (due.isEmpty()) return;
 
         Map<Long, User> users = userMapper.selectBatchIds(
@@ -83,7 +83,7 @@ public class ScheduledPushTask {
         if (due.isEmpty()) return;
 
         for (Subscription subscription : due) {
-            for (LocalTime displayTime : subscriptionPreferences.dueDisplayTimes(subscription, now, maxLateness)) {
+            for (LocalTime displayTime : subscriptionPreferences.dueDisplayTimes(subscription, now, maxLateness, date)) {
                 dispatchAt(subscription, date, displayTime);
             }
         }
@@ -93,7 +93,7 @@ public class ScheduledPushTask {
         String slot = ReportWindows.format(displayTime);
         try {
             List<SubscriptionDTO.TopicScheduleItemDTO> items =
-                    subscriptionPreferences.enabledTopicItemsAt(subscription, displayTime);
+                    subscriptionPreferences.enabledTopicItemsAt(subscription, displayTime, date);
             if (items.isEmpty()) {
                 log.info("[{}] user={} 该时刻没有主题，跳过", slot, subscription.getUserId());
                 return;

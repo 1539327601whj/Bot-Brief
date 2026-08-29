@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,7 +31,7 @@ public class SubscribedTopicService {
 
     public List<String> listTopics(String window) {
         if (!ReportWindows.isGenerationWindow(window)) return List.of();
-        return planEarliest().stream()
+        return planEarliest(LocalDate.now(ZoneId.of("Asia/Shanghai"))).stream()
                 .filter(item -> window.equals(item.getWindow()))
                 .map(DueGenerationDTO::getTopic)
                 .toList();
@@ -40,7 +41,7 @@ public class SubscribedTopicService {
         if (date == null || now == null) return List.of();
         LocalTime minute = now.withSecond(0).withNano(0);
         List<DueGenerationDTO> due = new ArrayList<>();
-        for (DueGenerationDTO item : planEarliest()) {
+        for (DueGenerationDTO item : planEarliest(date)) {
             LocalTime generateAt = ReportWindows.parse(item.getGenerateAt());
             if (generateAt.isAfter(minute)) continue;
             if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
@@ -49,11 +50,11 @@ public class SubscribedTopicService {
         return due;
     }
 
-    List<DueGenerationDTO> planEarliest() {
+    List<DueGenerationDTO> planEarliest(LocalDate date) {
         List<Subscription> subscriptions = eligibleSubscriptions();
         Map<String, DueGenerationDTO> earliest = new LinkedHashMap<>();
         for (Subscription subscription : subscriptions) {
-            for (var item : subscriptionPreferences.enabledTopicItems(subscription)) {
+            for (var item : subscriptionPreferences.enabledTopicItemsOn(subscription, date)) {
                 if (item.getTopic() == null || item.getTopic().isBlank()) continue;
                 LocalTime time = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
                 String window = ReportWindows.of(time);

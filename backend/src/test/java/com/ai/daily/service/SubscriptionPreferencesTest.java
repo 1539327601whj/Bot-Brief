@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -124,6 +125,33 @@ class SubscriptionPreferencesTest {
         assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(9, 5), Duration.ofHours(3)))
                 .containsExactly(LocalTime.of(9, 0));
         assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(13, 0), Duration.ofHours(3))).isEmpty();
+    }
+
+    @Test
+    void weekdayRangeSkipsDaysOutsideSelection() {
+        Subscription subscription = new Subscription();
+        subscription.setEnabled(true);
+        subscription.setTopicSchedules(
+                "{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\",\"weekdayFrom\":1,\"weekdayTo\":5}]}");
+
+        LocalDate sunday = LocalDate.of(2026, 8, 30);
+        LocalDate monday = LocalDate.of(2026, 8, 31);
+
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO, sunday)).isFalse();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO, monday)).isTrue();
+        assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(9, 0), Duration.ZERO, sunday)).isEmpty();
+        assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(9, 0), Duration.ZERO, monday))
+                .containsExactly(LocalTime.of(9, 0));
+    }
+
+    @Test
+    void missingWeekdaysStayEveryDayForLegacyRows() {
+        Subscription subscription = new Subscription();
+        subscription.setEnabled(true);
+        subscription.setTopicSchedules("{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\"}]}");
+
+        assertThat(preferences.isDueThrough(
+                subscription, LocalTime.of(9, 0), Duration.ZERO, LocalDate.of(2026, 8, 30))).isTrue();
     }
 
     private SubscriptionDTO dtoWithTopics(int count) {

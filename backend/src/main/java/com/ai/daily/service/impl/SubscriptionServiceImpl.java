@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -71,8 +73,13 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
 
     @Override
     public List<Subscription> findDueThrough(LocalTime nowFloor, Duration maxLateness) {
+        return findDueThrough(nowFloor, LocalDate.now(ZoneId.of("Asia/Shanghai")), maxLateness);
+    }
+
+    @Override
+    public List<Subscription> findDueThrough(LocalTime nowFloor, LocalDate date, Duration maxLateness) {
         return listEnabled().stream()
-                .filter(subscription -> subscriptionPreferences.isDueThrough(subscription, nowFloor, maxLateness))
+                .filter(subscription -> subscriptionPreferences.isDueThrough(subscription, nowFloor, maxLateness, date))
                 .toList();
     }
 

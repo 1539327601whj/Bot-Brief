@@ -4,6 +4,7 @@ import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo } from '../utils/reportEdition'
+import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription } from '../demo/fixtures'
@@ -30,6 +31,8 @@ interface TopicScheduleItem {
   topic: string
   enabled: boolean
   time?: string
+  weekdayFrom?: number
+  weekdayTo?: number
   channelIds?: number[]
 }
 
@@ -81,6 +84,19 @@ function subscriptionItems(subscription?: Subscription | null): TopicScheduleIte
 
 function uniqueTimes(items: TopicScheduleItem[]) {
   return [...new Set(items.map(item => toHHmm(item.time)).filter(time => time !== '--:--'))].sort()
+}
+
+function todayIsoWeekday() {
+  const sundayBased = dayjs.tz().day()
+  return sundayBased === 0 ? 7 : sundayBased
+}
+
+function itemsDueToday(items: TopicScheduleItem[]) {
+  const today = todayIsoWeekday()
+  return items.filter(item => {
+    const range = weekdaysOf(item, 1, 7)
+    return coversWeekday(range.weekdayFrom, range.weekdayTo, today)
+  })
 }
 
 function toHHmm(value?: string) {
@@ -186,6 +202,10 @@ function SubscriptionCard({ subscription }: { subscription: Subscription | null 
   const items = subscriptionItems(subscription)
   const fields = [...new Set(items.map(item => item.topic))]
   const times = uniqueTimes(items)
+  const days = [...new Set(items.map(item => {
+    const range = weekdaysOf(item, 1, 7)
+    return weekdayRangeLabel(range.weekdayFrom, range.weekdayTo)
+  }))]
   return (
     <div className="overview-card">
       <div className="overview-card-header">
@@ -200,6 +220,10 @@ function SubscriptionCard({ subscription }: { subscription: Subscription | null 
         <div className="status-row">
           <span>推送时刻</span>
           <span>{times.length > 0 ? times.join(' / ') : '未设置'}</span>
+        </div>
+        <div className="status-row">
+          <span>星期</span>
+          <span>{days.length > 0 ? days.join(' / ') : '未设置'}</span>
         </div>
       </div>
       <div className="preference-tags">
@@ -282,6 +306,8 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
 export default function Dashboard() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
+  const isAdmin = user?.role === 'ADMIN'
+  const canSeePublicDigest = isDemo || isAdmin
   const [morning, setMorning] = useState<Report | null>(null)
   const [evening, setEvening] = useState<Report | null>(null)
   const [marketWatch, setMarketWatch] = useState<Report | null>(null)
@@ -299,8 +325,8 @@ export default function Dashboard() {
       setLoading(true)
       const today = dayjs.tz().format('YYYY-MM-DD')
       const [morningReport, eveningReport, etfEvening, personalPage, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
-        isDemo ? safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }) : Promise.resolve(null),
-        isDemo ? safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }) : Promise.resolve(null),
+        canSeePublicDigest ? safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }) : Promise.resolve(null),
+        canSeePublicDigest ? safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }) : Promise.resolve(null),
         safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_evening' } }),
         isDemo ? Promise.resolve(null) : safeGet<{ records: Report[] }>('/reports', { params: { edition: 'personal', startDate: today, endDate: today, page: 1, size: 20 } }),
         safeGet<DashboardStats>('/stats/dashboard'),
@@ -323,9 +349,9 @@ export default function Dashboard() {
 
     loadOverview()
     return () => { mounted = false }
-  }, [isDemo])
+  }, [isDemo, canSeePublicDigest])
 
-  const slotTimes = uniqueTimes(subscriptionItems(subscription))
+  const slotTimes = uniqueTimes(itemsDueToday(subscriptionItems(subscription)))
   const personalByTime = useMemo(() => {
     const map = new Map<string, Report>()
     personalReports.forEach(report => {
@@ -335,14 +361,14 @@ export default function Dashboard() {
     return map
   }, [personalReports])
   const todayReports = useMemo(() => {
-    const candidates = isDemo
-      ? [morning, evening, marketWatch]
+    const candidates = canSeePublicDigest
+      ? [morning, evening, ...personalReports, marketWatch]
       : [...personalReports, marketWatch]
     return candidates.filter((report): report is Report => !!report && isToday(report.createdAt))
-  }, [isDemo, morning, evening, marketWatch, personalReports])
+  }, [canSeePublicDigest, morning, evening, marketWatch, personalReports])
   const focusReport = todayReports.find(report => report.edition === 'personal' || report.edition === 'evening' || report.edition === 'morning')
     || todayReports[0]
-    || (isDemo ? morning || evening : personalReports[0])
+    || (canSeePublicDigest ? morning || evening : personalReports[0])
     || marketWatch
   const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
   const failedLogs = todayLogs.filter(log => log.status === 'failed')
@@ -353,13 +379,14 @@ export default function Dashboard() {
     const items: string[] = []
     const topics = subscriptionItems(subscription)
     if ((stats?.todayCount ?? todayReports.length) === 0) {
-      items.push(isDemo ? '今日暂无任何报告入库' : '今日暂无属于你的简报')
+      items.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
     }
-    if (isDemo) {
-      if (topics.length > 0 && now.hour() >= 9 && !isToday(morning?.createdAt)) items.push('今日早间简报尚未生成')
-      if (topics.length > 0 && now.hour() >= 21 && !isToday(evening?.createdAt)) items.push('今日晚间简报尚未生成')
-    } else {
-      topics.forEach(item => {
+    if (canSeePublicDigest) {
+      if (now.hour() >= 9 && !isToday(morning?.createdAt)) items.push('今日早间简报尚未生成')
+      if (now.hour() >= 21 && !isToday(evening?.createdAt)) items.push('今日晚间简报尚未生成')
+    }
+    if (!isDemo) {
+      itemsDueToday(topics).forEach(item => {
         const time = toHHmm(item.time)
         const [hour, minute] = time.split(':').map(Number)
         if (now.hour() > hour || (now.hour() === hour && now.minute() >= minute)) {
@@ -377,7 +404,7 @@ export default function Dashboard() {
         : '订阅已开启，但今日暂无推送记录')
     }
     return [...new Set(items)]
-  }, [stats, todayReports, morning, evening, marketWatch, personalByTime, failedLogs.length, subscription, todayLogs.length, isDemo])
+  }, [stats, todayReports, morning, evening, marketWatch, personalByTime, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest])
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
@@ -399,7 +426,7 @@ export default function Dashboard() {
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
           <h1 className="welcome-title">今日概览</h1>
-          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
+          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '管理员可查看每日公共早报/晚报；你自己的兴趣简报仍按订阅生成' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
         </div>
         <div className="overview-hero-stats">
           <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
@@ -418,25 +445,25 @@ export default function Dashboard() {
         <h2>今日 AI 简报</h2>
         <Link to="/reports" className="section-link">历史简报 →</Link>
       </div>
-      <div className={isDemo || slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
-        {isDemo ? (
+      <div className={canSeePublicDigest || slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
+        {canSeePublicDigest && (
           <>
             <ReportMiniCard report={morning} edition="morning" />
             <ReportMiniCard report={evening} edition="evening" />
           </>
-        ) : slotTimes.length === 0 ? (
-          <ReportMiniCard report={null} edition="personal" emptyHint="请先在订阅里勾选兴趣并设定时间" />
-        ) : (
-          slotTimes.map(time => (
-            <ReportMiniCard
-              key={time}
-              report={personalByTime.get(time) || null}
-              edition="personal"
-              displayTime={time}
-              emptyHint={`预计 ${time} 按你勾选的主题生成`}
-            />
-          ))
         )}
+        {!isDemo && slotTimes.length === 0 && !canSeePublicDigest && (
+          <ReportMiniCard report={null} edition="personal" emptyHint="请先在订阅里勾选兴趣并设定时间" />
+        )}
+        {!isDemo && slotTimes.map(time => (
+          <ReportMiniCard
+            key={time}
+            report={personalByTime.get(time) || null}
+            edition="personal"
+            displayTime={time}
+            emptyHint={`预计 ${time} 按你勾选的主题生成`}
+          />
+        ))}
       </div>
 
       <div className="overview-section-header">

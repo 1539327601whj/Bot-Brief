@@ -122,4 +122,12 @@ class SecurityConfigTest {
         mockMvc.perform(get("/api/admin/invite-codes").with(demoAdmin)).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/invite-codes").with(admin)).andExpect(status().isOk());
     }
+
+    @Test
+    void adminCanManageSubscriptionEvenWithoutNormalAccountFlag() throws Exception {
+        var admin = user("admin@example.com").authorities(() -> "ROLE_ADMIN");
+
+        mockMvc.perform(get("/api/subscription").with(admin)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/channels").with(admin)).andExpect(status().isOk());
+    }
 }

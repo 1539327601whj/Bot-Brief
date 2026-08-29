@@ -27,8 +27,14 @@ class JwtServiceTest {
         Claims claims = jwtService.parse(token);
         long validityMillis = claims.getExpiration().getTime() - claims.getIssuedAt().getTime();
 
-        assertThat(claims.get("uid", Long.class)).isEqualTo(7L);
+        assertThat(jwtService.userId(claims)).isEqualTo(7L);
         assertThat(validityMillis).isEqualTo(Duration.ofMinutes(15).toMillis());
+    }
+
+    @Test
+    void readsAdminUserIdFromNumericClaimOrSubject() {
+        Claims claims = jwtService.parse(jwtService.generate(1L, "admin@example.com", "ADMIN"));
+        assertThat(jwtService.userId(claims)).isEqualTo(1L);
     }
 
     @Test

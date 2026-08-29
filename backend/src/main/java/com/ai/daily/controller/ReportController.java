@@ -174,6 +174,7 @@ public class ReportController {
 
         Long userId = SecurityUtils.currentUserId();
         boolean demo = SecurityUtils.isDemo();
+        boolean allowPublicDigest = SecurityUtils.canReadPublicDigest();
         LocalDateTime start = parseStart(startDate);
         LocalDateTime end = parseEnd(endDate);
         if (startDate != null && !startDate.isBlank() && start == null) {
@@ -184,7 +185,7 @@ public class ReportController {
         }
 
         Page<Report> result = reportQueryService.pageVisible(
-                userId, demo, new Page<>(page, size), edition, start, end, keyword);
+                userId, demo, allowPublicDigest, new Page<>(page, size), edition, start, end, keyword);
 
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
@@ -203,7 +204,11 @@ public class ReportController {
     @GetMapping("/latest")
     public Result<Report> getLatest(
             @RequestParam(required = false) String edition) {
-        Report report = reportQueryService.getLatest(SecurityUtils.currentUserId(), SecurityUtils.isDemo(), edition);
+        Report report = reportQueryService.getLatest(
+                SecurityUtils.currentUserId(),
+                SecurityUtils.isDemo(),
+                SecurityUtils.canReadPublicDigest(),
+                edition);
         if (report == null) {
             return Result.error(404, "暂无简报");
         }
@@ -216,7 +221,11 @@ public class ReportController {
      */
     @GetMapping("/{id}")
     public Result<Report> getById(@PathVariable Long id) {
-        Report report = reportQueryService.getById(SecurityUtils.currentUserId(), SecurityUtils.isDemo(), id);
+        Report report = reportQueryService.getById(
+                SecurityUtils.currentUserId(),
+                SecurityUtils.isDemo(),
+                SecurityUtils.canReadPublicDigest(),
+                id);
         if (report == null) {
             return Result.error(404, "简报不存在");
         }

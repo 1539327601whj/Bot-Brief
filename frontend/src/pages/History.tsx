@@ -33,6 +33,8 @@ interface PageData {
 export default function History() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
+  const isAdmin = user?.role === 'ADMIN'
+  const canSeePublicDigest = isDemo || isAdmin
   const navigate = useNavigate()
   const [pageData, setPageData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -161,7 +163,7 @@ export default function History() {
         <div className="history-header">
           <div className="header-info">
             <h2>📋 历史简报</h2>
-            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
+            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : isAdmin ? '管理员可查看每日公共早报/晚报，以及自己的兴趣简报' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
           </div>
           <div className="header-stats">
             <div className="stat-badge">
@@ -177,7 +179,7 @@ export default function History() {
               className={`history-chip ${edition === '' ? 'active' : ''}`}
               onClick={() => changeEdition('')}
             >全部</button>
-            {isDemo ? (
+            {canSeePublicDigest && (
               <>
                 <button
                   className={`history-chip ${edition === 'morning' ? 'active' : ''}`}
@@ -188,7 +190,8 @@ export default function History() {
                   onClick={() => changeEdition('evening')}
                 >🌙 AI 晚报</button>
               </>
-            ) : (
+            )}
+            {!isDemo && (
               <button
                 className={`history-chip ${edition === 'personal' ? 'active' : ''}`}
                 onClick={() => changeEdition('personal')}
@@ -237,7 +240,7 @@ export default function History() {
           </div>
         ) : reports.length === 0 ? (
           <div className="empty-state">
-            <p>{hasFilter ? '当前条件下暂无匹配的简报' : (isDemo ? '暂无历史简报' : '暂无属于你的简报，请先在订阅里勾选兴趣')}</p>
+            <p>{hasFilter ? '当前条件下暂无匹配的简报' : (isDemo ? '暂无历史简报' : isAdmin ? '暂无公共简报或你的简报' : '暂无属于你的简报，请先在订阅里勾选兴趣')}</p>
           </div>
         ) : (
           <>

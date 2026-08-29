@@ -4,6 +4,7 @@ import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
 import api, { TOKEN_KEY } from '../utils/api'
+import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription } from '../demo/fixtures'
@@ -22,6 +23,8 @@ interface TopicScheduleItem {
   topic: string
   enabled: boolean
   time: string
+  weekdayFrom: number
+  weekdayTo: number
   channelIds: number[]
 }
 
@@ -102,6 +105,7 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
       topic,
       enabled: Boolean(row?.enabled),
       time,
+      ...weekdaysOf(row, 1, 7),
       channelIds: (Array.isArray(row?.channelIds) ? row.channelIds : [])
         .filter((id: unknown): id is number => Number.isInteger(id) && Number(id) > 0),
     })
@@ -114,8 +118,16 @@ const normalizeSubscription = (source: any): SubscriptionData => ({
   topicSchedules: { items: flattenItems(source) },
 })
 
+const isUnauthorized = (error?: any, body?: any) =>
+  error?.response?.status === 401 || body?.code === 401 || error?.response?.data?.code === 401
+
+const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
+  const detail = body?.message || error?.response?.data?.message || error?.message || ''
+  return detail ? `${fallback}：${detail}` : fallback
+}
+
 export default function Subscription() {
-  const { user, authReady } = useAuth()
+  const { user, authReady, logout } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
   const [data, setData] = useState<SubscriptionData>(normalizeSubscription({}))
   const [channels, setChannels] = useState<Channel[]>([])
@@ -139,20 +151,43 @@ export default function Subscription() {
       return
     }
     setLoading(true)
-    Promise.all([
-      api.get('/subscription'),
-      api.get('/channels'),
-    ]).then(([subscriptionRes, channelRes]) => {
-      if (subscriptionRes.data?.code === 401) {
-        showMessage('登录已过期，请退出后重新登录再保存', 'error')
+    setMessage('')
+    const load = async () => {
+      try {
+        const subscriptionRes = await api.get('/subscription')
+        if (isUnauthorized(undefined, subscriptionRes.data)) {
+          showMessage('登录已过期，请退出后重新登录再保存', 'error')
+          return
+        }
+        if (subscriptionRes.data?.code !== 200) {
+          showMessage(apiMessage(undefined, subscriptionRes.data, '订阅配置加载失败'), 'error')
+          return
+        }
+        setData(normalizeSubscription(subscriptionRes.data.data))
+      } catch (err: any) {
+        if (isUnauthorized(err)) {
+          showMessage('登录已过期，请退出后重新登录再保存', 'error')
+          return
+        }
+        showMessage(apiMessage(err, undefined, '订阅配置加载失败'), 'error')
         return
       }
-      if (subscriptionRes.data?.data) setData(normalizeSubscription(subscriptionRes.data.data))
-      setChannels(channelRes.data?.data || [])
-    }).catch(err => {
-      if (err?.response?.status === 401) showMessage('登录已过期，请退出后重新登录再保存', 'error')
-      else console.error(err)
-    }).finally(() => setLoading(false))
+      try {
+        const channelRes = await api.get('/channels')
+        if (channelRes.data?.code === 200) {
+          setChannels(channelRes.data.data || [])
+        } else if (!isUnauthorized(undefined, channelRes.data) && channelRes.data?.message) {
+          showMessage(apiMessage(undefined, channelRes.data, '通讯录加载失败'), 'error')
+        }
+      } catch (err: any) {
+        if (isUnauthorized(err)) {
+          showMessage('登录已过期，请退出后重新登录再保存', 'error')
+          return
+        }
+        showMessage(apiMessage(err, undefined, '通讯录加载失败'), 'error')
+      }
+    }
+    load().finally(() => setLoading(false))
   }, [isDemo, authReady])
 
   const items = data.topicSchedules.items
@@ -188,7 +223,7 @@ export default function Subscription() {
   const toggleTopic = (topic: string, enabled: boolean) => {
     const existing = topicItems(topic)
     if (enabled && existing.length === 0) {
-      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, channelIds: [] }])
+      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
       return
     }
     updateItems(items.map(item => interestKey(item.topic) === interestKey(topic) ? { ...item, enabled } : item))
@@ -221,7 +256,7 @@ export default function Subscription() {
       return
     }
     setMessage('')
-    updateItems([...items, { topic, enabled: true, time: WINDOW_DEFAULTS[nextWindow], channelIds: [] }])
+    updateItems([...items, { topic, enabled: true, time: WINDOW_DEFAULTS[nextWindow], weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
   }
 
   const removeSlot = (index: number) => {
@@ -251,7 +286,7 @@ export default function Subscription() {
       return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
     }
     if (!topicItems(topic).length) {
-      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, channelIds: [] }])
+      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
     } else {
       toggleTopic(topic, true)
     }
@@ -268,6 +303,7 @@ export default function Subscription() {
     if (isDemo) return
     if (!localStorage.getItem(TOKEN_KEY)) {
       showMessage('登录已过期，请退出后重新登录再保存', 'error')
+      logout()
       return
     }
     setSaving(true)
@@ -282,18 +318,18 @@ export default function Subscription() {
       if (res.data?.code === 200) {
         setData(normalizeSubscription(res.data.data || payload))
         showMessage('设置已保存。到点后按你选的时刻展示和推送')
-      } else if (res.data?.code === 401) {
+      } else if (isUnauthorized(undefined, res.data)) {
         showMessage('登录已过期，请退出后重新登录再保存', 'error')
+        logout()
       } else {
-        showMessage('保存失败：' + (res.data?.message || ''), 'error')
+        showMessage(apiMessage(undefined, res.data, '保存失败'), 'error')
       }
     } catch (error: any) {
-      const status = error?.response?.status
-      const detail = error?.response?.data?.message || error?.message || ''
-      if (status === 401 || detail.includes('token')) {
+      if (isUnauthorized(error)) {
         showMessage('登录已过期，请退出后重新登录再保存', 'error')
+        logout()
       } else {
-        showMessage('请求失败：' + detail, 'error')
+        showMessage(apiMessage(error, undefined, '保存失败'), 'error')
       }
     } finally {
       setSaving(false)
@@ -308,7 +344,7 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">勾选兴趣并设定每天的时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时间展示。</p>
+        <p className="page-desc">勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时间展示。</p>
       </div>
 
       <div className="subscription-summary">
@@ -363,12 +399,12 @@ export default function Subscription() {
         <div className="section-title-row">
           <div>
             <h3>推送时间</h3>
-            <p className="section-sub">每个主题每天一个或多个时刻。到点后网页和渠道同时更新；没绑渠道就只在网页看。</p>
+            <p className="section-sub">每个主题选星期几到几，再定时刻。到点后网页和渠道同时更新；没绑渠道就只在网页看。</p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>
         </div>
         {enabledTopics.length === 0 ? (
-          <div className="schedule-empty">先在上面勾选兴趣，再设置每天几点推送</div>
+          <div className="schedule-empty">先在上面勾选兴趣，再设置星期和时刻</div>
         ) : (
           <div className="schedule-list">
             {enabledTopics.map(topic => {
@@ -381,8 +417,30 @@ export default function Subscription() {
                     <div key={`${topic}-${index}`} className="schedule-row">
                       <div className="schedule-name">
                         <strong>{topic}</strong>
-                        <span>{slotIndex === 0 ? '每天推送' : `第 ${slotIndex + 1} 个时段`}</span>
                         {!isPreset(topic) && <small>自定义</small>}
+                        <div className="weekday-range">
+                          <select
+                            value={item.weekdayFrom}
+                            disabled={isDemo}
+                            aria-label={`${topic}起始星期`}
+                            onChange={event => updateSlot(index, { weekdayFrom: Number(event.target.value) })}
+                          >
+                            {WEEKDAY_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                          <span>至</span>
+                          <select
+                            value={item.weekdayTo}
+                            disabled={isDemo}
+                            aria-label={`${topic}结束星期`}
+                            onChange={event => updateSlot(index, { weekdayTo: Number(event.target.value) })}
+                          >
+                            {WEEKDAY_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                       <div className="schedule-time">
                         <TimePicker

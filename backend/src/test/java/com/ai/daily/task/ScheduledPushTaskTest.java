@@ -44,12 +44,12 @@ class ScheduledPushTaskTest {
         Subscription second = subscription(2L);
         LocalTime now = LocalTime.of(8, 15);
         LocalDate date = LocalDate.of(2026, 7, 24);
-        when(subscriptions.findDueThrough(eq(now), any())).thenReturn(List.of(first, second));
+        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(first, second));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L), user(2L)));
-        when(preferences.dueDisplayTimes(first, now, Duration.ofHours(3))).thenReturn(List.of(now));
-        when(preferences.dueDisplayTimes(second, now, Duration.ofHours(3))).thenReturn(List.of(now));
-        when(preferences.enabledTopicItemsAt(first, now)).thenReturn(List.of(topic("数据库", List.of(11L))));
-        when(preferences.enabledTopicItemsAt(second, now)).thenReturn(List.of(topic("移动端", List.of(12L))));
+        when(preferences.dueDisplayTimes(first, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(second, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.enabledTopicItemsAt(first, now, date)).thenReturn(List.of(topic("数据库", List.of(11L))));
+        when(preferences.enabledTopicItemsAt(second, now, date)).thenReturn(List.of(topic("移动端", List.of(12L))));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
         when(channels.listEnabledByUser(2L)).thenReturn(List.of(channel(12L)));
         Report databaseReport = report("数据库内容");
@@ -83,11 +83,11 @@ class ScheduledPushTaskTest {
         Report persisted = report("拼装简报");
         Report databaseReport = report("数据库内容");
         Report mobileReport = report("移动端内容");
-        when(subscriptions.findDueThrough(eq(now), any())).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
-        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3))).thenReturn(List.of(now));
-        when(preferences.enabledTopicItemsAt(subscription, now)).thenReturn(List.of(
+        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(
                 topic("数据库", List.of(11L)), topic("移动端", List.of(12L))));
         when(assembly.assembleAndPersist(1L, date, now, List.of("数据库", "移动端"))).thenReturn(persisted);
         when(assembly.assembleEphemeral(10L, date, now, List.of("数据库"))).thenReturn(databaseReport);
@@ -114,7 +114,7 @@ class ScheduledPushTaskTest {
 
         Subscription demo = subscription(1L);
         Subscription disabled = subscription(2L);
-        when(subscriptions.findDueThrough(any(), any())).thenReturn(List.of(demo, disabled));
+        when(subscriptions.findDueThrough(any(), any(), any())).thenReturn(List.of(demo, disabled));
         User demoUser = user(1L);
         demoUser.setAccountType(User.ACCOUNT_DEMO);
         User disabledUser = user(2L);
@@ -140,10 +140,10 @@ class ScheduledPushTaskTest {
         Subscription subscription = subscription(1L);
         LocalDate date = LocalDate.of(2026, 8, 25);
         LocalTime now = LocalTime.of(8, 20);
-        when(subscriptions.findDueThrough(eq(now), any())).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
-        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3))).thenReturn(List.of(now));
-        when(preferences.enabledTopicItemsAt(subscription, now)).thenReturn(List.of(topic("数据库", List.of())));
+        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("数据库", List.of())));
         when(assembly.assembleAndPersist(1L, date, now, List.of("数据库"))).thenReturn(report("网页简报"));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
 

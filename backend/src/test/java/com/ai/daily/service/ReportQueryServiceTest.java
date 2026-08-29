@@ -35,6 +35,7 @@ class ReportQueryServiceTest {
 
         assertThat(service.getById(7L, true, 8L)).isSameAs(publicMorning);
         assertThat(service.getById(7L, false, 8L)).isNull();
+        assertThat(service.getById(7L, false, true, 8L)).isSameAs(publicMorning);
         assertThat(service.getById(7L, false, 9L)).isSameAs(userBrief);
         assertThat(service.getById(7L, false, 10L)).isSameAs(market);
         assertThat(service.getById(7L, true, 9L)).isNull();

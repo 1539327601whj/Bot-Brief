@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,9 +31,9 @@ class SubscribedTopicServiceTest {
         Subscription bob = subscription(2L);
         Subscription demo = subscription(3L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice, bob, demo));
-        when(preferences.enabledTopicItems(alice)).thenReturn(List.of(item("AI大模型", "08:00"), item("安全", "09:00")));
-        when(preferences.enabledTopicItems(bob)).thenReturn(List.of(item("安全", "07:30"), item("数据库", "08:20")));
-        when(preferences.enabledTopicItems(demo)).thenReturn(List.of(item("区块链", "08:00")));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("AI大模型", "08:00"), item("安全", "09:00")));
+        when(preferences.enabledTopicItemsOn(eq(bob), any())).thenReturn(List.of(item("安全", "07:30"), item("数据库", "08:20")));
+        when(preferences.enabledTopicItemsOn(eq(demo), any())).thenReturn(List.of(item("区块链", "08:00")));
         when(users.selectBatchIds(any())).thenReturn(List.of(
                 user(1L, User.ACCOUNT_NORMAL), user(2L, User.ACCOUNT_NORMAL), user(3L, User.ACCOUNT_DEMO)));
 

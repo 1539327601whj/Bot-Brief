@@ -651,7 +651,7 @@
 
 .schedule-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.2fr) 140px auto auto;
+  grid-template-columns: minmax(220px, 1.4fr) 140px auto auto;
   align-items: center;
   gap: 12px 16px;
   padding: 14px 16px;
@@ -663,9 +663,34 @@
 .schedule-name {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.weekday-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weekday-range span {
+  color: #8b949e;
+  font-size: 12px;
+}
+
+.weekday-range select {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: #0d111b;
+  color: #f4f7fb;
+  font-size: 12px;
+}
+
+.weekday-range select:disabled {
+  opacity: 0.45;
 }
 
 .schedule-name strong {

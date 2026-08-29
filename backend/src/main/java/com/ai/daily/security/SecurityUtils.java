@@ -36,4 +36,8 @@ public final class SecurityUtils {
         UserPrincipal up = currentUserOrNull();
         return up != null && User.ACCOUNT_DEMO.equals(up.getAccountType());
     }
+
+    public static boolean canReadPublicDigest() {
+        return isDemo() || isAdmin();
+    }
 }

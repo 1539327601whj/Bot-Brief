@@ -4,6 +4,7 @@ import com.ai.daily.entity.Subscription;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -35,6 +36,8 @@ public interface SubscriptionService extends IService<Subscription> {
      * {@code maxLateness} 为 null 时不限制迟到时长。
      */
     List<Subscription> findDueThrough(LocalTime nowFloor, Duration maxLateness);
+
+    List<Subscription> findDueThrough(LocalTime nowFloor, LocalDate date, Duration maxLateness);
 
     /**
      * 总开关打开的订阅。

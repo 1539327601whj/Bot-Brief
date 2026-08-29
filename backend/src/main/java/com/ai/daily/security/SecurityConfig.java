@@ -55,6 +55,9 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/auth/me", "/api/reports", "/api/reports/latest", "/api/stats/dashboard").authenticated()
                         .requestMatchers(new RegexRequestMatcher("^/api/reports/\\d+$", "GET")).authenticated()
+                        .requestMatchers("/api/subscription", "/api/channels", "/api/channels/**")
+                                .access(new WebExpressionAuthorizationManager(
+                                        "isAuthenticated() and (hasAuthority('ACCOUNT_NORMAL') or hasRole('ADMIN'))"))
                         .requestMatchers("/api/admin/**")
                                 .access(new WebExpressionAuthorizationManager("hasRole('ADMIN') and hasAuthority('ACCOUNT_NORMAL')"))
                         .anyRequest().hasAuthority("ACCOUNT_NORMAL")

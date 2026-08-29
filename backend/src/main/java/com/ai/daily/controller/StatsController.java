@@ -5,6 +5,7 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ReportQueryService;
+import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.util.MarkdownUtils;
@@ -57,12 +58,13 @@ public class StatsController {
         LocalDate today = now.toLocalDate();
         Long userId = SecurityUtils.currentUserId();
         boolean demo = SecurityUtils.isDemo();
+        boolean allowPublicDigest = SecurityUtils.canReadPublicDigest();
 
-        long totalCount = reportQueryService.countVisible(userId, demo, null, null);
+        long totalCount = reportQueryService.countVisible(userId, demo, allowPublicDigest, null, null);
         long todayCount = reportQueryService.countVisible(
-                userId, demo, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+                userId, demo, allowPublicDigest, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
         List<Report> weekReports = reportQueryService.listVisibleForStats(
-                userId, demo, today.minusDays(6).atStartOfDay());
+                userId, demo, allowPublicDigest, today.minusDays(6).atStartOfDay());
 
         List<String> hotTags = extractHotTags(weekReports, 5);
 
@@ -70,27 +72,34 @@ public class StatsController {
         data.put("todayCount", todayCount);
         data.put("totalCount", totalCount);
         data.put("hotTags", hotTags);
-        data.put("nextPushAt", nextPushAt(now, userId, demo).toString());
+        data.put("nextPushAt", nextPushAt(now, userId, demo, allowPublicDigest).toString());
         return Result.ok(data);
     }
 
-    private LocalDateTime nextPushAt(LocalDateTime now, Long userId, boolean demo) {
+    private LocalDateTime nextPushAt(
+            LocalDateTime now, Long userId, boolean demo, boolean allowPublicDigest) {
+        List<LocalDateTime> candidates = new ArrayList<>();
         if (!demo && userId != null) {
             Subscription subscription = subscriptionService.getOrCreateForUser(userId);
-            List<LocalTime> times = subscriptionPreferences.displayTimes(subscription);
-            if (!times.isEmpty()) {
-                for (LocalTime time : times) {
-                    LocalDateTime candidate = now.toLocalDate().atTime(time);
-                    if (now.isBefore(candidate)) return candidate;
+            for (int offset = 0; offset < 7; offset++) {
+                LocalDate date = now.toLocalDate().plusDays(offset);
+                for (var item : subscriptionPreferences.enabledTopicItemsOn(subscription, date)) {
+                    LocalDateTime candidate = date.atTime(ReportWindows.parse(item.getTime()));
+                    if (now.isBefore(candidate)) candidates.add(candidate);
                 }
-                return now.toLocalDate().plusDays(1).atTime(times.get(0));
             }
         }
-        LocalDateTime morningToday = now.toLocalDate().atTime(MORNING_PUSH);
-        LocalDateTime eveningToday = now.toLocalDate().atTime(EVENING_PUSH);
-        if (now.isBefore(morningToday)) return morningToday;
-        if (now.isBefore(eveningToday)) return eveningToday;
-        return now.toLocalDate().plusDays(1).atTime(MORNING_PUSH);
+        if (demo || allowPublicDigest) {
+            LocalDateTime morningToday = now.toLocalDate().atTime(MORNING_PUSH);
+            LocalDateTime eveningToday = now.toLocalDate().atTime(EVENING_PUSH);
+            if (now.isBefore(morningToday)) candidates.add(morningToday);
+            if (now.isBefore(eveningToday)) candidates.add(eveningToday);
+            candidates.add(now.toLocalDate().plusDays(1).atTime(MORNING_PUSH));
+        }
+        return candidates.stream().min(LocalDateTime::compareTo).orElseGet(() -> {
+            LocalDateTime morningToday = now.toLocalDate().atTime(MORNING_PUSH);
+            return now.isBefore(morningToday) ? morningToday : now.toLocalDate().plusDays(1).atTime(MORNING_PUSH);
+        });
     }
 
     private List<String> extractHotTags(List<Report> reports, int topN) {

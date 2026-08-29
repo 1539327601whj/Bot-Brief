@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -93,8 +94,19 @@ public class SubscriptionPreferences {
                 .toList();
     }
 
-    public List<LocalTime> displayTimes(Subscription subscription) {
+    public List<SubscriptionDTO.TopicScheduleItemDTO> enabledTopicItemsOn(
+            Subscription subscription, LocalDate date) {
         return enabledTopicItems(subscription).stream()
+                .filter(item -> SubscriptionWeekdays.covers(item.getWeekdayFrom(), item.getWeekdayTo(), date))
+                .toList();
+    }
+
+    public List<LocalTime> displayTimes(Subscription subscription) {
+        return displayTimesOn(subscription, null);
+    }
+
+    public List<LocalTime> displayTimesOn(Subscription subscription, LocalDate date) {
+        return enabledTopicItemsOn(subscription, date).stream()
                 .map(item -> ReportWindows.parse(item.getTime()).withSecond(0).withNano(0))
                 .distinct()
                 .sorted()
@@ -102,27 +114,42 @@ public class SubscriptionPreferences {
     }
 
     public List<LocalTime> dueDisplayTimes(Subscription subscription, LocalTime now, java.time.Duration maxLateness) {
+        return dueDisplayTimes(subscription, now, maxLateness, null);
+    }
+
+    public List<LocalTime> dueDisplayTimes(
+            Subscription subscription, LocalTime now, java.time.Duration maxLateness, LocalDate date) {
         if (!Boolean.TRUE.equals(subscription.getEnabled()) || now == null) return List.of();
         LocalTime minute = now.withSecond(0).withNano(0);
         LocalTime earliest = maxLateness == null ? LocalTime.MIN : minusClamped(minute, maxLateness);
-        return displayTimes(subscription).stream()
+        return displayTimesOn(subscription, date).stream()
                 .filter(time -> !time.isAfter(minute) && !time.isBefore(earliest))
                 .toList();
     }
 
     public List<SubscriptionDTO.TopicScheduleItemDTO> enabledTopicItemsAt(Subscription subscription, LocalTime time) {
+        return enabledTopicItemsAt(subscription, time, null);
+    }
+
+    public List<SubscriptionDTO.TopicScheduleItemDTO> enabledTopicItemsAt(
+            Subscription subscription, LocalTime time, LocalDate date) {
         if (time == null) return List.of();
         String wanted = ReportWindows.format(time.withSecond(0).withNano(0));
-        return enabledTopicItems(subscription).stream()
+        return enabledTopicItemsOn(subscription, date).stream()
                 .filter(item -> wanted.equals(item.getTime()))
                 .toList();
     }
 
     public boolean isDueThrough(Subscription subscription, LocalTime now, java.time.Duration maxLateness) {
+        return isDueThrough(subscription, now, maxLateness, null);
+    }
+
+    public boolean isDueThrough(
+            Subscription subscription, LocalTime now, java.time.Duration maxLateness, LocalDate date) {
         if (!Boolean.TRUE.equals(subscription.getEnabled()) || now == null) return false;
         LocalTime minute = now.withSecond(0).withNano(0);
         LocalTime earliest = maxLateness == null ? LocalTime.MIN : minusClamped(minute, maxLateness);
-        for (SubscriptionDTO.TopicScheduleItemDTO item : enabledTopicItems(subscription)) {
+        for (SubscriptionDTO.TopicScheduleItemDTO item : enabledTopicItemsOn(subscription, date)) {
             LocalTime scheduled = ReportWindows.parse(item.getTime());
             if (!scheduled.isAfter(minute) && !scheduled.isBefore(earliest)) return true;
         }
@@ -205,6 +232,7 @@ public class SubscriptionPreferences {
                 normalized.setTopic(topic);
                 normalized.setEnabled(Boolean.TRUE.equals(item.getEnabled()));
                 normalized.setTime(ReportWindows.format(time));
+                applyWeekdays(normalized, item);
                 normalized.setChannelIds(normalizeChannelIds(item.getChannelIds()));
                 unique.put(key, normalized);
             } else if (!existing.getTime().equals(ReportWindows.format(time))) {
@@ -212,6 +240,7 @@ public class SubscriptionPreferences {
             } else {
                 if (Boolean.TRUE.equals(item.getEnabled())) existing.setEnabled(true);
                 if (item.getChannelIds() != null) existing.setChannelIds(normalizeChannelIds(item.getChannelIds()));
+                applyWeekdays(existing, item);
             }
         }
         return new ArrayList<>(unique.values());
@@ -234,6 +263,8 @@ public class SubscriptionPreferences {
             item.setTopic(field);
             item.setEnabled(true);
             item.setTime(ReportWindows.format(DEFAULT_TIME));
+            item.setWeekdayFrom(SubscriptionWeekdays.DEFAULT_FROM);
+            item.setWeekdayTo(SubscriptionWeekdays.DEFAULT_TO);
             item.setChannelIds(List.of());
             items.add(item);
         }
@@ -300,8 +331,17 @@ public class SubscriptionPreferences {
         copy.setTopic(item.getTopic());
         copy.setEnabled(item.getEnabled());
         copy.setTime(item.getTime());
+        copy.setWeekdayFrom(item.getWeekdayFrom());
+        copy.setWeekdayTo(item.getWeekdayTo());
         copy.setChannelIds(item.getChannelIds());
         return copy;
+    }
+
+    private void applyWeekdays(
+            SubscriptionDTO.TopicScheduleItemDTO target, SubscriptionDTO.TopicScheduleItemDTO source) {
+        int[] range = SubscriptionWeekdays.rangeOf(source.getWeekdayFrom(), source.getWeekdayTo());
+        target.setWeekdayFrom(range[0]);
+        target.setWeekdayTo(range[1]);
     }
 
     private Map<String, LocalTime> legacyTimes(Subscription subscription) {

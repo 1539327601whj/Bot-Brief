@@ -32,7 +32,7 @@ public class SubscriptionDTO {
     /** 晚间版 Web 展示时间，范围 15:00-23:59 */
     private String eveningTime;
 
-    /** 按主题列出的订阅（每条自带每天的展示/推送时刻） */
+    /** 按主题列出的订阅（每条自带时刻和星期范围） */
     private TopicSchedulesDTO topicSchedules;
 
     @Data
@@ -50,6 +50,9 @@ public class SubscriptionDTO {
         private Boolean enabled;
         /** HH:mm，网页显示与渠道推送使用同一时刻 */
         private String time;
+        /** 1=周一 … 7=周日，闭区间；可跨周末，如 6→1 表示周六至周一 */
+        private Integer weekdayFrom;
+        private Integer weekdayTo;
         private List<Long> channelIds;
     }
 }

@@ -55,4 +55,24 @@ public class JwtService {
                 .parseSignedClaims(token)
                 .getPayload();
     }
+
+    public Long userId(Claims claims) {
+        if (claims == null) return null;
+        Object uid = claims.get("uid");
+        if (uid instanceof Number number) return number.longValue();
+        if (uid != null) {
+            try {
+                return Long.parseLong(uid.toString());
+            } catch (NumberFormatException ignored) {
+                // fall through to subject
+            }
+        }
+        String subject = claims.getSubject();
+        if (subject == null || subject.isBlank()) return null;
+        try {
+            return Long.parseLong(subject);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
 }
