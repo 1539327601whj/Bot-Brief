@@ -63,11 +63,6 @@ class ChatServiceImplTest {
                 .thenReturn(List.of(section("AI大模型", "阿里发布万相 2.0，DeepSeek 更新推理接口。")));
         Report personal = report(11, Report.PERSONAL, "我的简报", "万相");
         when(reportService.getByUserEditionDate(eq(1L), eq(Report.PERSONAL), any())).thenReturn(personal);
-        when(reportQueryService.pageVisible(
-                eq(1L), eq(false), eq(true), any(), eq("market_watch_evening"),
-                any(), nullable(LocalDateTime.class), nullable(String.class)))
-                .thenReturn(pageOf(report(3, "market_watch_evening",
-                        "【ETF市场数据简报晚间版】沪深300ETF", "沪深300ETF 少买。")));
 
         ChatResponseDTO response = service.chat("最近有哪些 AI 大模型更新？", List.of(), 1L);
 

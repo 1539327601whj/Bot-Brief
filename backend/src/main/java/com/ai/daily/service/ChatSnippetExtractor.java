@@ -18,13 +18,24 @@ public final class ChatSnippetExtractor {
         if (content == null || content.isBlank()) return "";
         String text = content.strip();
         int limit = Math.max(80, maxChars);
-        if (text.length() <= limit) return text;
+        boolean hasKeywords = keywords != null && keywords.stream()
+                .anyMatch(keyword -> keyword != null && !keyword.isBlank());
 
-        List<String> blocks = split(text);
-        if (blocks.size() <= 1 || keywords == null || keywords.isEmpty()) {
-            return text.substring(0, limit) + "…";
+        if (hasKeywords) {
+            List<String> blocks = split(text);
+            if (blocks.size() > 1) {
+                String selected = selectKeywordBlocks(blocks, keywords, limit);
+                if (selected != null) {
+                    return selected;
+                }
+            }
         }
 
+        if (text.length() <= limit) return text;
+        return text.substring(0, limit) + "…";
+    }
+
+    private static String selectKeywordBlocks(List<String> blocks, List<String> keywords, int limit) {
         List<ScoredBlock> scored = new ArrayList<>();
         for (int index = 0; index < blocks.size(); index++) {
             int score = score(blocks.get(index), keywords);
@@ -33,7 +44,7 @@ public final class ChatSnippetExtractor {
             }
         }
         if (scored.isEmpty()) {
-            return text.substring(0, limit) + "…";
+            return null;
         }
 
         scored.sort(Comparator.comparingInt(ScoredBlock::score).reversed()
