@@ -8,6 +8,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JwtServiceTest {
 
@@ -35,6 +36,14 @@ class JwtServiceTest {
     void readsAdminUserIdFromNumericClaimOrSubject() {
         Claims claims = jwtService.parse(jwtService.generate(1L, "admin@example.com", "ADMIN"));
         assertThat(jwtService.userId(claims)).isEqualTo(1L);
+    }
+
+    @Test
+    void rejectsShortSigningSecret() {
+        ReflectionTestUtils.setField(jwtService, "secret", "too-short");
+        assertThatThrownBy(() -> jwtService.generate(1L, "admin@example.com", "ADMIN"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
     }
 
     @Test

@@ -9,10 +9,12 @@ import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.security.UserPrincipal;
 import com.ai.daily.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -35,26 +37,39 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Result<AuthDTO.LoginResponse> login(@RequestBody AuthDTO.LoginRequest req) {
-        User u = userService.authenticate(req.getEmail(), req.getPassword());
-        if (u == null) return Result.error(401, "邮箱或密码错误");
-        return Result.ok(buildLoginResponse(u));
+    public Result<AuthDTO.LoginResponse> login(@RequestBody(required = false) AuthDTO.LoginRequest req) {
+        try {
+            if (req == null || req.getEmail() == null || req.getPassword() == null) {
+                return Result.error(400, "请填写邮箱和密码");
+            }
+            User u = userService.authenticate(req.getEmail(), req.getPassword());
+            if (u == null) return Result.error(401, "邮箱或密码错误");
+            return Result.ok(buildLoginResponse(u));
+        } catch (Exception e) {
+            log.error("登录失败", e);
+            return Result.error(500, loginFailureMessage(e));
+        }
     }
 
     @PostMapping("/demo")
     public Result<AuthDTO.LoginResponse> demo() {
-        if (!demoProperties.isEnabled()) {
-            return Result.error(404, "Demo 登录未开启");
+        try {
+            if (!demoProperties.isEnabled()) {
+                return Result.error(404, "Demo 登录未开启");
+            }
+            int expirationMinutes = demoProperties.getTokenExpirationMinutes();
+            if (expirationMinutes < 5 || expirationMinutes > 60) {
+                return Result.error(503, "Demo token 有效期配置无效");
+            }
+            User u = userService.findByEmail(demoProperties.getEmail().trim().toLowerCase());
+            if (u == null || !Boolean.TRUE.equals(u.getEnabled()) || !User.ACCOUNT_DEMO.equals(u.getAccountType())) {
+                return Result.error(503, "Demo 账号不可用");
+            }
+            return Result.ok(buildLoginResponse(u, Duration.ofMinutes(expirationMinutes)));
+        } catch (Exception e) {
+            log.error("Demo 登录失败", e);
+            return Result.error(500, loginFailureMessage(e));
         }
-        int expirationMinutes = demoProperties.getTokenExpirationMinutes();
-        if (expirationMinutes < 5 || expirationMinutes > 60) {
-            return Result.error(503, "Demo token 有效期配置无效");
-        }
-        User u = userService.findByEmail(demoProperties.getEmail().trim().toLowerCase());
-        if (u == null || !Boolean.TRUE.equals(u.getEnabled()) || !User.ACCOUNT_DEMO.equals(u.getAccountType())) {
-            return Result.error(503, "Demo 账号不可用");
-        }
-        return Result.ok(buildLoginResponse(u, Duration.ofMinutes(expirationMinutes)));
     }
 
     @GetMapping("/me")
@@ -77,6 +92,21 @@ public class AuthController {
                 : jwtService.generate(u.getId(), u.getEmail(), u.getRole(), validity));
         resp.setUser(toUserInfo(u));
         return resp;
+    }
+
+    private String loginFailureMessage(Exception error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String detail = cause.getMessage() == null ? "" : cause.getMessage();
+        if (detail.contains("JWT_SECRET")) {
+            return "登录密钥配置无效，请检查 JWT_SECRET";
+        }
+        if (detail.contains("Unknown column") || detail.contains("doesn't exist") || detail.contains("Communications link failure")) {
+            return "数据库不可用或结构与当前版本不一致";
+        }
+        return "登录失败，请稍后重试";
     }
 
     private AuthDTO.UserInfo toUserInfo(User u) {

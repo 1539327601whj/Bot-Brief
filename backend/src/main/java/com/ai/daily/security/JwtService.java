@@ -3,6 +3,7 @@ package com.ai.daily.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,8 +23,17 @@ public class JwtService {
     @Value("${jwt.expiration-hours:24}")
     private long expirationHours;
 
+    @PostConstruct
+    void validateSecret() {
+        key();
+    }
+
     private SecretKey key() {
-        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length < 32) {
+            throw new IllegalStateException("JWT_SECRET 长度不足 32 字节，无法签发登录 token");
+        }
+        return Keys.hmacShaKeyFor(bytes);
     }
 
     public String generate(Long userId, String email, String role) {

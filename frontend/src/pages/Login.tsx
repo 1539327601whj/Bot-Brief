@@ -12,6 +12,19 @@ import './Auth.css'
 
 type Mode = 'list' | 'form'
 
+function authErrorMessage(err: any, fallback: string) {
+  const data = err?.response?.data
+  const bodyMessage = typeof data?.message === 'string' ? data.message.trim() : ''
+  if (bodyMessage) return bodyMessage
+  const springError = typeof data?.error === 'string' ? data.error.trim() : ''
+  if (springError && springError !== 'Internal Server Error') return springError
+  const status = err?.response?.status
+  if (status === 500) return '服务器登录接口异常。请检查后端是否在运行，以及数据库、JWT_SECRET 是否正常。'
+  if (status === 502 || status === 503 || status === 504) return '后端暂时不可用，请稍后再试'
+  if (!err?.response) return '无法连接服务器，请确认后端已启动'
+  return err?.message || fallback
+}
+
 export default function Login() {
   const { login, demoLogin } = useAuth()
   const nav = useNavigate()
@@ -53,7 +66,7 @@ export default function Login() {
       persistAfterLogin(email.trim(), info)
       nav('/', { replace: true })
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || '登录失败')
+      setError(authErrorMessage(err, '登录失败'))
     } finally {
       setSubmitting(false)
     }
@@ -67,7 +80,7 @@ export default function Login() {
       await demoLogin()
       nav('/', { replace: true })
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Demo 登录失败')
+      setError(authErrorMessage(err, 'Demo 登录失败'))
     } finally {
       setSubmitting(false)
     }
