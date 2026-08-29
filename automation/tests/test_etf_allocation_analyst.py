@@ -102,6 +102,19 @@ class AllocationRuleTests(unittest.TestCase):
         )
         self.assertEqual(result["action"], analyst.ACTION_BUY_MORE)
 
+    def test_sp500_follows_qdii_premium_rules(self):
+        result = memo(
+            code="513500",
+            name="标普500ETF 博时",
+            pe_percentile=18,
+            distance_from_month_high=-12,
+            premium_rate=None,
+            premium_reference_only=True,
+        )
+        self.assertEqual(result["action"], analyst.ACTION_BUY_PLAN)
+        self.assertTrue(any("不能升到多买" in item for item in result["vetoes"]))
+        self.assertIn("跨境IOPV", result["reasons"][2])
+
     def test_nasdaq_premium_threshold_is_wider_than_csi300(self):
         shared = dict(pe_percentile=18, distance_from_month_high=-12, premium_rate=2.4)
         csi = memo(**shared)

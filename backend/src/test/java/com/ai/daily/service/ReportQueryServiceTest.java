@@ -4,7 +4,10 @@ import com.ai.daily.entity.Report;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReportQueryServiceTest {
@@ -39,5 +42,31 @@ class ReportQueryServiceTest {
         assertThat(service.getById(7L, false, 9L)).isSameAs(userBrief);
         assertThat(service.getById(7L, false, 10L)).isSameAs(market);
         assertThat(service.getById(7L, true, 9L)).isNull();
+    }
+
+    @Test
+    void adminReadsLatestPublicDigestWithoutAssemblingPersonalBriefs() {
+        ReportService reports = mock(ReportService.class);
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        ReportQueryService service = new ReportQueryService(
+                reports,
+                mock(ReportAssemblyService.class),
+                subscriptions,
+                mock(SubscriptionPreferences.class));
+        Report publicMorning = new Report();
+        publicMorning.setId(8L);
+        publicMorning.setUserId(Report.PUBLIC_OWNER_ID);
+        publicMorning.setEdition("morning");
+        Report market = new Report();
+        market.setId(10L);
+        market.setUserId(Report.PUBLIC_OWNER_ID);
+        market.setEdition("market_watch_evening");
+        when(reports.getLatestByEdition("morning")).thenReturn(publicMorning);
+        when(reports.getLatestByEdition("market_watch_evening")).thenReturn(market);
+
+        assertThat(service.getLatest(7L, false, true, "morning")).isSameAs(publicMorning);
+        assertThat(service.getLatest(7L, false, true, "market_watch_evening")).isSameAs(market);
+        assertThat(service.getLatest(7L, false, false, "morning")).isNull();
+        verify(subscriptions, never()).getOrCreateForUser(any());
     }
 }

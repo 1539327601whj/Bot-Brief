@@ -6,6 +6,7 @@ import com.ai.daily.entity.Subscription;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -14,6 +15,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReportQueryService {
@@ -41,20 +43,22 @@ public class ReportQueryService {
             }
             return reportService.getLatestByEdition(edition);
         }
-        if (userId == null) return null;
-        ensureTodayAssembled(userId);
         if (edition != null && !edition.isBlank()) {
-            if (Report.isPersonalizedEdition(edition)) {
-                return reportService.getLatestForUser(userId, Report.PERSONAL);
-            }
             if (Report.isSharedPublicEdition(edition)) {
                 return reportService.getLatestByEdition(edition);
             }
             if (allowPublicDigest && Report.isPublicDigest(edition)) {
                 return reportService.getLatestByEdition(edition);
             }
+            if (userId == null) return null;
+            if (Report.isPersonalizedEdition(edition)) {
+                safeEnsureTodayAssembled(userId);
+                return reportService.getLatestForUser(userId, Report.PERSONAL);
+            }
             return null;
         }
+        if (userId == null) return null;
+        safeEnsureTodayAssembled(userId);
         Report mine = reportService.getLatestForUser(userId, Report.PERSONAL);
         Report market = reportService.getLatestPublicMarketWatch();
         Report digest = allowPublicDigest ? latestPublicDigest() : null;
@@ -97,8 +101,8 @@ public class ReportQueryService {
             LocalDateTime start,
             LocalDateTime end,
             String keyword) {
-        if (!demo && userId != null) {
-            ensureTodayAssembled(userId);
+        if (!demo && userId != null && !isPublicOnlyEdition(edition)) {
+            safeEnsureTodayAssembled(userId);
         }
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
         if (demo) {
@@ -139,7 +143,7 @@ public class ReportQueryService {
     public long countVisible(
             Long userId, boolean demo, boolean allowPublicDigest, LocalDateTime start, LocalDateTime end) {
         if (!demo && userId != null) {
-            ensureTodayAssembled(userId);
+            safeEnsureTodayAssembled(userId);
         }
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
         if (start != null) wrapper.ge(Report::getCreatedAt, start);
@@ -171,17 +175,27 @@ public class ReportQueryService {
             wrapper.eq(Report::getId, -1L);
             return;
         }
-        wrapper.and(w -> w.eq(Report::getUserId, userId)
-                .or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
-                        .and(publicReport -> {
-                            if (allowPublicDigest) {
-                                publicReport.likeRight(Report::getEdition, "market_watch")
-                                        .or()
-                                        .in(Report::getEdition, "morning", "evening");
-                            } else {
-                                publicReport.likeRight(Report::getEdition, "market_watch");
-                            }
-                        })));
+        wrapper.and(w -> {
+            w.eq(Report::getUserId, userId)
+                    .or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
+                            .likeRight(Report::getEdition, "market_watch"));
+            if (allowPublicDigest) {
+                w.or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
+                        .in(Report::getEdition, "morning", "evening"));
+            }
+        });
+    }
+
+    private void safeEnsureTodayAssembled(Long userId) {
+        try {
+            ensureTodayAssembled(userId);
+        } catch (Exception e) {
+            log.warn("拼装今日个人简报失败，不影响公共日报查询: userId={}, {}", userId, e.getMessage());
+        }
+    }
+
+    private static boolean isPublicOnlyEdition(String edition) {
+        return Report.isPublicDigest(edition) || Report.isSharedPublicEdition(edition);
     }
 
     private void assembleDueForToday(Long userId) {
@@ -189,7 +203,13 @@ public class ReportQueryService {
         LocalTime now = LocalTime.now(BEIJING).withSecond(0).withNano(0);
         Subscription subscription = subscriptionService.getOrCreateForUser(userId);
         for (SubscriptionDTO.TopicScheduleItemDTO item : subscriptionPreferences.enabledTopicItemsOn(subscription, today)) {
-            LocalTime time = ReportWindows.parse(item.getTime());
+            LocalTime time;
+            try {
+                time = ReportWindows.parse(item.getTime());
+            } catch (RuntimeException e) {
+                log.warn("跳过无效订阅时刻: userId={}, time={}", userId, item.getTime());
+                continue;
+            }
             if (time.isAfter(now)) continue;
             List<String> topics = subscriptionPreferences.enabledTopicItemsAt(subscription, time, today).stream()
                     .map(SubscriptionDTO.TopicScheduleItemDTO::getTopic)

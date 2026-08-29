@@ -853,6 +853,37 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.overview-pane {
+  margin-bottom: 28px;
+  padding: 22px 22px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(13, 17, 27, 0.45);
+}
+
+.overview-pane.personal {
+  border-color: rgba(0, 212, 170, 0.2);
+  background: rgba(0, 212, 170, 0.03);
+}
+
+.overview-pane-kicker {
+  margin: 0 0 6px;
+  color: #8b9cff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.overview-pane.personal .overview-pane-kicker {
+  color: #00d4aa;
+}
+
+.overview-pane-desc {
+  margin: 6px 0 0;
+  color: #8b949e;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .overview-section-header {
   display: flex;
   justify-content: space-between;

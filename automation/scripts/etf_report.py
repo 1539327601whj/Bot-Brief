@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ETF 市场数据简报脚本
-用于汇总沪深300ETF与纳指100ETF的行情、估值、来源和数据风险。
+用于汇总沪深300ETF、纳指100ETF与标普500ETF的行情、估值、来源和数据风险。
 """
 
 import calendar
@@ -37,6 +37,7 @@ ETF_LIST = [
         "valuation_index_code": "SH000300",
         "valuation_env_prefix": "CSI300",
         "percentile_method": "CSI_PE_TTM_ROLLING_10Y",
+        "qdii": False,
     },
     {
         "name": "纳指100ETF 国泰",
@@ -47,8 +48,24 @@ ETF_LIST = [
         "valuation_index_code": "NDX",
         "valuation_env_prefix": "NASDAQ100",
         "percentile_method": "DANJUAN_PE_TTM_PROVIDER",
+        "qdii": True,
+    },
+    {
+        "name": "标普500ETF 博时",
+        "code": "513500",
+        "eastmoney_secid": "1.513500",
+        "sina_code": "sh513500",
+        "index_name": "标普500指数",
+        "valuation_index_code": "SP500",
+        "valuation_env_prefix": "SP500",
+        "percentile_method": "DANJUAN_PE_TTM_PROVIDER",
+        "qdii": True,
     },
 ]
+
+
+def etf_is_qdii(etf: dict[str, Any]) -> bool:
+    return bool(etf.get("qdii")) or etf.get("code") in {"513100", "513500"}
 
 A_SHARE_PICK_COUNT = 2
 A_SHARE_PAGE_SIZE = 100
@@ -93,6 +110,14 @@ PRICE_HISTORY_LIMIT = 120
 PRICE_CACHE_QUERY_LIMIT = PRICE_HISTORY_LIMIT * 2
 PRICE_MAX_STALENESS_DAYS = 15
 PE_LOOKBACK_DAYS = 15
+NAV_HISTORY_PAGES = 2
+NAV_PAGE_SIZE = 20
+UNADJUSTED_CLOSE_LIMIT = 60
+PREMIUM_HISTORY_STALENESS_DAYS = 15
+EASTMONEY_FUND_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "https://fundf10.eastmoney.com/",
+}
 RETRYABLE_STATUS_CODES = (408, 429, 500, 502, 503, 504)
 WECHAT_RETRYABLE_ERRCODES = (-1, 45009)
 
@@ -795,7 +820,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
                 "estimated_nav": None,
                 "data_time": data_time,
                 "source": "东方财富ETF实时IOPV",
-                "reference_only": etf["code"] == "513100",
+                "reference_only": etf_is_qdii(etf),
                 "data_status": "stale_source",
                 "error": "IOPV日期与行情日期不一致",
             }
@@ -824,7 +849,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "estimated_nav": estimated_nav,
             "data_time": data_time,
             "source": "东方财富ETF实时IOPV",
-            "reference_only": etf["code"] == "513100",
+            "reference_only": etf_is_qdii(etf),
             "data_status": "available",
             "error": None,
         }
@@ -836,10 +861,227 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "estimated_nav": None,
             "data_time": "不可确认",
             "source": "东方财富ETF实时IOPV",
-            "reference_only": etf["code"] == "513100",
+            "reference_only": etf_is_qdii(etf),
             "data_status": "provider_error",
             "error": f"东方财富ETF实时IOPV不可用: {e}",
         }
+
+
+def empty_premium_history_fields() -> dict[str, Any]:
+    return {
+        "display_rate": None,
+        "display_date": None,
+        "previous_rate": None,
+        "previous_date": None,
+        "week_rate": None,
+        "week_date": None,
+        "month_rate": None,
+        "month_date": None,
+        "history_source": None,
+        "history_error": None,
+    }
+
+
+def normalize_nav_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    today = now_beijing().date()
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trade_date = parse_iso_date(row.get("FSRQ") or row.get("date"))
+        nav = finite_positive(row.get("DWJZ") or row.get("nav"))
+        if trade_date is None or trade_date > today or nav is None:
+            continue
+        by_date[trade_date.isoformat()] = {"date": trade_date.isoformat(), "nav": nav}
+    return [by_date[key] for key in sorted(by_date)]
+
+
+def normalize_unadjusted_closes(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    today = now_beijing().date()
+    by_date: dict[str, dict[str, Any]] = {}
+    for item in items:
+        trade_date = parse_iso_date(item.get("date"))
+        close = finite_positive(item.get("close"))
+        if trade_date is None or trade_date > today or close is None:
+            continue
+        by_date[trade_date.isoformat()] = {
+            "date": trade_date.isoformat(),
+            "close": close,
+            "source": str(item.get("source") or "不复权收盘"),
+        }
+    return [by_date[key] for key in sorted(by_date)]
+
+
+def fetch_etf_nav_history_from_eastmoney(etf: dict[str, str]) -> list[dict[str, Any]]:
+    rows: list[Any] = []
+    for page in range(1, NAV_HISTORY_PAGES + 1):
+        resp = http_get(
+            "https://api.fund.eastmoney.com/f10/lsjz",
+            params={"fundCode": etf["code"], "pageIndex": page, "pageSize": NAV_PAGE_SIZE},
+            timeout=(5, 15),
+            headers=EASTMONEY_FUND_HEADERS,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        data = body.get("Data") if isinstance(body, dict) else None
+        page_rows = data.get("LSJZList") if isinstance(data, dict) else None
+        if not isinstance(page_rows, list) or not page_rows:
+            break
+        rows.extend(page_rows)
+    navs = normalize_nav_rows(rows)
+    if len(navs) < 5:
+        raise RuntimeError("东方财富单位净值数量不足")
+    return navs
+
+
+def fetch_etf_unadjusted_closes_from_eastmoney(etf: dict[str, str]) -> list[dict[str, Any]]:
+    resp = http_get(
+        "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+        params={
+            "secid": etf["eastmoney_secid"],
+            "klt": 101,
+            "fqt": 0,
+            "lmt": UNADJUSTED_CLOSE_LIMIT,
+            "end": "20500101",
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56",
+        },
+        timeout=(5, 15),
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data") or {}
+    if str(data.get("code") or etf["code"]) != etf["code"]:
+        raise RuntimeError("东方财富不复权日线代码不匹配")
+    raw_items = []
+    for line in data.get("klines") or []:
+        parts = line.split(",") if isinstance(line, str) else []
+        if len(parts) >= 3:
+            raw_items.append({
+                "date": parts[0],
+                "close": parts[2],
+                "source": "东方财富不复权日线",
+            })
+    closes = normalize_unadjusted_closes(raw_items)
+    if len(closes) < 10:
+        raise RuntimeError("东方财富不复权收盘数量不足")
+    return closes
+
+
+def fetch_etf_unadjusted_closes_from_tencent(etf: dict[str, str]) -> list[dict[str, Any]]:
+    symbol = etf["sina_code"]
+    resp = http_get(
+        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+        params={"param": f"{symbol},day,,,{UNADJUSTED_CLOSE_LIMIT},"},
+        timeout=(5, 15),
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"},
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    data = body.get("data") if isinstance(body, dict) else None
+    node = (data.get(symbol) or data.get(f"sh{etf['code']}") or data.get(f"sz{etf['code']}")) if isinstance(data, dict) else None
+    rows = node.get("day") if isinstance(node, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError("腾讯不复权日线缺少 day 列表")
+    raw_items = []
+    for row in rows:
+        if isinstance(row, list) and len(row) >= 3:
+            raw_items.append({
+                "date": row[0],
+                "close": row[2],
+                "source": "腾讯不复权日线",
+            })
+    closes = normalize_unadjusted_closes(raw_items)
+    if len(closes) < 10:
+        raise RuntimeError("腾讯不复权收盘数量不足")
+    return closes
+
+
+def fetch_etf_unadjusted_closes(etf: dict[str, str]) -> list[dict[str, Any]]:
+    errors = []
+    for fetcher in (fetch_etf_unadjusted_closes_from_eastmoney, fetch_etf_unadjusted_closes_from_tencent):
+        try:
+            return fetcher(etf)
+        except Exception as e:
+            errors.append(f"{getattr(fetcher, '__name__', '收盘适配器')}: {e}")
+    raise RuntimeError("不复权收盘双源失败: " + "; ".join(errors))
+
+
+def pair_premium_observations(
+    closes: list[dict[str, Any]],
+    navs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    nav_by_date = {item["date"]: item["nav"] for item in navs}
+    observations = []
+    for item in closes:
+        close = finite_positive(item.get("close"))
+        nav = nav_by_date.get(item["date"])
+        rate = pct_return(close, nav)
+        if rate is None:
+            continue
+        observations.append({
+            "date": item["date"],
+            "close": close,
+            "nav": nav,
+            "premium_rate": rate,
+        })
+    return observations
+
+
+def premium_history_anchor(premium: dict[str, Any], quote: dict[str, Any]) -> date:
+    if premium.get("premium_rate") is not None:
+        iopv_date = parse_iso_date(premium.get("data_time"))
+        if iopv_date is not None:
+            return iopv_date
+    quote_date = parse_iso_date(quote.get("data_time"))
+    if quote_date is not None:
+        return quote_date
+    return now_beijing().date()
+
+
+def enrich_premium_with_history(
+    etf: dict[str, str],
+    premium: dict[str, Any],
+    quote: dict[str, Any],
+) -> dict[str, Any]:
+    fields = empty_premium_history_fields()
+    try:
+        navs = fetch_etf_nav_history_from_eastmoney(etf)
+        closes = fetch_etf_unadjusted_closes(etf)
+        observations = pair_premium_observations(closes, navs)
+        if not observations:
+            raise RuntimeError("净值与不复权收盘没有同一天可配对")
+        anchor = premium_history_anchor(premium, quote)
+        latest = latest_observation_on_or_before(
+            observations, anchor, max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
+        history_anchor = parse_iso_date(latest["date"]) if latest and premium.get("premium_rate") is None else anchor
+        if history_anchor is None:
+            history_anchor = anchor
+        previous = latest_observation_on_or_before(
+            observations, history_anchor - timedelta(days=1), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
+        week = latest_observation_on_or_before(
+            observations, history_anchor - timedelta(days=7), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
+        month = latest_observation_on_or_before(
+            observations, subtract_calendar_month(history_anchor), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
+        fields.update({
+            "display_rate": latest["premium_rate"] if latest else None,
+            "display_date": latest["date"] if latest else None,
+            "previous_rate": previous["premium_rate"] if previous else None,
+            "previous_date": previous["date"] if previous else None,
+            "week_rate": week["premium_rate"] if week else None,
+            "week_date": week["date"] if week else None,
+            "month_rate": month["premium_rate"] if month else None,
+            "month_date": month["date"] if month else None,
+            "history_source": "东方财富单位净值+不复权收盘",
+        })
+    except Exception as e:
+        fields["history_error"] = str(e)
+        print(f"  ⚠️ {etf['name']} 历史溢价失败: {e}")
+    return {**premium, **fields}
 
 
 def valuation_level(percentile_value: Optional[float]) -> str:
@@ -1233,12 +1475,34 @@ def fmt_change_pct(value: Optional[float]) -> str:
     return "— 0.00%"
 
 
+def format_premium_rate(rate: Optional[float]) -> str:
+    return "不可确认" if rate is None else f"{rate:+.2f}%"
+
+
 def format_premium(premium: dict[str, Any]) -> str:
     rate = premium.get("premium_rate")
-    if rate is None:
-        return premium.get("level") or "不可确认"
-    note = "，跨境IOPV仅供参考" if premium.get("reference_only") else ""
-    return f"{rate:+.2f}%（{premium['level']}{note}）"
+    if rate is not None:
+        note = "，跨境IOPV仅供参考" if premium.get("reference_only") else ""
+        return f"{rate:+.2f}%（{premium['level']}{note}）"
+    display = premium.get("display_rate")
+    if display is not None:
+        note = "，收盘相对净值，跨境仅供参考" if premium.get("reference_only") else "，收盘相对净值"
+        return f"{display:+.2f}%{fmt_baseline_date(premium.get('display_date'))}（{premium_level(display)}{note}）"
+    return premium.get("level") or "不可确认"
+
+
+def format_premium_with_lookbacks(premium: dict[str, Any], etf: dict[str, Any]) -> str:
+    today = format_premium(premium)
+    if not etf_is_qdii(etf):
+        return today
+    return (
+        f"{today}；一天前{fmt_baseline_date(premium.get('previous_date'))} "
+        f"{format_premium_rate(premium.get('previous_rate'))}；"
+        f"一周前{fmt_baseline_date(premium.get('week_date'))} "
+        f"{format_premium_rate(premium.get('week_rate'))}；"
+        f"一月前{fmt_baseline_date(premium.get('month_date'))} "
+        f"{format_premium_rate(premium.get('month_rate'))}"
+    )
 
 
 def valuation_trade_date(valuation: dict[str, Any]) -> Optional[str]:
@@ -1543,11 +1807,13 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
             "estimated_nav": None,
             "data_time": "不可确认",
             "source": "不可确认",
-            "reference_only": False,
+            "reference_only": etf_is_qdii(etf),
             "data_status": "stale_source",
             "error": "实时行情失败，缓存收盘不能与实时IOPV比较",
         }
     )
+    if etf_is_qdii(etf):
+        premium = enrich_premium_with_history(etf, premium, quote)
     return {
         "etf": etf,
         "quote": quote,
@@ -1917,12 +2183,12 @@ def format_conclusion_line(snapshot: dict[str, Any], memo: Any) -> str:
 def format_lead_conclusion(snapshots: list[dict[str, Any]], memos: list[Any]) -> list[str]:
     lines = ["## 先看结论"]
     lines.extend(format_conclusion_line(snapshot, memo) for snapshot, memo in zip(snapshots, memos))
-    lines.append("- 两只指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
+    lines.append("- 各指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
     return lines
 
 
 def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
-    lines = ["## 两只ETF变化"]
+    lines = ["## ETF变化"]
     for snapshot in snapshots:
         quote = snapshot["quote"]
         context = snapshot["price_context"]
@@ -1965,10 +2231,35 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
             f"- 当前PE分位 {current}｜一月前分位{fmt_baseline_date(pe_context['month_baseline_date'])} "
             f"{fmt_pe_percentile(pe_context['month_baseline'])}｜近一月 "
             f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
-            f"- 溢价：{format_premium(premium)}；估值源："
+            f"- 溢价：{format_premium_with_lookbacks(premium, snapshot['etf'])}；估值源："
             f"{valuation.get('source') or '不可确认'}；"
             f"{data_status_label(valuation.get('data_status'))}；口径："
             f"{percentile_method_label(method)}。",
+        ])
+    return lines
+
+
+def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
+    qdii_snapshots = [snapshot for snapshot in snapshots if etf_is_qdii(snapshot["etf"])]
+    if not qdii_snapshots:
+        return []
+    lines = ["## 溢价变化"]
+    for snapshot in qdii_snapshots:
+        premium = snapshot["premium"]
+        current = format_premium_rate(
+            premium.get("premium_rate") if premium.get("premium_rate") is not None else premium.get("display_rate")
+        )
+        lines.extend([
+            f"### {etf_short_name(snapshot)}",
+            f"- 当天溢价 {format_premium(premium)}",
+            f"- 当天溢价 {current}｜一天前溢价{fmt_baseline_date(premium.get('previous_date'))} "
+            f"{format_premium_rate(premium.get('previous_rate'))}",
+            f"- 当天溢价 {current}｜一周前溢价{fmt_baseline_date(premium.get('week_date'))} "
+            f"{format_premium_rate(premium.get('week_rate'))}",
+            f"- 当天溢价 {current}｜一月前溢价{fmt_baseline_date(premium.get('month_date'))} "
+            f"{format_premium_rate(premium.get('month_rate'))}",
+            f"- 历史溢价按收盘价相对当日净值，只配对同一天；跨境仅供参考；源："
+            f"{premium.get('history_source') or '不可确认'}。",
         ])
     return lines
 
@@ -2016,6 +2307,7 @@ def build_programmatic_report(
     stock_observations: Optional[AShareObservationResult] = None,
 ) -> str:
     memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
+    premium_section = format_premium_change_section(snapshots)
     lines = [
         report_title(edition),
         "",
@@ -2025,6 +2317,8 @@ def build_programmatic_report(
         "",
         *format_pe_change_section(snapshots),
     ]
+    if premium_section:
+        lines.extend(["", *premium_section])
     issues = format_data_issue_section(snapshots)
     if issues:
         lines.extend(["", *issues])
@@ -2225,7 +2519,7 @@ def unavailable_snapshot(etf: dict[str, str], error: str) -> dict[str, Any]:
             "estimated_nav": None,
             "data_time": "不可确认",
             "source": "不可确认",
-            "reference_only": False,
+            "reference_only": etf_is_qdii(etf),
             "data_status": "unavailable",
             "error": error,
         },
@@ -2349,7 +2643,7 @@ def main() -> None:
 
     wx_content = convert_to_wework_markdown(build_wechat_report(snapshots, edition))
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF {today}"
+    title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF / 标普500ETF {today}"
     if dry_run:
         print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
         print(wx_content)

@@ -72,7 +72,16 @@ def complete_snapshot(etf=ETF):
             "level": "轻微溢价",
             "source": "溢价测试源",
             "data_time": "2026-07-27 15:00:00",
-            "reference_only": False,
+            "reference_only": report.etf_is_qdii(etf),
+            "display_rate": 1.2,
+            "display_date": "2026-07-24",
+            "previous_rate": 1.0,
+            "previous_date": "2026-07-24",
+            "week_rate": 0.8,
+            "week_date": "2026-07-20",
+            "month_rate": 0.5,
+            "month_date": "2026-06-27",
+            "history_source": "溢价历史测试源",
             "error": None,
         },
         "valuation": {
@@ -140,6 +149,85 @@ class QuoteTests(unittest.TestCase):
         self.assertAlmostEqual(premium["premium_rate"], 2.5)
         self.assertIsNone(premium["error"])
         self.assertIn("f57", get.call_args.kwargs["params"]["fields"])
+
+
+class PremiumHistoryTests(unittest.TestCase):
+    def test_pairs_only_same_date_nav_and_close(self):
+        closes = [
+            {"date": "2026-07-24", "close": 2.20},
+            {"date": "2026-07-25", "close": 2.22},
+            {"date": "2026-07-27", "close": 2.30},
+        ]
+        navs = [
+            {"date": "2026-07-24", "nav": 2.00},
+            {"date": "2026-07-25", "nav": 2.00},
+            {"date": "2026-07-26", "nav": 2.10},
+        ]
+        pairs = report.pair_premium_observations(closes, navs)
+        self.assertEqual([item["date"] for item in pairs], ["2026-07-24", "2026-07-25"])
+        self.assertAlmostEqual(pairs[0]["premium_rate"], 10.0)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_enrich_keeps_today_iopv_and_fills_lookbacks(self, _):
+        observations = [
+            {"date": "2026-06-27", "close": 2.01, "nav": 2.00, "premium_rate": 0.5},
+            {"date": "2026-07-20", "close": 2.016, "nav": 2.00, "premium_rate": 0.8},
+            {"date": "2026-07-24", "close": 2.02, "nav": 2.00, "premium_rate": 1.0},
+            {"date": "2026-07-27", "close": 2.024, "nav": 2.00, "premium_rate": 1.2},
+        ]
+        premium = {
+            "premium_rate": 0.2,
+            "level": "接近净值",
+            "data_time": "2026-07-27 15:00:00",
+            "reference_only": True,
+        }
+        quote = {"data_time": "2026-07-27 15:00:00"}
+        with patch.object(report, "fetch_etf_nav_history_from_eastmoney", return_value=[
+            {"date": item["date"], "nav": item["nav"]} for item in observations
+        ]), patch.object(report, "fetch_etf_unadjusted_closes", return_value=[
+            {"date": item["date"], "close": item["close"]} for item in observations
+        ]):
+            result = report.enrich_premium_with_history(report.ETF_LIST[1], premium, quote)
+        self.assertEqual(result["premium_rate"], 0.2)
+        self.assertAlmostEqual(result["display_rate"], 1.2)
+        self.assertEqual(result["previous_date"], "2026-07-24")
+        self.assertEqual(result["week_date"], "2026-07-20")
+        self.assertEqual(result["month_date"], "2026-06-27")
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_format_premium_falls_back_to_nav_close(self, _):
+        text = report.format_premium({
+            "premium_rate": None,
+            "level": "IOPV未与行情同步",
+            "display_rate": 11.21,
+            "display_date": "2026-08-27",
+            "reference_only": True,
+        })
+        self.assertIn("+11.21%", text)
+        self.assertIn("08-27", text)
+        self.assertIn("收盘相对净值", text)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_csi300_report_omits_premium_history_section(self, _):
+        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening")
+        self.assertNotIn("溢价变化", text)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    @patch.object(report, "http_get")
+    def test_nav_history_reads_two_pages(self, get, _):
+        get.side_effect = [
+            response({"Data": {"LSJZList": [
+                {"FSRQ": f"2026-07-{day:02d}", "DWJZ": "2.00"} for day in range(10, 20)
+            ]}}),
+            response({"Data": {"LSJZList": [
+                {"FSRQ": f"2026-06-{day:02d}", "DWJZ": "1.90"} for day in range(10, 20)
+            ]}}),
+        ]
+        navs = report.fetch_etf_nav_history_from_eastmoney(report.ETF_LIST[1])
+        self.assertEqual(len(navs), 20)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[0].kwargs["params"]["fundCode"], "513100")
+        self.assertEqual(get.call_args_list[1].kwargs["params"]["pageIndex"], 2)
 
 
 class HistoryTests(unittest.TestCase):
@@ -361,7 +449,7 @@ class ReportTests(unittest.TestCase):
             [complete_snapshot()], "market_watch_evening", stocks
         )
         for required in (
-            "ETF 行情日报", "先看结论", "两只ETF变化", "PE分位变化",
+            "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
             "按计划买", "行情价 4.100 元", "该交易日",
             "PE(TTM) 12.50", "PE分位 45%", "本次观测",
             "中证 PE(TTM) 滚动10年分位",
@@ -383,8 +471,9 @@ class ReportTests(unittest.TestCase):
         text = report.build_wechat_report(snapshots, "market_watch_evening")
         for required in (
             "ETF 行情日报", "先看结论", "按计划买",
-            "两只ETF变化", "PE分位变化",
+            "ETF变化", "PE分位变化",
             "行情价 4.100 元", "PE(TTM) 12.50", "PE分位 45%",
+            "一天前", "一周前", "一月前",
         ):
             self.assertIn(required, text)
         for forbidden in (
@@ -395,8 +484,9 @@ class ReportTests(unittest.TestCase):
         wx = report.convert_to_wework_markdown(text)
         self.assertNotIn("内容已截断", wx)
         self.assertLessEqual(len(wx.encode("utf-8")), 3800)
-        self.assertIn("两只ETF变化", wx)
+        self.assertIn("ETF变化", wx)
         self.assertIn("PE分位变化", wx)
+        self.assertIn("一天前", wx)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_conclusion_uses_allocation_action(self, _):
@@ -426,6 +516,28 @@ class ReportTests(unittest.TestCase):
         self.assertLessEqual(len(wx.encode("utf-8")), 3800)
         self.assertIn("先看结论", wx)
         self.assertNotIn("东方财富候选数据不可用", wx)
+
+    def test_watchlist_includes_bosera_sp500(self):
+        codes = [item["code"] for item in report.ETF_LIST]
+        self.assertEqual(codes, ["510300", "513100", "513500"])
+        sp500 = report.ETF_LIST[2]
+        self.assertEqual(sp500["valuation_index_code"], "SP500")
+        self.assertTrue(report.etf_is_qdii(sp500))
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_full_report_covers_all_three_etfs(self, _):
+        snapshots = [complete_snapshot(item) for item in report.ETF_LIST]
+        text = report.build_programmatic_report(snapshots, "market_watch_evening")
+        for name in ("沪深300ETF", "纳指100ETF", "标普500ETF"):
+            self.assertIn(name, text)
+        self.assertIn("ETF变化", text)
+        self.assertNotIn("两只ETF变化", text)
+        self.assertIn("溢价变化", text)
+        self.assertIn("一天前溢价", text)
+        self.assertIn("一周前溢价", text)
+        self.assertIn("一月前溢价", text)
+        self.assertIn("### 纳指100ETF", text)
+        self.assertIn("### 标普500ETF", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_allocation_memo_degrades_when_pe_is_missing(self, _):

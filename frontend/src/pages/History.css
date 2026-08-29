@@ -218,6 +218,25 @@
   gap: 12px;
 }
 
+.history-page .history-group {
+  margin-bottom: 24px;
+  padding: 18px 18px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(13, 17, 27, 0.35);
+}
+
+.history-page .history-group.personal {
+  border-color: rgba(0, 212, 170, 0.2);
+  background: rgba(0, 212, 170, 0.03);
+}
+
+.history-page .history-group h3 {
+  margin: 0 0 14px;
+  color: #e6edf3;
+  font-size: 16px;
+}
+
 .history-page .history-pagination {
   display: flex;
   justify-content: center;

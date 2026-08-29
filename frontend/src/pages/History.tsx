@@ -133,6 +133,28 @@ export default function History() {
     setPage(1)
   }
 
+  const renderReportCard = (report: Report) => {
+    const editionInfo = getReportEditionInfo(report.edition, report.displayTime)
+    return (
+      <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
+        <div className="report-icon">{editionInfo.icon}</div>
+        <div className="report-content">
+          <div className="report-meta">
+            <span className="report-category">{editionInfo.label}</span>
+            <span className="report-version">{editionInfo.version}</span>
+          </div>
+          <h3 className="report-title">{report.title}</h3>
+          <p className="report-summary">{report.summary}</p>
+          <div className="report-footer">
+            <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
+            <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
+          </div>
+        </div>
+        <div className="report-arrow">→</div>
+      </div>
+    )
+  }
+
   const renderPaginationItem: PaginationProps['itemRender'] = (_, type, originalElement) => {
     if ((type === 'prev' || type === 'next') && isValidElement(originalElement)) {
       return cloneElement(originalElement, {}, type === 'prev' ? '上一页' : '下一页')
@@ -163,7 +185,7 @@ export default function History() {
         <div className="history-header">
           <div className="header-info">
             <h2>📋 历史简报</h2>
-            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : isAdmin ? '管理员可查看每日公共早报/晚报，以及自己的兴趣简报' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
+            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : isAdmin ? '未筛选时上面是公共日报，下面是你的个人简报。也可以用标签单独查看。' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
           </div>
           <div className="header-stats">
             <div className="stat-badge">
@@ -244,31 +266,32 @@ export default function History() {
           </div>
         ) : (
           <>
-            <div className="reports-list">
-              {reports.map(report => {
-                const editionInfo = getReportEditionInfo(report.edition, report.displayTime)
-                return (
-                  <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
-                    <div className="report-icon">{editionInfo.icon}</div>
-                    <div className="report-content">
-                      <div className="report-meta">
-                        <span className="report-category">
-                          {editionInfo.label}
-                        </span>
-                        <span className="report-version">{editionInfo.version}</span>
-                      </div>
-                      <h3 className="report-title">{report.title}</h3>
-                      <p className="report-summary">{report.summary}</p>
-                      <div className="report-footer">
-                        <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
-                        <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
-                      </div>
-                    </div>
-                    <div className="report-arrow">→</div>
+            {isAdmin && !edition ? (
+              <>
+                <div className="history-group">
+                  <h3>公共日报</h3>
+                  <div className="reports-list">
+                    {reports.filter(report => report.edition !== 'personal').map(renderReportCard)}
                   </div>
-                )
-              })}
-            </div>
+                  {reports.every(report => report.edition === 'personal') && (
+                    <div className="empty-state"><p>当前页没有公共日报</p></div>
+                  )}
+                </div>
+                <div className="history-group personal">
+                  <h3>我的个人简报</h3>
+                  <div className="reports-list">
+                    {reports.filter(report => report.edition === 'personal').map(renderReportCard)}
+                  </div>
+                  {reports.every(report => report.edition !== 'personal') && (
+                    <div className="empty-state"><p>当前页没有个人简报</p></div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="reports-list">
+                {reports.map(renderReportCard)}
+              </div>
+            )}
             <Pagination
               className="history-pagination"
               current={pageData?.current ?? page}

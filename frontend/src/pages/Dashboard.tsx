@@ -114,6 +114,17 @@ async function safeGet<T>(url: string, config?: Record<string, unknown>): Promis
   }
 }
 
+function firstByEdition(reports: Report[] | undefined, edition: string) {
+  return reports?.find(report => report.edition === edition) || null
+}
+
+async function latestPublicReport(edition: string): Promise<Report | null> {
+  const latest = await safeGet<Report>('/reports/latest', { params: { edition } })
+  if (latest) return latest
+  const page = await safeGet<{ records: Report[] }>('/reports', { params: { edition, page: 1, size: 1 } })
+  return page?.records?.[0] || null
+}
+
 function ReportMiniCard({ report, edition, emptyHint, displayTime }: { report: Report | null; edition: EditionKey; emptyHint?: string; displayTime?: string }) {
   const [expanded, setExpanded] = useState(false)
   const info = getReportEditionInfo(edition, report?.displayTime || displayTime)
@@ -288,6 +299,37 @@ function SuggestionCard({ suggestions }: { suggestions: string[] }) {
   )
 }
 
+function isPublicEdition(edition?: string) {
+  return edition === 'morning' || edition === 'evening' || Boolean(edition?.startsWith('market_watch')) || Boolean(edition?.startsWith('etf_'))
+}
+
+function RecentReportList({ reports }: { reports: Report[] }) {
+  if (reports.length === 0) {
+    return <div className="empty">暂无报告</div>
+  }
+  return (
+    <div className="report-list">
+      <div className="list">
+        {reports.map(report => {
+          const info = getReportEditionInfo(report.edition, report.displayTime)
+          return (
+            <div key={report.id} className="report-item">
+              <div className="item-left">
+                <span className={info.className}>{info.shortLabel}</span>
+                <span className="item-time">{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+              </div>
+              <div className="item-right">
+                <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>
+                <p className="item-summary">{report.summary}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function AlertsCard({ alerts }: { alerts: string[] }) {
   return (
     <div className={`overview-card ${alerts.length > 0 ? 'alert-card' : 'ok-card'}`}>
@@ -325,25 +367,26 @@ export default function Dashboard() {
       setLoading(true)
       const today = dayjs.tz().format('YYYY-MM-DD')
       const [morningReport, eveningReport, etfEvening, personalPage, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
-        canSeePublicDigest ? safeGet<Report>('/reports/latest', { params: { edition: 'morning' } }) : Promise.resolve(null),
-        canSeePublicDigest ? safeGet<Report>('/reports/latest', { params: { edition: 'evening' } }) : Promise.resolve(null),
-        safeGet<Report>('/reports/latest', { params: { edition: 'market_watch_evening' } }),
+        canSeePublicDigest ? latestPublicReport('morning') : Promise.resolve(null),
+        canSeePublicDigest ? latestPublicReport('evening') : Promise.resolve(null),
+        latestPublicReport('market_watch_evening'),
         isDemo ? Promise.resolve(null) : safeGet<{ records: Report[] }>('/reports', { params: { edition: 'personal', startDate: today, endDate: today, page: 1, size: 20 } }),
         safeGet<DashboardStats>('/stats/dashboard'),
         isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
         isDemo ? Promise.resolve(demoPushLogs) : safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),
-        safeGet<{ records: Report[] }>('/reports', { params: { page: 1, size: 6 } }),
+        safeGet<{ records: Report[] }>('/reports', { params: { page: 1, size: canSeePublicDigest ? 12 : 6 } }),
       ])
 
       if (!mounted) return
-      setMorning(morningReport)
-      setEvening(eveningReport)
-      setMarketWatch(etfEvening)
+      const recent = recentData?.records || []
+      setMorning(morningReport || firstByEdition(recent, 'morning'))
+      setEvening(eveningReport || firstByEdition(recent, 'evening'))
+      setMarketWatch(etfEvening || firstByEdition(recent, 'market_watch_evening'))
       setPersonalReports(personalPage?.records || [])
       setStats(statsData)
       setSubscription(subscriptionData)
       setPushLogs(pushLogData || [])
-      setRecentReports(recentData?.records || [])
+      setRecentReports(recent)
       setLoading(false)
     }
 
@@ -426,7 +469,7 @@ export default function Dashboard() {
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
           <h1 className="welcome-title">今日概览</h1>
-          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '管理员可查看每日公共早报/晚报；你自己的兴趣简报仍按订阅生成' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
+          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '上半部分是全站公共日报，下半部分是你自己的个人订阅。两边互不影响。' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
         </div>
         <div className="overview-hero-stats">
           <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
@@ -435,85 +478,141 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="overview-main-grid">
-        <FocusCard report={focusReport} />
-        <SuggestionCard suggestions={suggestions} />
-        <AlertsCard alerts={alerts} />
-      </div>
-
-      <div className="overview-section-header">
-        <h2>今日 AI 简报</h2>
-        <Link to="/reports" className="section-link">历史简报 →</Link>
-      </div>
-      <div className={canSeePublicDigest || slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
-        {canSeePublicDigest && (
-          <>
-            <ReportMiniCard report={morning} edition="morning" />
-            <ReportMiniCard report={evening} edition="evening" />
-          </>
-        )}
-        {!isDemo && slotTimes.length === 0 && !canSeePublicDigest && (
-          <ReportMiniCard report={null} edition="personal" emptyHint="请先在订阅里勾选兴趣并设定时间" />
-        )}
-        {!isDemo && slotTimes.map(time => (
-          <ReportMiniCard
-            key={time}
-            report={personalByTime.get(time) || null}
-            edition="personal"
-            displayTime={time}
-            emptyHint={`预计 ${time} 按你勾选的主题生成`}
-          />
-        ))}
-      </div>
-
-      <div className="overview-section-header">
-        <h2>ETF / A股观察</h2>
-      </div>
-      <div className="overview-single-grid">
-        <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
-      </div>
-
-      <div className="overview-main-grid">
-        <SubscriptionCard subscription={subscription} />
-        <PushStatusCard logs={pushLogs} todayReports={todayReports} />
-        <div className="overview-card">
-          <div className="overview-card-title">🔥 近期热点</div>
-          <div className="preference-tags">
-            {stats?.hotTags?.length ? stats.hotTags.slice(0, 8).map(tag => <span key={tag} className="preference-tag hot">{tag}</span>) : <span className="overview-muted">暂无热点标签</span>}
-          </div>
-          <p className="overview-muted">累计报告：{stats?.totalCount ?? '—'} 份</p>
-        </div>
-      </div>
-
-      <div className="section">
-        <div className="section-header">
-          <h2 className="section-title">📋 最近报告</h2>
-          <Link to="/reports" className="section-link">查看全部 →</Link>
-        </div>
-        <div className="report-list">
-          {recentReports.length === 0 ? (
-            <div className="empty">暂无报告</div>
-          ) : (
-            <div className="list">
-              {recentReports.map(report => {
-                const info = getReportEditionInfo(report.edition, report.displayTime)
-                return (
-                  <div key={report.id} className="report-item">
-                    <div className="item-left">
-                      <span className={info.className}>{info.shortLabel}</span>
-                      <span className="item-time">{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
-                    </div>
-                    <div className="item-right">
-                      <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>
-                      <p className="item-summary">{report.summary}</p>
-                    </div>
-                  </div>
-                )
-              })}
+      {isAdmin ? (
+        <>
+          <section className="overview-pane">
+            <div className="overview-section-header">
+              <div>
+                <p className="overview-pane-kicker">公共内容</p>
+                <h2>全站日报</h2>
+                <p className="overview-pane-desc">所有人都能看到的早报、晚报和 ETF 日报。今天没生成时显示最近一期。</p>
+              </div>
+              <Link to="/reports" className="section-link">历史日报 →</Link>
             </div>
-          )}
+            <div className="overview-two-grid">
+              <ReportMiniCard report={morning} edition="morning" />
+              <ReportMiniCard report={evening} edition="evening" />
+            </div>
+            <div className="overview-single-grid">
+              <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
+            </div>
+            <div className="overview-section-header">
+              <h2>最近公共日报</h2>
+              <Link to="/reports" className="section-link">查看全部 →</Link>
+            </div>
+            <RecentReportList reports={recentReports.filter(report => isPublicEdition(report.edition))} />
+          </section>
+
+          <section className="overview-pane personal">
+            <div className="overview-section-header">
+              <div>
+                <p className="overview-pane-kicker">个人内容</p>
+                <h2>我的订阅简报</h2>
+                <p className="overview-pane-desc">只按你在订阅管理里勾选的兴趣、星期和时刻生成，和上面的公共日报分开。</p>
+              </div>
+              <Link to="/subscription" className="section-link">设置个人订阅 →</Link>
+            </div>
+            <div className="overview-main-grid">
+              <FocusCard report={personalReports[0] || null} />
+              <SuggestionCard suggestions={suggestions} />
+              <AlertsCard alerts={alerts} />
+            </div>
+            <div className={slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
+              {slotTimes.length === 0 ? (
+                <ReportMiniCard report={null} edition="personal" emptyHint="还没有个人订阅。点右上角去勾选兴趣并设定星期、时刻" />
+              ) : (
+                slotTimes.map(time => (
+                  <ReportMiniCard
+                    key={time}
+                    report={personalByTime.get(time) || null}
+                    edition="personal"
+                    displayTime={time}
+                    emptyHint={`预计 ${time} 按你勾选的主题生成`}
+                  />
+                ))
+              )}
+            </div>
+            <div className="overview-main-grid">
+              <SubscriptionCard subscription={subscription} />
+              <PushStatusCard logs={pushLogs} todayReports={todayReports} />
+              <div className="overview-card">
+                <div className="overview-card-title">🔥 近期热点</div>
+                <div className="preference-tags">
+                  {stats?.hotTags?.length ? stats.hotTags.slice(0, 8).map(tag => <span key={tag} className="preference-tag hot">{tag}</span>) : <span className="overview-muted">暂无热点标签</span>}
+                </div>
+                <p className="overview-muted">累计报告：{stats?.totalCount ?? '—'} 份</p>
+              </div>
+            </div>
+            <div className="overview-section-header">
+              <h2>最近个人简报</h2>
+              <Link to="/reports" className="section-link">查看全部 →</Link>
+            </div>
+            <RecentReportList reports={recentReports.filter(report => report.edition === 'personal')} />
+          </section>
+        </>
+      ) : (
+        <>
+          <div className="overview-main-grid">
+            <FocusCard report={focusReport} />
+            <SuggestionCard suggestions={suggestions} />
+            <AlertsCard alerts={alerts} />
+          </div>
+
+          <div className="overview-section-header">
+            <h2>今日 AI 简报</h2>
+            <Link to="/reports" className="section-link">历史简报 →</Link>
+          </div>
+          <div className={isDemo || slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
+            {isDemo ? (
+              <>
+                <ReportMiniCard report={morning} edition="morning" />
+                <ReportMiniCard report={evening} edition="evening" />
+              </>
+            ) : slotTimes.length === 0 ? (
+              <ReportMiniCard report={null} edition="personal" emptyHint="请先在订阅里勾选兴趣并设定时间" />
+            ) : (
+              slotTimes.map(time => (
+                <ReportMiniCard
+                  key={time}
+                  report={personalByTime.get(time) || null}
+                  edition="personal"
+                  displayTime={time}
+                  emptyHint={`预计 ${time} 按你勾选的主题生成`}
+                />
+              ))
+            )}
+          </div>
+
+          <div className="overview-section-header">
+            <h2>ETF / A股观察</h2>
+          </div>
+          <div className="overview-single-grid">
+            <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
+          </div>
+
+          <div className="overview-main-grid">
+            <SubscriptionCard subscription={subscription} />
+            <PushStatusCard logs={pushLogs} todayReports={todayReports} />
+            <div className="overview-card">
+              <div className="overview-card-title">🔥 近期热点</div>
+              <div className="preference-tags">
+                {stats?.hotTags?.length ? stats.hotTags.slice(0, 8).map(tag => <span key={tag} className="preference-tag hot">{tag}</span>) : <span className="overview-muted">暂无热点标签</span>}
+              </div>
+              <p className="overview-muted">累计报告：{stats?.totalCount ?? '—'} 份</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!isAdmin && (
+        <div className="section">
+          <div className="section-header">
+            <h2 className="section-title">📋 最近报告</h2>
+            <Link to="/reports" className="section-link">查看全部 →</Link>
+          </div>
+          <RecentReportList reports={recentReports} />
         </div>
-      </div>
+      )}
     </div>
   )
 }

@@ -29,7 +29,12 @@ public final class SecurityUtils {
 
     public static boolean isAdmin() {
         UserPrincipal up = currentUserOrNull();
-        return up != null && "ADMIN".equals(up.getRole());
+        if (up == null) return false;
+        if ("ADMIN".equalsIgnoreCase(up.getRole())) return true;
+        return up.getAuthorities().stream().anyMatch(authority -> {
+            String value = authority.getAuthority();
+            return "ROLE_ADMIN".equalsIgnoreCase(value) || "ADMIN".equalsIgnoreCase(value);
+        });
     }
 
     public static boolean isDemo() {

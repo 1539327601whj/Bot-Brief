@@ -4,11 +4,20 @@ import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
 import api, { TOKEN_KEY } from '../utils/api'
+import { getReportEditionInfo } from '../utils/reportEdition'
 import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription } from '../demo/fixtures'
 import './Subscription.css'
+
+interface PublicReportPreview {
+  id: number
+  edition: string
+  title: string
+  summary: string
+  createdAt: string
+}
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
 
@@ -126,11 +135,30 @@ const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
   return detail ? `${fallback}：${detail}` : fallback
 }
 
+const PUBLIC_PREVIEWS: Array<{ edition: 'morning' | 'evening' | 'market_watch_evening'; hint: string }> = [
+  { edition: 'morning', hint: '每天 08:00 全站推送' },
+  { edition: 'evening', hint: '每天 20:00 全站推送' },
+  { edition: 'market_watch_evening', hint: 'ETF / A股观察，全站可见' },
+]
+
+async function loadPublicPreview(edition: string): Promise<PublicReportPreview | null> {
+  try {
+    const latest = await api.get('/reports/latest', { params: { edition } })
+    if (latest.data?.code === 200 && latest.data.data) return latest.data.data
+    const page = await api.get('/reports', { params: { edition, page: 1, size: 1 } })
+    return page.data?.data?.records?.[0] || null
+  } catch {
+    return null
+  }
+}
+
 export default function Subscription() {
   const { user, authReady, logout } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
+  const isAdmin = user?.role === 'ADMIN'
   const [data, setData] = useState<SubscriptionData>(normalizeSubscription({}))
   const [channels, setChannels] = useState<Channel[]>([])
+  const [publicReports, setPublicReports] = useState<Partial<Record<string, PublicReportPreview | null>>>({})
   const [customInput, setCustomInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -186,9 +214,17 @@ export default function Subscription() {
         }
         showMessage(apiMessage(err, undefined, '通讯录加载失败'), 'error')
       }
+      if (user?.role === 'ADMIN') {
+        const [morning, evening, market] = await Promise.all([
+          loadPublicPreview('morning'),
+          loadPublicPreview('evening'),
+          loadPublicPreview('market_watch_evening'),
+        ])
+        setPublicReports({ morning, evening, market_watch_evening: market })
+      }
     }
     load().finally(() => setLoading(false))
-  }, [isDemo, authReady])
+  }, [isDemo, authReady, user?.role])
 
   const items = data.topicSchedules.items
   const topics = useMemo(() => {
@@ -344,8 +380,58 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时间展示。</p>
+        <p className="page-desc">{isAdmin ? '上面是全站公共日报，始终可以查看；下面才是你自己的个人订阅，勾选后才会单独生成。' : '勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时间展示。'}</p>
       </div>
+
+      {isAdmin && (
+        <section className="subscription-pane">
+          <div className="section-title-row">
+            <div>
+              <p className="subscription-pane-kicker">公共内容</p>
+              <h3>全站日报</h3>
+              <p className="section-sub">早报、晚报和 ETF 日报对管理员始终可见，不需要在下面勾选。</p>
+            </div>
+            <Link to="/reports" className="ghost-link">历史日报 →</Link>
+          </div>
+          <div className="public-preview-list">
+            {PUBLIC_PREVIEWS.map(item => {
+              const report = publicReports[item.edition]
+              const info = getReportEditionInfo(item.edition)
+              return (
+                <div key={item.edition} className="public-preview-card">
+                  <div className="public-preview-meta">
+                    <span>{info.icon} {info.shortLabel}</span>
+                    <small>{item.hint}</small>
+                  </div>
+                  {report ? (
+                    <>
+                      <strong>{report.title}</strong>
+                      <p>{report.summary}</p>
+                      <div className="public-preview-footer">
+                        <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+                        <Link to={`/report/${report.id}`}>查看 →</Link>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="public-preview-empty">暂无最近一期，生成后会显示在这里</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      <section className={isAdmin ? 'subscription-pane personal' : undefined}>
+      {isAdmin && (
+        <div className="section-title-row pane-intro">
+          <div>
+            <p className="subscription-pane-kicker">个人内容</p>
+            <h3>我的个人订阅</h3>
+            <p className="section-sub">只影响你自己的兴趣简报。勾选主题、星期和时刻后，到点会单独生成和展示。</p>
+          </div>
+        </div>
+      )}
 
       <div className="subscription-summary">
         <div><span className="summary-label">已订阅兴趣</span><strong>{enabledTopics.length}</strong></div>
@@ -525,6 +611,7 @@ export default function Subscription() {
       <p className="interest-help">公共主题从当日资讯池筛选；自定义兴趣会按词单独检索。同一时间段里多人勾选同一词只生成一次。当天没有内容时跳过该段。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
+      </section>
     </div>
     </ConfigProvider>
   )

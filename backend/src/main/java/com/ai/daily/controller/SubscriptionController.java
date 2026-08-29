@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalTime;
@@ -37,7 +38,13 @@ public class SubscriptionController {
     public Result<SubscriptionDTO> getSubscription() {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
-        return Result.ok(convertToDTO(subscriptionService.getOrCreateForUser(userId)));
+        try {
+            return Result.ok(convertToDTO(subscriptionService.getOrCreateForUser(userId)));
+        } catch (DataAccessException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            return Result.error(500, "订阅配置读取失败：" + e.getMessage());
+        }
     }
 
     @PutMapping
@@ -74,6 +81,10 @@ public class SubscriptionController {
             return Result.error(400, e.getMessage());
         } catch (IllegalStateException e) {
             return Result.error(500, "订阅配置转换失败");
+        } catch (DataAccessException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            return Result.error(500, "订阅配置保存失败：" + e.getMessage());
         }
     }
 
@@ -110,15 +121,23 @@ public class SubscriptionController {
     }
 
     private static int hourOf(SubscriptionDTO.TopicScheduleItemDTO item) {
-        return ReportWindows.parse(item.getTime()).getHour();
+        return parseTime(item.getTime(), LocalTime.of(8, 15)).getHour();
     }
 
     private static LocalTime firstTimeIn(
             List<SubscriptionDTO.TopicScheduleItemDTO> items, int startHour, int endHour, LocalTime fallback) {
         return items.stream()
-                .map(item -> ReportWindows.parse(item.getTime()))
+                .map(item -> parseTime(item.getTime(), fallback))
                 .filter(time -> time.getHour() >= startHour && time.getHour() < endHour)
                 .findFirst()
                 .orElse(fallback);
+    }
+
+    private static LocalTime parseTime(String value, LocalTime fallback) {
+        try {
+            return ReportWindows.parse(value);
+        } catch (IllegalArgumentException e) {
+            return fallback;
+        }
     }
 }
