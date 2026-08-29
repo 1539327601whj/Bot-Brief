@@ -3,7 +3,7 @@ import { ConfigProvider, TimePicker, theme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
-import api from '../utils/api'
+import api, { TOKEN_KEY } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription } from '../demo/fixtures'
@@ -115,7 +115,7 @@ const normalizeSubscription = (source: any): SubscriptionData => ({
 })
 
 export default function Subscription() {
-  const { user } = useAuth()
+  const { user, authReady } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
   const [data, setData] = useState<SubscriptionData>(normalizeSubscription({}))
   const [channels, setChannels] = useState<Channel[]>([])
@@ -123,25 +123,37 @@ export default function Subscription() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [messageType, setMessageType] = useState<'ok' | 'error'>('ok')
+
+  const showMessage = (text: string, type: 'ok' | 'error' = 'ok') => {
+    setMessageType(type)
+    setMessage(text)
+  }
 
   useEffect(() => {
+    if (!authReady) return
     if (isDemo) {
       setData(normalizeSubscription(demoSubscription))
       setChannels(demoChannels)
       setLoading(false)
       return
     }
+    setLoading(true)
     Promise.all([
       api.get('/subscription'),
       api.get('/channels'),
     ]).then(([subscriptionRes, channelRes]) => {
+      if (subscriptionRes.data?.code === 401) {
+        showMessage('登录已过期，请退出后重新登录再保存', 'error')
+        return
+      }
       if (subscriptionRes.data?.data) setData(normalizeSubscription(subscriptionRes.data.data))
       setChannels(channelRes.data?.data || [])
     }).catch(err => {
-      if (err?.response?.status === 401) setMessage('登录状态已失效，请重新登录')
+      if (err?.response?.status === 401) showMessage('登录已过期，请退出后重新登录再保存', 'error')
       else console.error(err)
     }).finally(() => setLoading(false))
-  }, [isDemo])
+  }, [isDemo, authReady])
 
   const items = data.topicSchedules.items
   const topics = useMemo(() => {
@@ -194,7 +206,7 @@ export default function Subscription() {
       && windowOf(item.time) === windowOf(time)
     ))
     if (clash) {
-      setMessage('同一主题在同一时间段只能订阅一次')
+      showMessage('同一主题在同一时间段只能订阅一次', 'error')
       return
     }
     setMessage('')
@@ -205,7 +217,7 @@ export default function Subscription() {
     const used = new Set(topicItems(topic).map(item => windowOf(item.time)))
     const nextWindow = WINDOWS.find(window => !used.has(window))
     if (!nextWindow) {
-      setMessage('同一主题每天最多四个时间段')
+      showMessage('同一主题每天最多四个时间段', 'error')
       return
     }
     setMessage('')
@@ -228,15 +240,15 @@ export default function Subscription() {
   const addCustomInterest = () => {
     if (isDemo) return
     const topic = normalizeInterest(customInput)
-    if (!topic) return setMessage('请输入感兴趣的内容')
-    if (interestLength(topic) > MAX_INTEREST_LENGTH) return setMessage(`每个兴趣不能超过 ${MAX_INTEREST_LENGTH} 个字符`)
+    if (!topic) return showMessage('请输入感兴趣的内容', 'error')
+    if (interestLength(topic) > MAX_INTEREST_LENGTH) return showMessage(`每个兴趣不能超过 ${MAX_INTEREST_LENGTH} 个字符`, 'error')
     const exists = topics.some(name => interestKey(name) === interestKey(topic))
     if (!exists && enabledTopics.length >= MAX_INTERESTS && !topics.includes(topic)) {
       const uniqueCount = new Set(topics.map(interestKey)).size
-      if (uniqueCount >= MAX_INTERESTS) return setMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`)
+      if (uniqueCount >= MAX_INTERESTS) return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
     }
     if (!exists && new Set([...topics, topic].map(interestKey)).size > MAX_INTERESTS) {
-      return setMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`)
+      return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
     }
     if (!topicItems(topic).length) {
       updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, channelIds: [] }])
@@ -254,6 +266,10 @@ export default function Subscription() {
 
   const handleSave = async () => {
     if (isDemo) return
+    if (!localStorage.getItem(TOKEN_KEY)) {
+      showMessage('登录已过期，请退出后重新登录再保存', 'error')
+      return
+    }
     setSaving(true)
     setMessage('')
     try {
@@ -265,16 +281,26 @@ export default function Subscription() {
       const res = await api.put('/subscription', payload)
       if (res.data?.code === 200) {
         setData(normalizeSubscription(res.data.data || payload))
-        setMessage('设置已保存。到点后按你选的时刻展示和推送')
-      } else setMessage('保存失败：' + (res.data?.message || ''))
+        showMessage('设置已保存。到点后按你选的时刻展示和推送')
+      } else if (res.data?.code === 401) {
+        showMessage('登录已过期，请退出后重新登录再保存', 'error')
+      } else {
+        showMessage('保存失败：' + (res.data?.message || ''), 'error')
+      }
     } catch (error: any) {
-      setMessage('请求失败：' + (error?.response?.data?.message || error?.message || ''))
+      const status = error?.response?.status
+      const detail = error?.response?.data?.message || error?.message || ''
+      if (status === 401 || detail.includes('token')) {
+        showMessage('登录已过期，请退出后重新登录再保存', 'error')
+      } else {
+        showMessage('请求失败：' + detail, 'error')
+      }
     } finally {
       setSaving(false)
     }
   }
 
-  if (loading) return <div className="loading">加载中...</div>
+  if (!authReady || loading) return <div className="loading">加载中...</div>
 
   return (
     <ConfigProvider locale={zhCN} theme={subscriptionTheme}>
@@ -333,69 +359,90 @@ export default function Subscription() {
         </div>
       </div>
 
-      {enabledTopics.map(topic => {
-        const slots = items
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) => item.enabled && interestKey(item.topic) === interestKey(topic))
-        return (
-          <div key={topic} className="section topic-slot-card">
-            <div className="section-title-row">
-              <h3>{topic}</h3>
-              <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>添加时段</button>
-            </div>
-            {slots.map(({ item, index }) => (
-              <div key={`${topic}-${index}`} className="slot-row">
-                <div className="time-picker">
-                  <div className="time-picker-copy">
-                    <span className="time-label">每天</span>
-                    <small>网页展示与推送同一时刻</small>
-                  </div>
-                  <TimePicker
-                    className="subscription-time-picker"
-                    popupClassName="subscription-time-popup"
-                    value={dayjs(`2000-01-01T${item.time}:00`)}
-                    format="HH:mm"
-                    minuteStep={1}
-                    allowClear={false}
-                    showNow={false}
-                    inputReadOnly
-                    disabled={isDemo}
-                    onChange={value => { if (value) changeSlotTime(index, value.format('HH:mm')) }}
-                  />
-                </div>
-                <div className="channel-binds">
-                  {(Object.keys(CHANNEL_META) as ChannelType[]).map(type => {
-                    const options = channelsByType[type] || []
-                    if (options.length === 0) return null
-                    const selected = item.channelIds.find(id => options.some(channel => channel.id === id)) || ''
-                    return (
-                      <label key={type} className="channel-bind">
-                        <span>{CHANNEL_META[type]}</span>
-                        <select
-                          value={selected}
-                          disabled={isDemo}
-                          onChange={event => bindChannel(index, type, event.target.value ? Number(event.target.value) : null)}
-                        >
-                          <option value="">不推送</option>
-                          {options.map(channel => (
-                            <option key={channel.id} value={channel.id}>
-                              {channel.displayName || CHANNEL_META[type]}{channel.enabled ? '' : '（已暂停）'}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )
-                  })}
-                  {channels.length === 0 && <span className="overview-muted">未绑定渠道时只在网页展示</span>}
-                </div>
-                {slots.length > 1 && (
-                  <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeSlot(index)}>删除此时段</button>
-                )}
-              </div>
-            ))}
+      <div className="section schedule-section">
+        <div className="section-title-row">
+          <div>
+            <h3>推送时间</h3>
+            <p className="section-sub">每个主题每天一个或多个时刻。到点后网页和渠道同时更新；没绑渠道就只在网页看。</p>
           </div>
-        )
-      })}
+          <span className="section-count">{enabledSlots.length} 个时刻</span>
+        </div>
+        {enabledTopics.length === 0 ? (
+          <div className="schedule-empty">先在上面勾选兴趣，再设置每天几点推送</div>
+        ) : (
+          <div className="schedule-list">
+            {enabledTopics.map(topic => {
+              const slots = items
+                .map((item, index) => ({ item, index }))
+                .filter(({ item }) => item.enabled && interestKey(item.topic) === interestKey(topic))
+              return (
+                <div key={topic} className="schedule-topic">
+                  {slots.map(({ item, index }, slotIndex) => (
+                    <div key={`${topic}-${index}`} className="schedule-row">
+                      <div className="schedule-name">
+                        <strong>{topic}</strong>
+                        <span>{slotIndex === 0 ? '每天推送' : `第 ${slotIndex + 1} 个时段`}</span>
+                        {!isPreset(topic) && <small>自定义</small>}
+                      </div>
+                      <div className="schedule-time">
+                        <TimePicker
+                          className="subscription-time-picker"
+                          popupClassName="subscription-time-popup"
+                          value={dayjs(`2000-01-01T${item.time}:00`)}
+                          format="HH:mm"
+                          minuteStep={1}
+                          allowClear={false}
+                          showNow={false}
+                          inputReadOnly
+                          disabled={isDemo}
+                          onChange={value => { if (value) changeSlotTime(index, value.format('HH:mm')) }}
+                        />
+                      </div>
+                      <span className={item.channelIds.length ? 'schedule-badge bound' : 'schedule-badge'}>
+                        {item.channelIds.length ? `已绑 ${item.channelIds.length} 个渠道` : '仅网页'}
+                      </span>
+                      <div className="schedule-actions">
+                        {slotIndex === 0 && (
+                          <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>再加时段</button>
+                        )}
+                        {slots.length > 1 && (
+                          <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeSlot(index)}>删除</button>
+                        )}
+                      </div>
+                      {channels.length > 0 && (
+                        <div className="channel-binds">
+                          {(Object.keys(CHANNEL_META) as ChannelType[]).map(type => {
+                            const options = channelsByType[type] || []
+                            if (options.length === 0) return null
+                            const selected = item.channelIds.find(id => options.some(channel => channel.id === id)) || ''
+                            return (
+                              <label key={type} className="channel-bind">
+                                <span>{CHANNEL_META[type]}</span>
+                                <select
+                                  value={selected}
+                                  disabled={isDemo}
+                                  onChange={event => bindChannel(index, type, event.target.value ? Number(event.target.value) : null)}
+                                >
+                                  <option value="">不推送</option>
+                                  {options.map(channel => (
+                                    <option key={channel.id} value={channel.id}>
+                                      {channel.displayName || CHANNEL_META[type]}{channel.enabled ? '' : '（已暂停）'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       <div className="section">
         <h3>订阅总开关</h3>
@@ -419,7 +466,7 @@ export default function Subscription() {
 
       <p className="interest-help">公共主题从当日资讯池筛选；自定义兴趣会按词单独检索。同一时间段里多人勾选同一词只生成一次。当天没有内容时跳过该段。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
-      {message && <div className="message">{message}</div>}
+      {message && <div className={`message ${messageType}`}>{message}</div>}
     </div>
     </ConfigProvider>
   )
