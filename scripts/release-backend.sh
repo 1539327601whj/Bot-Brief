@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/Bot-Brief}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-bot-brief-backend}"
+POLLER_REPOSITORY="${POLLER_REPOSITORY:-bot-brief-poller}"
 ENV_FILE="$DEPLOY_DIR/.env.deploy"
 COMPOSE_ENV_FILE="$ENV_FILE"
 readable_env_copy=""
@@ -26,10 +27,12 @@ else
   exit 1
 fi
 image_tag="${IMAGE_REPOSITORY}:${short_sha}"
+poller_tag="${POLLER_REPOSITORY}:${short_sha}"
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is required"; exit 1; }
 docker compose version >/dev/null
 test -f "$ROOT/backend/Dockerfile"
+test -f "$ROOT/automation/Dockerfile"
 test -f "$ROOT/docker-compose.yml"
 mkdir -p "$DEPLOY_DIR"
 
@@ -109,9 +112,15 @@ ensure_image mysql:8.0 \
   docker.m.daocloud.io/library/mysql:8.0 \
   m.daocloud.io/docker.io/library/mysql:8.0 \
   mysql:8.0
+ensure_image python:3.11-slim \
+  docker.m.daocloud.io/library/python:3.11-slim \
+  m.daocloud.io/docker.io/library/python:3.11-slim \
+  python:3.11-slim
 
 echo "Building backend $image_tag"
 docker build -t "$image_tag" "$ROOT/backend"
+echo "Building poller $poller_tag"
+docker build -t "$poller_tag" "$ROOT/automation"
 
 db_host="$(require_env DB_HOST)"
 db_port="$(require_env DB_PORT)"
@@ -140,6 +149,7 @@ if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
 fi
 
 previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-backend 2>/dev/null || true)"
+previous_poller="$(docker inspect --format '{{.Config.Image}}' bot-brief-poller 2>/dev/null || true)"
 had_previous_compose=false
 if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
   cp -p "$DEPLOY_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml.previous"
@@ -147,7 +157,7 @@ if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
 fi
 install -m 644 "$ROOT/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
 cd "$DEPLOY_DIR"
-BACKEND_IMAGE="$image_tag" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend
+BACKEND_IMAGE="$image_tag" POLLER_IMAGE="$poller_tag" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend poller
 
 healthy=false
 for _ in $(seq 1 30); do
@@ -157,17 +167,26 @@ for _ in $(seq 1 30); do
   fi
   sleep 2
 done
+poller_running="$(docker inspect -f '{{.State.Running}}' bot-brief-poller 2>/dev/null || true)"
 
-if [ "$healthy" != "true" ]; then
-  echo "Backend health check failed"
+if [ "$healthy" != "true" ] || [ "$poller_running" != "true" ]; then
+  echo "Backend or poller health check failed"
   docker logs --tail 200 bot-brief-backend || true
+  docker logs --tail 200 bot-brief-poller || true
   if [ "$had_previous_compose" = "true" ]; then
     install -m 644 "$DEPLOY_DIR/docker-compose.yml.previous" "$DEPLOY_DIR/docker-compose.yml"
   fi
-  if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
-    BACKEND_IMAGE="$previous_image" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend
+  rollback_backend="$previous_image"
+  rollback_poller="$previous_poller"
+  if [ -n "$rollback_backend" ] && docker image inspect "$rollback_backend" >/dev/null 2>&1; then
+    if [ -n "$rollback_poller" ] && docker image inspect "$rollback_poller" >/dev/null 2>&1; then
+      BACKEND_IMAGE="$rollback_backend" POLLER_IMAGE="$rollback_poller" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend poller
+    else
+      BACKEND_IMAGE="$rollback_backend" docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --force-recreate backend
+    fi
   fi
   docker image rm "$image_tag" >/dev/null 2>&1 || true
+  docker image rm "$poller_tag" >/dev/null 2>&1 || true
   rm -f "$DEPLOY_DIR/docker-compose.yml.previous"
   exit 1
 fi
@@ -178,7 +197,13 @@ if [ -n "$previous_image" ] && [ "$previous_image" != "$image_tag" ] && docker i
 else
   docker image rm bot-brief-backend:previous >/dev/null 2>&1 || true
 fi
+if [ -n "$previous_poller" ] && [ "$previous_poller" != "$poller_tag" ] && docker image inspect "$previous_poller" >/dev/null 2>&1; then
+  docker tag "$previous_poller" bot-brief-poller:previous
+else
+  docker image rm bot-brief-poller:previous >/dev/null 2>&1 || true
+fi
 docker tag "$image_tag" bot-brief-backend:local
+docker tag "$poller_tag" bot-brief-poller:local
 current_id="$(docker image inspect --format '{{.Id}}' "$image_tag")"
 previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-backend:previous 2>/dev/null || true)"
 while IFS= read -r old_image; do
@@ -188,5 +213,15 @@ while IFS= read -r old_image; do
     docker image rm "$old_image" >/dev/null 2>&1 || true
   fi
 done < <(docker image ls bot-brief-backend --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-backend:[0-9a-f]{12,}$' || true)
+poller_current_id="$(docker image inspect --format '{{.Id}}' "$poller_tag")"
+poller_previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-poller:previous 2>/dev/null || true)"
+while IFS= read -r old_image; do
+  [ -n "$old_image" ] || continue
+  old_id="$(docker image inspect --format '{{.Id}}' "$old_image" 2>/dev/null || true)"
+  if [ "$old_id" != "$poller_current_id" ] && [ "$old_id" != "$poller_previous_id" ]; then
+    docker image rm "$old_image" >/dev/null 2>&1 || true
+  fi
+done < <(docker image ls bot-brief-poller --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-poller:[0-9a-f]{12,}$' || true)
 docker image prune -f
 echo "Backend deployed: $image_tag"
+echo "Poller deployed: $poller_tag"

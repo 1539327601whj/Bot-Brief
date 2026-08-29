@@ -1,235 +1,255 @@
 package com.ai.daily.service.impl;
 
+import com.ai.daily.dto.ChatMessageDTO;
 import com.ai.daily.dto.ChatResponseDTO;
 import com.ai.daily.entity.Report;
+import com.ai.daily.entity.TopicSection;
+import com.ai.daily.service.AiClientService;
+import com.ai.daily.service.ChatPromptBuilder;
+import com.ai.daily.service.ChatReportRanker;
+import com.ai.daily.service.ChatSectionRanker;
 import com.ai.daily.service.ChatService;
+import com.ai.daily.service.ChatSnippetExtractor;
+import com.ai.daily.service.ReportPersonalizationService;
+import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.hc.client5.http.classic.methods.HttpPost;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
-import org.apache.hc.core5.http.io.entity.StringEntity;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import com.ai.daily.service.ReportWindows;
+import com.ai.daily.service.TopicSectionService;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
-/**
- * AI 对话 Service 实现
- */
 @Service
+@RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
-    @Value("${deepseek.api-key:}")
-    private String deepseekApiKey;
+    private static final ZoneId BEIJING = ZoneId.of("Asia/Shanghai");
+    private static final int HISTORY_LIMIT = 6;
+    private static final int SNIPPET_CHARS = 900;
+    private static final int MAX_PASSAGES = 6;
 
-    @Value("${deepseek.model:deepseek-v4-pro}")
-    private String deepseekModel;
-
-    @Value("${deepseek.base-url:https://api.deepseek.com}")
-    private String deepseekBaseUrl;
-
-    @Autowired
-    private ReportService reportService;
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ReportQueryService reportQueryService;
+    private final TopicSectionService topicSectionService;
+    private final ReportService reportService;
+    private final AiClientService aiClientService;
 
     @Override
-    public ChatResponseDTO chat(String question, Long userId) {
+    public ChatResponseDTO chat(String question, List<ChatMessageDTO> history, Long userId) {
         ChatResponseDTO response = new ChatResponseDTO();
-        
-        // 1. 检索相关简报
-        List<Report> reports = searchReports(question, userId);
-        
-        if (reports.isEmpty()) {
-            response.setAnswer("抱歉，数据库中暂无相关简报内容。");
-            response.setSources(new ArrayList<>());
+        String asked = question == null ? "" : question.strip();
+        if (asked.length() > 500) {
+            asked = asked.substring(0, 500);
+        }
+        List<ChatMessageDTO> turns = sanitize(history);
+        String retrievalQuery = retrievalQuery(asked, turns);
+        ChatReportRanker.Intent intent = classify(asked, turns);
+
+        List<Passage> passages = retrieve(retrievalQuery, intent, userId);
+        if (passages.isEmpty()) {
+            response.setAnswer("抱歉，没有检索到与这个问题匹配的科技日报或市场观察。可以换个主题，或先确认对应简报已经入库。");
+            response.setSources(List.of());
             return response;
         }
 
-        // 2. 构建上下文
-        String context = buildContext(reports);
-        
-        // 3. 调用 DeepSeek API
-        String answer = callDeepSeek(question, context);
-        
-        // 4. 设置响应
-        response.setAnswer(answer);
-        response.setSources(reports.stream().limit(5).map(r -> {
-            ChatResponseDTO.SourceItem source = new ChatResponseDTO.SourceItem();
-            source.setId(r.getId());
-            source.setTitle(r.getTitle());
-            source.setEdition(r.getEdition());
-            source.setCreatedAt(r.getCreatedAt() != null ? r.getCreatedAt().toString() : "");
-            return source;
-        }).collect(Collectors.toList()));
-        
+        List<String> materials = new ArrayList<>();
+        for (int index = 0; index < passages.size(); index++) {
+            Passage passage = passages.get(index);
+            materials.add(ChatPromptBuilder.material(index + 1, passage.heading(), passage.body()));
+        }
+
+        List<AiClientService.AiMessage> messages = new ArrayList<>();
+        messages.add(new AiClientService.AiMessage("system", ChatPromptBuilder.systemPrompt()));
+        for (ChatMessageDTO turn : turns) {
+            messages.add(new AiClientService.AiMessage(turn.getRole(), turn.getContent()));
+        }
+        messages.add(new AiClientService.AiMessage("user", ChatPromptBuilder.userMessage(asked, materials)));
+
+        response.setAnswer(aiClientService.chat(messages, 0.3, 2048));
+        response.setSources(toSources(passages));
         return response;
     }
 
-    /**
-     * 简单关键词检索
-     */
-    private List<Report> searchReports(String question, Long userId) {
-        // 获取最近的 20 条简报作为候选
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Report> page = 
-            new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20);
-        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Report>();
-        if (userId != null) {
-            wrapper.and(w -> w.eq(Report::getUserId, userId)
-                    .or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
-                            .likeRight(Report::getEdition, "market_watch")));
-        } else {
-            wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID);
-        }
-        wrapper.orderByDesc(Report::getCreatedAt);
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Report> result = 
-            reportService.page(page, wrapper);
+    private List<Passage> retrieve(String question, ChatReportRanker.Intent intent, Long userId) {
+        List<String> keywords = ReportPersonalizationService.expandTerms(ChatReportRanker.extractKeywords(question));
+        List<String> topics = ReportPersonalizationService.matchingTopics(question);
+        List<Passage> passages = new ArrayList<>();
 
-        if (result.getRecords().isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        // 简单关键词匹配
-        List<String> keywords = extractKeywords(question);
-        List<Report> matched = new ArrayList<>();
-        
-        for (Report report : result.getRecords()) {
-            String text = (report.getTitle() + " " + report.getContent() + " " + report.getSummary()).toLowerCase();
-            for (String keyword : keywords) {
-                if (text.contains(keyword.toLowerCase())) {
-                    matched.add(report);
-                    break;
-                }
+        if (intent != ChatReportRanker.Intent.MARKET) {
+            LocalDate since = LocalDate.now(BEIJING).minusDays(21);
+            List<TopicSection> sections = topicSectionService.listRecent(
+                    since, topics.isEmpty() ? null : topics, topics.isEmpty() ? 80 : 40);
+            for (TopicSection section : ChatSectionRanker.select(sections, keywords, topics, 5)) {
+                passages.add(fromSection(section, keywords, userId));
             }
         }
 
-        // 如果没有匹配，返回最近的 5 条
-        if (matched.isEmpty()) {
-            return result.getRecords().stream().limit(5).collect(Collectors.toList());
+        List<Long> usedIds = passages.stream().map(Passage::reportId).filter(id -> id != null).toList();
+        List<Report> reports = ChatReportRanker.select(question, loadReports(userId, intent));
+        for (Report report : reports) {
+            if (passages.size() >= MAX_PASSAGES) break;
+            if (report.getId() != null && usedIds.contains(report.getId())) continue;
+            passages.add(fromReport(report, keywords));
         }
-        
-        return matched.stream().limit(5).collect(Collectors.toList());
+        if (passages.size() > MAX_PASSAGES) {
+            return new ArrayList<>(passages.subList(0, MAX_PASSAGES));
+        }
+        return passages;
     }
 
-    /**
-     * 提取关键词
-     */
-    private List<String> extractKeywords(String question) {
-        // 简单分词（去除停用词）
-        String[] stopWords = {"的", "了", "是", "在", "有", "和", "与", "或", "等", "吗", "呢", "吧", "啊"};
-        String text = question.toLowerCase();
-        List<String> keywords = new ArrayList<>();
-        
-        for (String word : text.split("")) {
-            if (word.length() >= 2 && !containsAny(word, stopWords)) {
-                keywords.add(word);
-            }
+    private List<Report> loadReports(Long userId, ChatReportRanker.Intent intent) {
+        LocalDateTime start = LocalDate.now(BEIJING).minusDays(intent == ChatReportRanker.Intent.MARKET ? 14 : 21)
+                .atStartOfDay();
+        Map<Long, Report> unique = new LinkedHashMap<>();
+        if (intent != ChatReportRanker.Intent.MARKET) {
+            addReports(unique, pageReports(userId, "morning", start, 20));
+            addReports(unique, pageReports(userId, "evening", start, 20));
+            addReports(unique, pageReports(userId, Report.PERSONAL, start, 15));
         }
-        
-        // 添加常见 AI 相关词
-        String[] aiTerms = {"ai", "gpt", "openai", "claude", "gemini", "deepseek", "llm", 
-                           "大模型", "模型", "发布", "更新", "版本", "功能", "技术"};
-        for (String term : aiTerms) {
-            if (text.contains(term)) {
-                keywords.add(term);
-            }
+        if (intent != ChatReportRanker.Intent.TECH) {
+            addReports(unique, pageReports(userId, "market_watch_evening", start, 15));
+            addReports(unique, pageReports(userId, "market_watch_morning", start, 5));
         }
-        
-        return keywords.stream().distinct().limit(10).collect(Collectors.toList());
+        return new ArrayList<>(unique.values());
     }
 
-    private boolean containsAny(String text, String[] words) {
-        for (String word : words) {
-            if (text.contains(word)) return true;
-        }
-        return false;
+    private List<Report> pageReports(Long userId, String edition, LocalDateTime start, int size) {
+        IPage<Report> result = reportQueryService.pageVisible(
+                userId, false, true, new Page<>(1, size), edition, start, null, null);
+        return result == null || result.getRecords() == null ? List.of() : result.getRecords();
     }
 
-    /**
-     * 构建上下文
-     */
-    private String buildContext(List<Report> reports) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("你是一个AI资讯助手。以下是相关的历史简报内容：\n\n");
-        
-        int totalLength = 0;
-        int maxTotalLength = 3000; // 总上下文限制约 3000 字符
-        
-        for (int i = 0; i < reports.size(); i++) {
-            Report r = reports.get(i);
-            // 优先使用摘要，限制长度避免超过 token 限制
-            String content = r.getSummary();
-            if (content == null || content.isEmpty()) {
-                content = r.getContent();
+    private static void addReports(Map<Long, Report> unique, List<Report> reports) {
+        for (Report report : reports) {
+            if (report != null && report.getId() != null) {
+                unique.putIfAbsent(report.getId(), report);
             }
-            // 限制单条简报内容长度（约 300 字符）
-            if (content != null && content.length() > 300) {
-                content = content.substring(0, 300) + "...";
-            }
-            
-            String entry = String.format("【简报%d】%s\n%s\n\n", 
-                i + 1, r.getTitle(),
-                content);
-            
-            // 检查总长度
-            if (totalLength + entry.length() > maxTotalLength) {
-                sb.append("...（更多简报已省略）\n");
-                break;
-            }
-            
-            sb.append(entry);
-            totalLength += entry.length();
         }
-        
-        sb.append("请根据以上简报内容回答用户的问题。如果简报中没有相关信息，请说明暂时无法从已知内容中获取答案。");
-        return sb.toString();
     }
 
-    /**
-     * 调用 DeepSeek API
-     */
-    private String callDeepSeek(String question, String context) {
-        if (deepseekApiKey == null || deepseekApiKey.isEmpty()) {
-            return "⚠️ 未配置 DEEPSEEK_API_KEY，无法生成回答。请在环境变量中配置 DeepSeek API Key。\n\n" +
-                   "获取方式：https://platform.deepseek.com/api_keys";
+    private Passage fromSection(TopicSection section, List<String> keywords, Long userId) {
+        String body = ChatSnippetExtractor.extract(
+                firstNonBlank(section.getContent(), section.getSummary()), keywords, SNIPPET_CHARS);
+        String date = section.getSectionDate() == null ? "" : section.getSectionDate().toString();
+        String topic = section.getTopicKey() == null ? "主题" : section.getTopicKey();
+        String title = firstNonBlank(section.getTitle(), "【" + topic + "】" + date);
+        String createdAt = section.getCreatedAt() != null ? section.getCreatedAt().toString() : date;
+        return new Passage(
+                resolveReportId(section, userId),
+                title,
+                section.getEdition(),
+                createdAt,
+                date + " · " + topic + " · " + (section.getEdition() == null ? "" : section.getEdition()),
+                body
+        );
+    }
+
+    private Passage fromReport(Report report, List<String> keywords) {
+        String raw = firstNonBlank(report.getContent(), report.getSummary());
+        String body = ChatSnippetExtractor.extract(raw, keywords, SNIPPET_CHARS);
+        String createdAt = report.getCreatedAt() != null ? report.getCreatedAt().toString() : "";
+        String date = report.getReportDate() != null ? report.getReportDate().toString() : createdAt;
+        String edition = report.getEdition() == null ? "" : report.getEdition();
+        return new Passage(
+                report.getId(),
+                report.getTitle(),
+                edition,
+                createdAt,
+                date + " · " + edition + " · " + (report.getTitle() == null ? "" : report.getTitle()),
+                body
+        );
+    }
+
+    private Long resolveReportId(TopicSection section, Long userId) {
+        if (section.getSectionDate() == null) return null;
+        Report mine = reportService.getByUserEditionDate(userId, Report.PERSONAL, section.getSectionDate());
+        if (mine != null) return mine.getId();
+        Report published = reportService.getLatestByEditionForDate(
+                ReportWindows.digestStyle(section.getEdition()), section.getSectionDate());
+        return published == null ? null : published.getId();
+    }
+
+    private List<ChatResponseDTO.SourceItem> toSources(List<Passage> passages) {
+        Map<String, ChatResponseDTO.SourceItem> unique = new LinkedHashMap<>();
+        for (Passage passage : passages) {
+            ChatResponseDTO.SourceItem item = new ChatResponseDTO.SourceItem();
+            item.setId(passage.reportId());
+            item.setTitle(passage.title());
+            item.setEdition(passage.edition() == null ? "" : passage.edition());
+            item.setCreatedAt(passage.createdAt());
+            String key = passage.reportId() != null ? "r-" + passage.reportId() : "t-" + passage.title();
+            unique.putIfAbsent(key, item);
+            if (unique.size() == 5) break;
         }
+        return new ArrayList<>(unique.values());
+    }
 
-        try (CloseableHttpClient client = HttpClients.createDefault()) {
-            HttpPost request = new HttpPost(deepseekBaseUrl + "/chat/completions");
-            request.setHeader("Authorization", "Bearer " + deepseekApiKey);
-            request.setHeader("Content-Type", "application/json");
+    private static String retrievalQuery(String question, List<ChatMessageDTO> history) {
+        List<String> keywords = ChatReportRanker.extractKeywords(question);
+        if (keywords.size() >= 2) return question;
+        String lastUser = lastUserQuestion(history);
+        if (lastUser == null || lastUser.isBlank()) return question;
+        return lastUser + " " + question;
+    }
 
-            String prompt = context + "\n\n用户问题：" + question + "\n\n回答：";
-            
-            String jsonBody = String.format(
-                "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"temperature\":0.7,\"max_tokens\":2048}",
-                deepseekModel,
-                prompt.replace("\"", "\\\"").replace("\n", "\\n")
-            );
-            
-            request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+    private static ChatReportRanker.Intent classify(String question, List<ChatMessageDTO> history) {
+        ChatReportRanker.Intent intent = ChatReportRanker.classify(question);
+        if (intent != ChatReportRanker.Intent.GENERAL || question.codePointCount(0, question.length()) > 24) {
+            return intent;
+        }
+        String lastUser = lastUserQuestion(history);
+        if (lastUser == null) return intent;
+        ChatReportRanker.Intent previous = ChatReportRanker.classify(lastUser);
+        return previous == ChatReportRanker.Intent.GENERAL ? intent : previous;
+    }
 
-            try (CloseableHttpResponse httpResponse = client.execute(request)) {
-                String responseBody = EntityUtils.toString(httpResponse.getEntity());
-                
-                // 解析响应
-                JsonNode root = objectMapper.readTree(responseBody);
-                if (root.has("error")) {
-                    return "❌ API 调用失败：" + root.get("error").get("message").asText();
-                }
-                
-                return root.path("choices").path(0).path("message").path("content").asText();
+    private static String lastUserQuestion(List<ChatMessageDTO> history) {
+        if (history == null) return null;
+        for (int index = history.size() - 1; index >= 0; index--) {
+            ChatMessageDTO turn = history.get(index);
+            if (turn != null && "user".equals(turn.getRole()) && turn.getContent() != null && !turn.getContent().isBlank()) {
+                return turn.getContent();
             }
-        } catch (Exception e) {
-            return "❌ 调用 DeepSeek API 时发生错误：" + e.getMessage();
         }
+        return null;
+    }
+
+    private static List<ChatMessageDTO> sanitize(List<ChatMessageDTO> history) {
+        if (history == null || history.isEmpty()) return List.of();
+        List<ChatMessageDTO> clean = new ArrayList<>();
+        for (ChatMessageDTO item : history) {
+            if (item == null || item.getContent() == null || item.getContent().isBlank()) continue;
+            if (!"user".equals(item.getRole()) && !"assistant".equals(item.getRole())) continue;
+            ChatMessageDTO copy = new ChatMessageDTO();
+            copy.setRole(item.getRole());
+            String content = item.getContent().strip();
+            copy.setContent(content.length() > 800 ? content.substring(0, 800) : content);
+            clean.add(copy);
+            if (clean.size() == HISTORY_LIMIT) break;
+        }
+        return clean;
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) return first;
+        return second == null ? "" : second;
+    }
+
+    private record Passage(
+            Long reportId,
+            String title,
+            String edition,
+            String createdAt,
+            String heading,
+            String body
+    ) {
     }
 }

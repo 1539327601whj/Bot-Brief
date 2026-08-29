@@ -5,7 +5,7 @@ import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.mapper.UserMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -21,13 +21,26 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class SubscribedTopicService {
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
     private final UserMapper userMapper;
     private final TopicSectionMapper topicSectionMapper;
+    private final int generationLeadMinutes;
+
+    public SubscribedTopicService(
+            SubscriptionService subscriptionService,
+            SubscriptionPreferences subscriptionPreferences,
+            UserMapper userMapper,
+            TopicSectionMapper topicSectionMapper,
+            @Value("${report.generation-lead-minutes:30}") int generationLeadMinutes) {
+        this.subscriptionService = subscriptionService;
+        this.subscriptionPreferences = subscriptionPreferences;
+        this.userMapper = userMapper;
+        this.topicSectionMapper = topicSectionMapper;
+        this.generationLeadMinutes = Math.max(0, generationLeadMinutes);
+    }
 
     public List<String> listTopics(String window) {
         if (!ReportWindows.isGenerationWindow(window)) return List.of();
@@ -42,12 +55,20 @@ public class SubscribedTopicService {
         LocalTime minute = now.withSecond(0).withNano(0);
         List<DueGenerationDTO> due = new ArrayList<>();
         for (DueGenerationDTO item : planEarliest(date)) {
-            LocalTime generateAt = ReportWindows.parse(item.getGenerateAt());
-            if (generateAt.isAfter(minute)) continue;
+            LocalTime readyAt = ReportWindows.parse(item.getGenerateAt());
+            if (startAt(readyAt).isAfter(minute)) continue;
             if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
             due.add(item);
         }
         return due;
+    }
+
+    LocalTime startAt(LocalTime readyAt) {
+        if (readyAt == null) return LocalTime.MIN;
+        if (generationLeadMinutes <= 0) return readyAt;
+        LocalTime start = readyAt.minusMinutes(generationLeadMinutes);
+        // 跨日时从当天 00:00 开始预生成，避免 00:10 的订阅要等到整点才开工。
+        return start.isAfter(readyAt) ? LocalTime.MIN : start;
     }
 
     List<DueGenerationDTO> planEarliest(LocalDate date) {

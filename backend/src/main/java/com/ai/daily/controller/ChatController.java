@@ -25,7 +25,8 @@ public class ChatController {
      */
     @PostMapping
     public Result<ChatResponseDTO> chat(@Valid @RequestBody ChatRequestDTO request) {
-        ChatResponseDTO response = chatService.chat(request.getQuestion(), SecurityUtils.currentUserId());
+        ChatResponseDTO response = chatService.chat(
+                request.getQuestion(), request.getHistory(), SecurityUtils.currentUserId());
         return Result.ok(response);
     }
 }

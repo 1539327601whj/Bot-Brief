@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
+import { getReportEditionInfo } from '../utils/reportEdition'
 import DemoNotice from '../components/DemoNotice'
 import './Chat.css'
 
@@ -12,7 +13,7 @@ interface Message {
 }
 
 interface SourceItem {
-  id: number
+  id?: number | null
   title: string
   edition: string
   createdAt: string
@@ -20,9 +21,9 @@ interface SourceItem {
 
 const SUGGESTIONS = [
   '最近有哪些 AI 大模型更新？',
-  '解释一下 RAG 技术',
   '最近的 AI 安全新闻有哪些？',
-  '有哪些新的开源 AI 项目？'
+  '有哪些新的开源 AI 项目？',
+  '沪深300ETF 现在估值贵吗？'
 ]
 
 export default function Chat() {
@@ -54,8 +55,10 @@ export default function Chat() {
     setLoading(true)
     setError('')
 
+    const history = messages.slice(-6).map(item => ({ role: item.role, content: item.content }))
+
     try {
-      const res = await api.post('/chat', { question: q })
+      const res = await api.post('/chat', { question: q, history })
       const result = res.data
       if (result.code === 200 && result.data) {
         const assistantMessage: Message = {
@@ -84,10 +87,10 @@ export default function Chat() {
   }
 
   const formatEdition = (edition: string) => {
-    if (edition === 'personal') return '✨ 我的简报'
-    if (edition === 'morning') return '🌅 早间'
-    if (edition === 'evening') return '🌙 晚间'
-    return '📄 简报'
+    if (edition === 'w00_06' || edition === 'w06_12') return '🌅 早间主题'
+    if (edition === 'w12_18' || edition === 'w18_24') return '🌙 晚间主题'
+    const info = getReportEditionInfo(edition)
+    return `${info.icon} ${info.shortLabel}`
   }
 
   return (
@@ -99,7 +102,7 @@ export default function Chat() {
           <span className="ai-icon">💬</span>
           <span>AI 对话</span>
         </div>
-        <div className="header-subtitle">基于历史简报的智能问答 (RAG)</div>
+        <div className="header-subtitle">按主题检索科技日报与市场观察，再据此回答</div>
       </header>
 
       {/* 消息区域 */}
@@ -108,7 +111,7 @@ export default function Chat() {
           <div className="welcome">
             <div className="welcome-icon">🤖</div>
             <h2>你好！我是 AI 小助手</h2>
-            <p>我可以根据历史简报回答你的问题，比如：</p>
+            <p>先定位对应主题的科技日报或行情简报，再据此回答。也可以接着追问。</p>
             <div className="suggestions">
               {SUGGESTIONS.map((s, i) => (
                 <button
@@ -141,8 +144,8 @@ export default function Chat() {
                   {msg.sources.map((source, i) => (
                     <div
                       key={i}
-                      className="source-item"
-                      onClick={() => navigate(`/report/${source.id}`)}
+                      className={`source-item${source.id ? '' : ' is-static'}`}
+                      onClick={() => source.id && navigate(`/report/${source.id}`)}
                     >
                       <span className="source-tag">{formatEdition(source.edition)}</span>
                       <span className="source-title">{source.title}</span>
@@ -199,7 +202,7 @@ export default function Chat() {
             )}
           </button>
         </div>
-        <div className="input-hint">{isDemo ? '公开 Demo 中 AI 对话不可提交' : '按 Enter 发送，Shift + Enter 换行'}</div>
+        <div className="input-hint">{isDemo ? '公开 Demo 中 AI 对话不可提交' : '按 Enter 发送，Shift + Enter 换行；可接着上一问追问'}</div>
       </div>
     </div>
   )

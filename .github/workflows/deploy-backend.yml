@@ -41,6 +41,11 @@ jobs:
             backend/src \
             backend/Dockerfile \
             backend/.dockerignore \
+            automation/Dockerfile \
+            automation/.dockerignore \
+            automation/requirements.txt \
+            automation/poll_loop.py \
+            automation/scripts/daily_report.py \
             docker-compose.yml
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
@@ -148,6 +153,7 @@ jobs:
           SERVER_IP: ${{ secrets.SERVER_IP }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.sha }}
+          POLLER_TAG: bot-brief-poller:${{ steps.release.outputs.sha }}
           ARCHIVE: ${{ steps.release.outputs.archive }}
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
         shell: bash
@@ -155,7 +161,7 @@ jobs:
           set -euo pipefail
           ssh_opts=(-i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_IP" \
-            "DEPLOY_DIR='$DEPLOY_DIR' IMAGE_TAG='$IMAGE_TAG' ARCHIVE='$ARCHIVE' RELEASE_SHA='$RELEASE_SHA' bash -s" <<'REMOTE'
+            "DEPLOY_DIR='$DEPLOY_DIR' IMAGE_TAG='$IMAGE_TAG' POLLER_TAG='$POLLER_TAG' ARCHIVE='$ARCHIVE' RELEASE_SHA='$RELEASE_SHA' bash -s" <<'REMOTE'
           set -euo pipefail
           release_dir="$DEPLOY_DIR/.deploy/backend-$RELEASE_SHA"
           cd "$release_dir"
@@ -168,9 +174,12 @@ jobs:
           fi
           tar -xzf "$ARCHIVE"
           test -f backend/Dockerfile || { echo "Backend Dockerfile is missing from the source archive"; exit 1; }
+          test -f automation/Dockerfile || { echo "Poller Dockerfile is missing from the source archive"; exit 1; }
           docker build -t "$IMAGE_TAG" backend
+          docker build -t "$POLLER_TAG" automation
 
           previous_image="$(docker inspect --format '{{.Config.Image}}' bot-brief-backend 2>/dev/null || true)"
+          previous_poller="$(docker inspect --format '{{.Config.Image}}' bot-brief-poller 2>/dev/null || true)"
           docker image inspect mysql:8.0 >/dev/null 2>&1 || { docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true; echo "mysql:8.0 image must be preloaded on the server for schema checks"; exit 1; }
           schema_ready=$(docker run --rm --pull=never \
             --add-host=host.docker.internal:host-gateway \
@@ -204,7 +213,7 @@ jobs:
           mv -f "$DEPLOY_DIR/docker-compose.yml.new" "$DEPLOY_DIR/docker-compose.yml"
           cd "$DEPLOY_DIR"
 
-          BACKEND_IMAGE="$IMAGE_TAG" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+          BACKEND_IMAGE="$IMAGE_TAG" POLLER_IMAGE="$POLLER_TAG" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend poller
           healthy=false
           for attempt in $(seq 1 30); do
             if curl -fsS --max-time 5 http://127.0.0.1:8081/api/health >/dev/null; then
@@ -213,10 +222,12 @@ jobs:
             fi
             sleep 2
           done
+          poller_running="$(docker inspect -f '{{.State.Running}}' bot-brief-poller 2>/dev/null || true)"
 
-          if [ "$healthy" != "true" ]; then
-            echo "Backend health check failed"
+          if [ "$healthy" != "true" ] || [ "$poller_running" != "true" ]; then
+            echo "Backend or poller health check failed"
             docker logs --tail 200 bot-brief-backend || true
+            docker logs --tail 200 bot-brief-poller || true
             if [ "$had_previous_env" = "true" ]; then
               install -m 600 "$release_dir/.env.deploy.previous" "$DEPLOY_DIR/.env.deploy"
             fi
@@ -225,9 +236,14 @@ jobs:
             fi
             if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
               echo "Rolling back to $previous_image"
-              BACKEND_IMAGE="$previous_image" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+              if [ -n "$previous_poller" ] && docker image inspect "$previous_poller" >/dev/null 2>&1; then
+                BACKEND_IMAGE="$previous_image" POLLER_IMAGE="$previous_poller" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend poller
+              else
+                BACKEND_IMAGE="$previous_image" docker compose --env-file .env.deploy up -d --no-build --force-recreate backend
+              fi
             fi
             docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true
+            docker image rm "$POLLER_TAG" >/dev/null 2>&1 || true
             exit 1
           fi
 
@@ -236,7 +252,13 @@ jobs:
           else
             docker image rm bot-brief-backend:previous >/dev/null 2>&1 || true
           fi
+          if [ -n "$previous_poller" ] && [ "$previous_poller" != "$POLLER_TAG" ] && docker image inspect "$previous_poller" >/dev/null 2>&1; then
+            docker tag "$previous_poller" bot-brief-poller:previous
+          else
+            docker image rm bot-brief-poller:previous >/dev/null 2>&1 || true
+          fi
           docker tag "$IMAGE_TAG" bot-brief-backend:local
+          docker tag "$POLLER_TAG" bot-brief-poller:local
           current_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
           previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-backend:previous 2>/dev/null || true)"
           while IFS= read -r old_image; do
@@ -246,7 +268,17 @@ jobs:
               docker image rm "$old_image" >/dev/null 2>&1 || true
             fi
           done < <(docker image ls bot-brief-backend --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-backend:[0-9a-f]{12,}$' || true)
+          poller_current_id="$(docker image inspect --format '{{.Id}}' "$POLLER_TAG")"
+          poller_previous_id="$(docker image inspect --format '{{.Id}}' bot-brief-poller:previous 2>/dev/null || true)"
+          while IFS= read -r old_image; do
+            [ -n "$old_image" ] || continue
+            old_id="$(docker image inspect --format '{{.Id}}' "$old_image" 2>/dev/null || true)"
+            if [ "$old_id" != "$poller_current_id" ] && [ "$old_id" != "$poller_previous_id" ]; then
+              docker image rm "$old_image" >/dev/null 2>&1 || true
+            fi
+          done < <(docker image ls bot-brief-poller --format '{{.Repository}}:{{.Tag}}' | grep -E '^bot-brief-poller:[0-9a-f]{12,}$' || true)
           rm -rf "$release_dir"
           docker image prune -f
           echo "Backend deployed successfully: $IMAGE_TAG"
+          echo "Poller deployed successfully: $POLLER_TAG"
           REMOTE

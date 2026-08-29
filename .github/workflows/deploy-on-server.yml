@@ -19,6 +19,7 @@ on:
     paths:
       - 'frontend/**'
       - 'backend/**'
+      - 'automation/**'
       - 'docker-compose.yml'
       - 'scripts/release-frontend.sh'
       - 'scripts/release-backend.sh'
@@ -105,7 +106,7 @@ jobs:
                   ".github/workflows/deploy-on-server.yml",
               )
               frontend = hit("frontend", "scripts/release-frontend.sh", *shared)
-              backend = hit("backend", "scripts/release-backend.sh", *shared)
+              backend = hit("backend", "scripts/release-backend.sh", "automation", *shared)
               if not files:
                   frontend = backend = True
 

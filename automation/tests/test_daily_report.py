@@ -163,6 +163,12 @@ class TopicSectionTests(unittest.TestCase):
         selected = report.select_news_for_topic(items, "数据库")
         self.assertEqual([item["title"] for item in selected], ["PostgreSQL 18 发布"])
 
+    def test_generation_concurrency_is_capped(self):
+        with patch.dict(os.environ, {"GENERATION_CONCURRENCY": "99"}, clear=False):
+            self.assertEqual(report.generation_concurrency(), 8)
+        with patch.dict(os.environ, {"GENERATION_CONCURRENCY": "0"}, clear=False):
+            self.assertEqual(report.generation_concurrency(), 1)
+
     def test_skips_preset_topic_generation_when_no_matching_news(self):
         saved = report.generate_topic_sections(
             [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
@@ -209,6 +215,40 @@ class TopicSectionTests(unittest.TestCase):
         get.return_value = response
         self.assertEqual(report.fetch_subscribed_topics("morning"), ["AI大模型", "安全"])
         self.assertIn("subscribed-topics", get.call_args.args[0])
+
+    @patch.dict(os.environ, {
+        "DEEPSEEK_API_KEY": "secret",
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+        "MODE": "poll",
+    }, clear=False)
+    @patch.object(report, "fetch_due_generations", return_value=[])
+    @patch.object(report, "extract_ai_news")
+    @patch.object(report, "generate_due_topic_sections")
+    def test_poll_skips_crawl_when_nothing_due(self, generate, extract, _due):
+        report.main()
+        extract.assert_not_called()
+        generate.assert_not_called()
+
+    @patch.dict(os.environ, {
+        "DEEPSEEK_API_KEY": "secret",
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+        "MODE": "poll",
+        "GITHUB_RUN_ID": "run-99",
+    }, clear=False)
+    @patch.object(report, "fetch_due_generations", return_value=[
+        {"window": "w18_24", "topic": "区块链", "generateAt": "20:20"},
+    ])
+    @patch.object(report, "extract_ai_news", return_value=[{"title": "链上", "summary": "news"}])
+    @patch.object(report, "generate_due_topic_sections", return_value=1)
+    def test_poll_generates_due_topics(self, generate, extract, due):
+        report.main()
+        extract.assert_called_once()
+        generate.assert_called_once()
+        self.assertEqual(generate.call_args.args[1], report.now_beijing().strftime("%Y-%m-%d"))
+        self.assertEqual(generate.call_args.args[2], "run-99")
+        self.assertEqual(generate.call_args.kwargs["due"], due.return_value)
 
     @patch.dict(os.environ, {
         "BACKEND_API_URL": "https://backend.test",

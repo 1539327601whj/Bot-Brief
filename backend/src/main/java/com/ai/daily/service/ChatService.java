@@ -1,14 +1,14 @@
 package com.ai.daily.service;
 
+import com.ai.daily.dto.ChatMessageDTO;
 import com.ai.daily.dto.ChatResponseDTO;
+
+import java.util.List;
 
 /**
  * AI 对话 Service
  */
 public interface ChatService {
 
-    /**
-     * 根据问题搜索相关简报并生成回答
-     */
-    ChatResponseDTO chat(String question, Long userId);
+    ChatResponseDTO chat(String question, List<ChatMessageDTO> history, Long userId);
 }

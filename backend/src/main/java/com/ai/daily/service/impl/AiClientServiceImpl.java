@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Service
 public class AiClientServiceImpl implements AiClientService {
@@ -32,6 +33,11 @@ public class AiClientServiceImpl implements AiClientService {
 
     @Override
     public String chat(String prompt) {
+        return chat(List.of(new AiMessage("user", prompt == null ? "" : prompt)), 0.7, 2048);
+    }
+
+    @Override
+    public String chat(List<AiMessage> messages, double temperature, int maxTokens) {
         if (deepseekApiKey == null || deepseekApiKey.isBlank()) {
             return "AI 服务暂未配置，请先配置 DEEPSEEK_API_KEY。";
         }
@@ -40,7 +46,7 @@ public class AiClientServiceImpl implements AiClientService {
             HttpPost request = new HttpPost(deepseekBaseUrl + "/chat/completions");
             request.setHeader("Authorization", "Bearer " + deepseekApiKey);
             request.setHeader("Content-Type", "application/json");
-            request.setEntity(new StringEntity(buildBody(prompt), StandardCharsets.UTF_8));
+            request.setEntity(new StringEntity(buildBody(messages, temperature, maxTokens), StandardCharsets.UTF_8));
 
             try (CloseableHttpResponse httpResponse = client.execute(request)) {
                 String responseBody = EntityUtils.toString(httpResponse.getEntity());
@@ -56,15 +62,24 @@ public class AiClientServiceImpl implements AiClientService {
         }
     }
 
-    private String buildBody(String prompt) throws Exception {
+    private String buildBody(List<AiMessage> messages, double temperature, int maxTokens) throws Exception {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", deepseekModel);
-        body.put("temperature", 0.7);
-        body.put("max_tokens", 2048);
-        ArrayNode messages = body.putArray("messages");
-        ObjectNode message = messages.addObject();
-        message.put("role", "user");
-        message.put("content", prompt);
+        body.put("temperature", temperature);
+        body.put("max_tokens", Math.max(64, maxTokens));
+        ArrayNode array = body.putArray("messages");
+        if (messages != null) {
+            for (AiMessage item : messages) {
+                if (item == null || item.content() == null || item.content().isBlank()) continue;
+                String role = switch (item.role() == null ? "" : item.role()) {
+                    case "system", "assistant" -> item.role();
+                    default -> "user";
+                };
+                ObjectNode message = array.addObject();
+                message.put("role", role);
+                message.put("content", item.content());
+            }
+        }
         return objectMapper.writeValueAsString(body);
     }
 }

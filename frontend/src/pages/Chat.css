@@ -231,6 +231,15 @@
   border: 1px solid rgba(0, 212, 170, 0.3);
 }
 
+.source-item.is-static {
+  cursor: default;
+}
+
+.source-item.is-static:hover {
+  background: rgba(10, 14, 26, 0.5);
+  border: none;
+}
+
 .source-tag {
   font-size: 11px;
   padding: 2px 8px;

@@ -57,6 +57,19 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
         }
     }
 
+    public List<TopicSection> listRecent(LocalDate since, List<String> topicKeys, int limit) {
+        if (since == null) return List.of();
+        int cap = Math.max(1, Math.min(limit, 200));
+        var query = this.lambdaQuery().ge(TopicSection::getSectionDate, since);
+        if (topicKeys != null && !topicKeys.isEmpty()) {
+            query.in(TopicSection::getTopicKey, topicKeys);
+        }
+        return query.orderByDesc(TopicSection::getSectionDate)
+                .orderByDesc(TopicSection::getCreatedAt)
+                .last("LIMIT " + cap)
+                .list();
+    }
+
     public List<TopicSection> findFor(LocalDate date, String edition, List<String> topics) {
         if (date == null || edition == null || topics == null || topics.isEmpty()) return List.of();
         List<TopicSection> stored = this.lambdaQuery()

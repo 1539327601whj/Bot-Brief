@@ -38,6 +38,16 @@ class ReportPersonalizationServiceTest {
     }
 
     @Test
+    void matchingTopicsAndExpandTermsRecognizeModelQuestions() {
+        assertThat(ReportPersonalizationService.matchingTopics("最近有哪些 AI 大模型更新？"))
+                .contains("AI大模型");
+        assertThat(ReportPersonalizationService.matchingTopics("最近的 AI 安全新闻有哪些？"))
+                .contains("安全", "AI大模型");
+        assertThat(ReportPersonalizationService.expandTerms(List.of("大模型")))
+                .contains("gpt", "claude", "deepseek");
+    }
+
+    @Test
     void fallsBackToCanonicalReportWhenNoSectionMatchesOrMarkdownCannotBeSplit() {
         Report canonical = report();
         assertThat(service.personalize(canonical, List.of("完全不存在的兴趣"))).isSameAs(canonical);

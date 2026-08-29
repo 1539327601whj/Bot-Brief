@@ -1,0 +1,70 @@
+name: 订阅到期轮询
+
+# 生产上由服务器 poller 按北京时间整分对齐生成。
+# 本工作流只保留手动补跑，避免 5 分钟网格对不齐用户设置的时刻。
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: daily-topic-poll
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检查是否有到期主题
+        id: due
+        env:
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+          REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${BACKEND_API_URL:-}" || { echo "BACKEND_API_URL is not configured"; exit 1; }
+          test -n "${REPORT_INGEST_TOKEN:-}" || { echo "REPORT_INGEST_TOKEN is not configured"; exit 1; }
+          url="${BACKEND_API_URL%/}/api/reports/due-generations"
+          resp="$(curl -sS -f --connect-timeout 10 --max-time 30 \
+            -H "X-Ingest-Token: ${REPORT_INGEST_TOKEN}" \
+            "$url")"
+          count="$(python3 -c "
+          import json, sys
+          body = json.loads(sys.argv[1])
+          if body.get('code') != 200:
+              raise SystemExit('due-generations business code ' + str(body.get('code')))
+          items = ((body.get('data') or {}).get('items') or [])
+          print(len(items))
+          " "$resp")"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "到期主题数: $count"
+
+      - name: 检出代码
+        if: steps.due.outputs.count != '0'
+        uses: actions/checkout@v5
+
+      - name: 设置 Python 环境
+        if: steps.due.outputs.count != '0'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: automation/requirements.txt
+
+      - name: 安装依赖
+        if: steps.due.outputs.count != '0'
+        run: pip install -r automation/requirements.txt -q
+
+      - name: 生成到期主题段
+        if: steps.due.outputs.count != '0'
+        env:
+          TZ: 'Asia/Shanghai'
+          MODE: poll
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ vars.DAILY_DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+          REPORT_INGEST_TOKEN: ${{ secrets.REPORT_INGEST_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python automation/scripts/daily_report.py

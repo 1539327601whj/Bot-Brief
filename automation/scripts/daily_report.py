@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import feedparser
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
@@ -763,9 +764,10 @@ def build_topic_prompt(news_text, topic, edition="morning"):
 """
 
 
-def generate_due_topic_sections(news_items, report_date, run_id):
+def generate_due_topic_sections(news_items, report_date, run_id, due=None):
     """按四个时间段的最早到期时刻生成主题段。"""
-    due = fetch_due_generations(report_date)
+    if due is None:
+        due = fetch_due_generations(report_date)
     if not due:
         print("🧩 当前没有到期的订阅主题，跳过主题段生成")
         return 0
@@ -779,29 +781,65 @@ def generate_due_topic_sections(news_items, report_date, run_id):
     return saved
 
 
+def generation_concurrency():
+    raw = os.environ.get("GENERATION_CONCURRENCY", "4")
+    try:
+        return max(1, min(8, int(raw)))
+    except ValueError:
+        return 4
+
+
+def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
+    """生成并入库单个主题。失败返回 False，不影响其他主题。"""
+    selected = collect_news_for_topic(news_items, topic)
+    if not selected:
+        print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
+        return False
+    prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition), topic, edition)
+    try:
+        content = call_llm_with_retry(prompt)
+    except Exception as e:
+        print(f"  ⚠️ 主题「{topic}」生成失败，跳过: {e}")
+        return False
+    if not has_substantive_report_content(content):
+        print(f"  ⏭️ 主题「{topic}」没有实质正文，跳过")
+        return False
+    if not content.lstrip().startswith("##"):
+        content = f"## {topic}\n\n{content.strip()}"
+    title = f"{topic} · {report_date}"
+    summary = content[:100] + "..." if len(content) > 100 else content
+    return push_topic_section(edition, report_date, topic, title, content, summary, run_id)
+
+
 def generate_topic_sections(news_items, edition, topics, report_date, run_id):
-    """只为有人勾选的主题生成段落；单个主题失败不影响其余主题。"""
-    saved = 0
+    """只为有人勾选的主题生成段落；多个主题并行，单个失败不影响其余主题。"""
+    unique_topics = []
+    seen = set()
     for topic in topics:
-        selected = collect_news_for_topic(news_items, topic)
-        if not selected:
-            print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
+        if not topic or topic in seen:
             continue
-        prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition), topic, edition)
-        try:
-            content = call_llm_with_retry(prompt)
-        except Exception as e:
-            print(f"  ⚠️ 主题「{topic}」生成失败，跳过: {e}")
-            continue
-        if not has_substantive_report_content(content):
-            print(f"  ⏭️ 主题「{topic}」没有实质正文，跳过")
-            continue
-        if not content.lstrip().startswith("##"):
-            content = f"## {topic}\n\n{content.strip()}"
-        title = f"{topic} · {report_date}"
-        summary = content[:100] + "..." if len(content) > 100 else content
-        if push_topic_section(edition, report_date, topic, title, content, summary, run_id):
-            saved += 1
+        seen.add(topic)
+        unique_topics.append(topic)
+    if not unique_topics:
+        return 0
+    workers = min(generation_concurrency(), len(unique_topics))
+    if workers == 1:
+        return sum(
+            1 for topic in unique_topics
+            if generate_one_topic_section(news_items, edition, topic, report_date, run_id)
+        )
+    saved = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(generate_one_topic_section, news_items, edition, topic, report_date, run_id)
+            for topic in unique_topics
+        ]
+        for future in as_completed(futures):
+            try:
+                if future.result():
+                    saved += 1
+            except Exception as e:
+                print(f"  ⚠️ 主题生成线程异常，跳过: {e}")
     return saved
 
 
@@ -856,14 +894,20 @@ def main():
         print("❌ 缺少 WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
-    # Step 1: 抓取资讯
-    news_items = extract_ai_news()
-
     if mode == "poll":
+        due = fetch_due_generations(today)
+        if not due:
+            print("🧩 当前没有到期的订阅主题，跳过爬取和生成")
+            return
+        print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
+        news_items = extract_ai_news()
         run_id = os.environ.get("GITHUB_RUN_ID", "local")
-        generate_due_topic_sections(news_items, today, run_id)
+        generate_due_topic_sections(news_items, today, run_id, due=due)
         print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
         return
+
+    # Step 1: 抓取资讯
+    news_items = extract_ai_news()
 
     if not news_items:
         print("❌ 未抓取到任何 AI 相关资讯，不生成、不入库、不推送")

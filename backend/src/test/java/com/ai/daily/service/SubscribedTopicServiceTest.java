@@ -25,7 +25,7 @@ class SubscribedTopicServiceTest {
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, 30);
 
         Subscription alice = subscription(1L);
         Subscription bob = subscription(2L);
@@ -41,10 +41,32 @@ class SubscribedTopicServiceTest {
         when(sections.findId(any(), any(), any())).thenReturn(null);
 
         List<DueGenerationDTO> due = service.listDueGenerations(LocalDate.of(2026, 8, 29), LocalTime.of(8, 0));
-        assertThat(due).extracting(DueGenerationDTO::getTopic).contains("AI大模型", "安全");
+        assertThat(due).extracting(DueGenerationDTO::getTopic).contains("AI大模型", "安全", "数据库");
         assertThat(due).filteredOn(item -> "安全".equals(item.getTopic()))
                 .extracting(DueGenerationDTO::getGenerateAt)
                 .containsExactly("07:30");
+    }
+
+    @Test
+    void startsGenerationBeforeDisplayTime() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, 30);
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("区块链", "20:20")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+
+        LocalDate date = LocalDate.of(2026, 8, 29);
+        assertThat(service.listDueGenerations(date, LocalTime.of(19, 49))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(19, 50)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("区块链");
+        assertThat(service.startAt(LocalTime.of(20, 20))).isEqualTo(LocalTime.of(19, 50));
     }
 
     private com.ai.daily.dto.SubscriptionDTO.TopicScheduleItemDTO item(String topic, String time) {

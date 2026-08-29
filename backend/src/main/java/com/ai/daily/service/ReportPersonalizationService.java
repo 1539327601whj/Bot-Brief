@@ -21,7 +21,7 @@ public class ReportPersonalizationService {
     private static final int SUMMARY_LENGTH = 160;
 
     private static final Map<String, List<String>> PRESET_ALIASES = Map.ofEntries(
-            Map.entry("AI大模型", List.of("人工智能", "大模型", "LLM", "GPT", "Claude", "Gemini", "DeepSeek", "Qwen")),
+            Map.entry("AI大模型", List.of("AI", "人工智能", "大模型", "LLM", "GPT", "Claude", "Gemini", "DeepSeek", "Qwen")),
             Map.entry("Web开发", List.of("Web", "前端", "后端", "浏览器", "JavaScript", "TypeScript", "React", "Vue", "Spring", "API")),
             Map.entry("移动端", List.of("移动端", "Android", "iOS", "Flutter", "React Native")),
             Map.entry("云原生", List.of("云原生", "Kubernetes", "K8s", "容器", "Docker", "Serverless")),
@@ -32,6 +32,57 @@ public class ReportPersonalizationService {
             Map.entry("机器学习", List.of("机器学习", "深度学习", "训练", "推理", "MLOps")),
             Map.entry("区块链", List.of("区块链", "Web3", "智能合约", "加密货币"))
     );
+
+    public static List<String> matchingTopics(String question) {
+        if (question == null || question.isBlank()) return List.of();
+        String text = question.toLowerCase(Locale.ROOT);
+        List<String> matched = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : PRESET_ALIASES.entrySet()) {
+            if (text.contains(entry.getKey().toLowerCase(Locale.ROOT))) {
+                matched.add(entry.getKey());
+                continue;
+            }
+            for (String alias : entry.getValue()) {
+                if (alias != null && !alias.isBlank() && text.contains(alias.toLowerCase(Locale.ROOT))) {
+                    matched.add(entry.getKey());
+                    break;
+                }
+            }
+        }
+        return matched;
+    }
+
+    public static List<String> expandTerms(List<String> keywords) {
+        Set<String> expanded = new LinkedHashSet<>();
+        if (keywords == null) return List.of();
+        for (String raw : keywords) {
+            if (raw == null || raw.isBlank()) continue;
+            String keyword = raw.toLowerCase(Locale.ROOT);
+            expanded.add(keyword);
+            for (Map.Entry<String, List<String>> entry : PRESET_ALIASES.entrySet()) {
+                if (!termHitsTopic(keyword, entry.getKey(), entry.getValue())) continue;
+                expanded.add(entry.getKey().toLowerCase(Locale.ROOT));
+                for (String alias : entry.getValue()) {
+                    if (alias != null && !alias.isBlank()) {
+                        expanded.add(alias.toLowerCase(Locale.ROOT));
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(expanded);
+    }
+
+    private static boolean termHitsTopic(String keyword, String topic, List<String> aliases) {
+        String topicKey = topic.toLowerCase(Locale.ROOT);
+        if (topicKey.contains(keyword) || keyword.contains(topicKey)) return true;
+        for (String alias : aliases) {
+            String normalized = alias.toLowerCase(Locale.ROOT);
+            if (normalized.equals(keyword)) return true;
+            if (keyword.length() >= 2 && normalized.contains(keyword)) return true;
+            if (normalized.length() >= 2 && keyword.contains(normalized)) return true;
+        }
+        return false;
+    }
 
     public PreparedReport prepare(Report canonical) {
         if (canonical == null || canonical.getContent() == null) return new PreparedReport(canonical, "", List.of());

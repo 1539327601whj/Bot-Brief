@@ -25,12 +25,32 @@ services:
       DEMO_DISPLAY_NAME: ${DEMO_DISPLAY_NAME:-公开演示账号}
       DEMO_TOKEN_EXPIRATION_MINUTES: ${DEMO_TOKEN_EXPIRATION_MINUTES:-30}
       REPORT_INGEST_TOKEN: ${REPORT_INGEST_TOKEN}
+      REPORT_GENERATION_LEAD_MINUTES: ${REPORT_GENERATION_LEAD_MINUTES:-30}
       PUSH_CHANNEL_ENCRYPTION_KEY: ${PUSH_CHANNEL_ENCRYPTION_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-BriefMind}
+    restart: always
+
+  poller:
+    image: ${POLLER_IMAGE:-bot-brief-poller:local}
+    build:
+      context: ./automation
+    container_name: bot-brief-poller
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Asia/Shanghai
+      MODE: poll
+      BACKEND_API_URL: ${POLLER_BACKEND_URL:-http://backend:8081}
+      REPORT_INGEST_TOKEN: ${REPORT_INGEST_TOKEN}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      GENERATION_CONCURRENCY: ${GENERATION_CONCURRENCY:-4}
     restart: always
 
   frontend:

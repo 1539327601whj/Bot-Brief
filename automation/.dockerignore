@@ -1,0 +1,7 @@
+tests
+**/__pycache__
+**/*.pyc
+scripts/etf_report.py
+scripts/etf_allocation_analyst.py
+scripts/push_wechat.py
+agents
