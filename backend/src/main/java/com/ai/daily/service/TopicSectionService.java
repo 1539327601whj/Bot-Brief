@@ -5,6 +5,7 @@ import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.service.impl.ReportServiceImpl;
 import com.ai.daily.util.MarkdownUtils;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +21,9 @@ import java.util.Map;
 @Service
 public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSection> {
 
+    @Autowired
+    private TopicGenerationStatusService generationStatusService;
+
     public boolean saveSection(LocalDate sectionDate, String edition, String topic, String title, String content, String summary, String runId) {
         if (!ReportWindows.isGenerationWindow(edition)) {
             throw new IllegalArgumentException("主题段落只支持四个时间段");
@@ -32,6 +36,7 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
             throw new IllegalArgumentException("主题段落缺少实质正文");
         }
         if (baseMapper.findId(sectionDate, edition, topicKey) != null) {
+            markReadyQuietly(sectionDate, edition, topicKey, runId);
             return false;
         }
         String resolvedSummary = summary;
@@ -48,9 +53,12 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
         section.setRunId(runId);
         section.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
         try {
-            return this.save(section);
+            boolean saved = this.save(section);
+            markReadyQuietly(sectionDate, edition, topicKey, runId);
+            return saved;
         } catch (DuplicateKeyException e) {
             if (baseMapper.findId(sectionDate, edition, topicKey) != null) {
+                markReadyQuietly(sectionDate, edition, topicKey, runId);
                 return false;
             }
             throw e;
@@ -87,5 +95,10 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
             if (match != null) ordered.add(match);
         }
         return ordered;
+    }
+
+    private void markReadyQuietly(LocalDate sectionDate, String edition, String topicKey, String runId) {
+        if (generationStatusService == null) return;
+        generationStatusService.markReady(sectionDate, edition, topicKey, runId);
     }
 }

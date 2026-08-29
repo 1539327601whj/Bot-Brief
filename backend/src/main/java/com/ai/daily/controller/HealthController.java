@@ -1,24 +1,26 @@
 package com.ai.daily.controller;
 
+import com.ai.daily.service.HealthCheckService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 健康检查接口
- */
 @RestController
 @RequestMapping("/api")
+@RequiredArgsConstructor
 public class HealthController {
 
+    private final HealthCheckService healthCheckService;
+
     @GetMapping("/health")
-    public Map<String, Object> health() {
-        Map<String, Object> res = new HashMap<>();
-        res.put("status", "UP");
-        res.put("service", "ai-daily-backend");
-        return res;
+    public ResponseEntity<Map<String, Object>> health() {
+        Map<String, Object> body = healthCheckService.snapshot();
+        int status = body.get("httpStatus") instanceof Integer http ? http : 200;
+        body.remove("httpStatus");
+        return ResponseEntity.status(status).body(body);
     }
 }

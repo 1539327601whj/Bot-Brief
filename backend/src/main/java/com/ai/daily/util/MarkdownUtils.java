@@ -40,4 +40,57 @@ public final class MarkdownUtils {
         }
         return s;
     }
+
+    public static String toSimpleHtml(String markdown) {
+        if (markdown == null || markdown.isBlank()) return "";
+        String[] blocks = markdown.replace("\r\n", "\n").split("\n\n");
+        StringBuilder html = new StringBuilder();
+        for (String rawBlock : blocks) {
+            String block = rawBlock.strip();
+            if (block.isEmpty()) continue;
+            if (block.matches("(?s)-{3,}|\\*{3,}|_{3,}")) {
+                html.append("<hr>");
+                continue;
+            }
+            if (block.startsWith("### ")) {
+                html.append("<h3>").append(inline(block.substring(4))).append("</h3>");
+                continue;
+            }
+            if (block.startsWith("## ")) {
+                html.append("<h2>").append(inline(block.substring(3))).append("</h2>");
+                continue;
+            }
+            if (block.startsWith("# ")) {
+                html.append("<h1>").append(inline(block.substring(2))).append("</h1>");
+                continue;
+            }
+            String[] lines = block.split("\n");
+            boolean list = lines.length > 0 && lines[0].matches("\\s*(?:[-*+]|\\d+\\.)\\s+.*");
+            if (list) {
+                html.append("<ul>");
+                for (String line : lines) {
+                    html.append("<li>").append(inline(line.replaceFirst("\\s*(?:[-*+]|\\d+\\.)\\s+", ""))).append("</li>");
+                }
+                html.append("</ul>");
+                continue;
+            }
+            html.append("<p>").append(inline(block.replace("\n", "<br>"))).append("</p>");
+        }
+        return html.toString();
+    }
+
+    private static String inline(String text) {
+        String escaped = escape(text);
+        escaped = escaped.replaceAll("\\*\\*(.+?)\\*\\*", "<strong>$1</strong>");
+        escaped = escaped.replaceAll("__(.+?)__", "<strong>$1</strong>");
+        escaped = escaped.replaceAll("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", "<em>$1</em>");
+        escaped = escaped.replaceAll("`([^`]+)`", "<code>$1</code>");
+        escaped = escaped.replaceAll("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)", "<a href=\"$2\">$1</a>");
+        return escaped;
+    }
+
+    private static String escape(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
 }

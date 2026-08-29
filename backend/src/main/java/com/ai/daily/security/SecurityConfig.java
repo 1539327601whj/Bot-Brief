@@ -45,6 +45,7 @@ public class SecurityConfig {
                                 "/api/auth/login", "/api/auth/register", "/api/auth/demo").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/api/reports/ingest", "/api/reports/sections/ingest",
+                                "/api/reports/poller-heartbeat", "/api/reports/generation-status",
                                 "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/reports/subscribed-topics", "/api/reports/due-generations").permitAll()
@@ -55,7 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/auth/me", "/api/reports", "/api/reports/latest", "/api/stats/dashboard").authenticated()
                         .requestMatchers(new RegexRequestMatcher("^/api/reports/\\d+$", "GET")).authenticated()
-                        .requestMatchers("/api/subscription", "/api/channels", "/api/channels/**")
+                        .requestMatchers("/api/subscription", "/api/subscription/**", "/api/channels", "/api/channels/**")
                                 .access(new WebExpressionAuthorizationManager(
                                         "isAuthenticated() and (hasAuthority('ACCOUNT_NORMAL') or hasRole('ADMIN'))"))
                         .requestMatchers("/api/admin/**")

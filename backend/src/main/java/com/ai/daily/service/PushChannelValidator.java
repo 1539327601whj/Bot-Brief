@@ -95,7 +95,23 @@ public class PushChannelValidator {
                     && singleQueryToken(query, "access_token");
             default -> false;
         };
-        if (!valid) throw new IllegalArgumentException("Webhook 地址不是受支持的官方机器人地址");
+        if (!valid) throw new IllegalArgumentException(webhookHint(type, host));
+    }
+
+    private String webhookHint(String type, String host) {
+        if ("wechat".equals(type)) {
+            if (host != null && host.contains("work.weixin.qq.com")) {
+                return "这是企业微信机器人主页，不能用来推送。请复制 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...";
+            }
+            return "请填写企业微信群机器人 Webhook：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...";
+        }
+        if ("feishu".equals(type)) {
+            return "请填写飞书官方机器人地址：https://open.feishu.cn/open-apis/bot/v2/hook/...";
+        }
+        if ("dingtalk".equals(type)) {
+            return "请填写钉钉官方机器人地址：https://oapi.dingtalk.com/robot/send?access_token=...";
+        }
+        return "Webhook 地址不是受支持的官方机器人地址";
     }
 
     private boolean singleQueryToken(String rawQuery, String name) {

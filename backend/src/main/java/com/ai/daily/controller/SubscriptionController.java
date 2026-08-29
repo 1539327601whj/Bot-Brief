@@ -33,6 +33,14 @@ public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
     private final PushChannelService pushChannelService;
+    private final com.ai.daily.service.SubscriptionProgressService subscriptionProgressService;
+
+    @GetMapping("/today-status")
+    public Result<com.ai.daily.dto.SubscriptionTodayStatusDTO> todayStatus() {
+        Long userId = SecurityUtils.currentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+        return Result.ok(subscriptionProgressService.todayStatus(userId));
+    }
 
     @GetMapping
     public Result<SubscriptionDTO> getSubscription() {

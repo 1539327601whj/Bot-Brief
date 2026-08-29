@@ -3,6 +3,7 @@ package com.ai.daily.service.push;
 import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
 import com.ai.daily.service.PushChannelValidator;
+import com.ai.daily.util.MarkdownUtils;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,12 +40,14 @@ public class EmailPushService implements ChannelSender {
         h.setFrom(from, fromName);
         h.setTo(channel.getTarget());
         h.setSubject(report.getTitle());
-        // Markdown 简单包裹 <pre> 保留格式；后续可换成 flexmark 转 HTML
-        String html = "<div style='font-family:monospace,Menlo,Consolas;line-height:1.6;'>"
-                + "<h2>" + escape(report.getTitle()) + "</h2>"
-                + "<pre style='white-space:pre-wrap;word-wrap:break-word;'>"
-                + escape(report.getContent())
-                + "</pre></div>";
+        String body = MarkdownUtils.toSimpleHtml(report.getContent());
+        if (body.isBlank()) {
+            body = "<p>" + escape(report.getSummary()) + "</p>";
+        }
+        String html = "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;color:#1f2937;max-width:720px;\">"
+                + "<h1 style=\"font-size:20px;margin:0 0 16px;\">" + escape(report.getTitle()) + "</h1>"
+                + body
+                + "</div>";
         h.setText(html, true);
         mailSender.send(msg);
         log.info("邮件推送成功 channel_id={} report_id={}", channel.getId(), report.getId());

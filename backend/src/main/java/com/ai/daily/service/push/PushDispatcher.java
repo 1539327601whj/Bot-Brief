@@ -140,6 +140,10 @@ public class PushDispatcher {
                 || sanitized.equals("Webhook 地址格式无效")
                 || sanitized.equals("Webhook 必须使用官方 HTTPS 地址")
                 || sanitized.equals("Webhook 地址不是受支持的官方机器人地址")
+                || sanitized.startsWith("请填写企业微信群机器人 Webhook")
+                || sanitized.startsWith("这是企业微信机器人主页")
+                || sanitized.startsWith("请填写飞书官方机器人地址")
+                || sanitized.startsWith("请填写钉钉官方机器人地址")
                 || sanitized.equals("邮件推送未配置 MAIL_USERNAME")
                 || sanitized.matches("(企业微信|钉钉|飞书)(请求失败|返回空响应|返回失败|返回无效响应)")
                 || sanitized.equals("未知渠道类型");

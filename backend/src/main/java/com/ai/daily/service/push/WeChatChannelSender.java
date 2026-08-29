@@ -20,7 +20,7 @@ import java.util.Map;
 @Service
 public class WeChatChannelSender implements ChannelSender {
 
-    private static final int MARKDOWN_MAX = 4096; // 企业微信 markdown 上限
+    private static final int MARKDOWN_MAX_BYTES = 3800;
 
     private final RestTemplate restTemplate;
     private final PushChannelValidator channelValidator;
@@ -43,7 +43,7 @@ public class WeChatChannelSender implements ChannelSender {
         Map<String, Object> msg = new HashMap<>();
         msg.put("msgtype", "markdown");
         Map<String, Object> md = new HashMap<>();
-        md.put("content", truncate(buildMarkdown(report), MARKDOWN_MAX));
+        md.put("content", PushContentLimits.truncateToBytes(buildMarkdown(report), MARKDOWN_MAX_BYTES));
         msg.put("markdown", md);
         ResponseEntity<String> response;
         try {
@@ -59,8 +59,4 @@ public class WeChatChannelSender implements ChannelSender {
         return "📋 **" + report.getTitle() + "**\n\n" + report.getContent();
     }
 
-    private String truncate(String s, int max) {
-        if (s == null) return "";
-        return s.length() > max ? s.substring(0, max - 3) + "..." : s;
-    }
 }

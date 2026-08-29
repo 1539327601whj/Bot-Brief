@@ -61,9 +61,9 @@ interface UpdateChannelBody {
   clearSecret?: boolean
 }
 
-const TYPE_META: Record<ChannelType, { icon: string; label: string; targetLabel: string; targetPlaceholder: string; supportsSecret: boolean; secretHint?: string }> = {
+const TYPE_META: Record<ChannelType, { icon: string; label: string; targetLabel: string; targetPlaceholder: string; supportsSecret: boolean; secretHint?: string; help?: string }> = {
   email:    { icon: '✉️', label: '邮箱',   targetLabel: '邮箱地址',   targetPlaceholder: 'you@example.com',                                supportsSecret: false },
-  wechat:   { icon: '💬', label: '企业微信', targetLabel: 'Webhook URL', targetPlaceholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...', supportsSecret: false },
+  wechat:   { icon: '💬', label: '企业微信', targetLabel: 'Webhook URL', targetPlaceholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...', supportsSecret: false, help: '到群机器人设置里复制 Webhook，必须是 qyapi.weixin.qq.com/.../send?key= 这种地址，不要复制机器人主页。' },
   dingtalk: { icon: '🔔', label: '钉钉',    targetLabel: 'Webhook URL', targetPlaceholder: 'https://oapi.dingtalk.com/robot/send?access_token=...',    supportsSecret: true, secretHint: '钉钉后台开启加签时的签名密钥' },
   feishu:   { icon: '🚀', label: '飞书',    targetLabel: 'Webhook URL', targetPlaceholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...',       supportsSecret: true, secretHint: '飞书后台开启签名校验时的密钥' },
 }
@@ -335,6 +335,9 @@ export default function PushChannels() {
               onChange={event => setEditing({ ...editing, target: event.target.value })}
               placeholder={TYPE_META[editing.channelType].targetPlaceholder}
             />
+            {TYPE_META[editing.channelType].help && (
+              <small className="channel-help">{TYPE_META[editing.channelType].help}</small>
+            )}
           </label>
 
           {TYPE_META[editing.channelType].supportsSecret && (

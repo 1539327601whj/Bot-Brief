@@ -2,6 +2,7 @@
 """按北京时间整分对齐，每分钟询问是否有到期订阅并生成主题段。"""
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,9 +37,23 @@ def run_once(daily_report=None):
             print(f"⚠️ 本轮轮询退出码 {exc.code}")
 
 
+def start_heartbeat(daily_report):
+    def beat():
+        while True:
+            try:
+                daily_report.post_poller_heartbeat("running")
+            except Exception as exc:
+                print(f"⚠️ 心跳线程异常: {exc}")
+            time.sleep(60)
+    thread = threading.Thread(target=beat, name="poller-heartbeat", daemon=True)
+    thread.start()
+    return thread
+
+
 def loop(sleep=time.sleep, daily_report=None):
     print("🕒 订阅生成器已启动，按北京时间整分对齐")
     report = daily_report if daily_report is not None else load_daily_report()
+    start_heartbeat(report)
     while True:
         started = now_beijing().strftime("%H:%M:%S")
         print(f"\n—— 轮询 {started} ——")

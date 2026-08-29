@@ -179,6 +179,12 @@ class TopicSectionTests(unittest.TestCase):
         )
         self.assertEqual(saved, 0)
 
+    def test_custom_search_drops_unrelated_items(self):
+        loose = {"title": "今日财经综述", "summary": "股市上涨", "score": 8}
+        hit = {"title": "具身智能新突破", "summary": "机器人落地", "score": 9}
+        self.assertFalse(report.news_mentions_topic(loose, "具身智能"))
+        self.assertTrue(report.news_mentions_topic(hit, "具身智能"))
+
     def test_custom_topic_is_not_treated_as_preset(self):
         self.assertTrue(report.is_preset_topic("数据库"))
         self.assertFalse(report.is_preset_topic("具身智能"))
@@ -222,10 +228,11 @@ class TopicSectionTests(unittest.TestCase):
         "REPORT_INGEST_TOKEN": "token",
         "MODE": "poll",
     }, clear=False)
+    @patch.object(report, "post_poller_heartbeat", return_value=True)
     @patch.object(report, "fetch_due_generations", return_value=[])
     @patch.object(report, "extract_ai_news")
     @patch.object(report, "generate_due_topic_sections")
-    def test_poll_skips_crawl_when_nothing_due(self, generate, extract, _due):
+    def test_poll_skips_crawl_when_nothing_due(self, generate, extract, _due, _beat):
         report.main()
         extract.assert_not_called()
         generate.assert_not_called()
@@ -237,12 +244,13 @@ class TopicSectionTests(unittest.TestCase):
         "MODE": "poll",
         "GITHUB_RUN_ID": "run-99",
     }, clear=False)
+    @patch.object(report, "post_poller_heartbeat", return_value=True)
     @patch.object(report, "fetch_due_generations", return_value=[
         {"window": "w18_24", "topic": "区块链", "generateAt": "20:20"},
     ])
     @patch.object(report, "extract_ai_news", return_value=[{"title": "链上", "summary": "news"}])
     @patch.object(report, "generate_due_topic_sections", return_value=1)
-    def test_poll_generates_due_topics(self, generate, extract, due):
+    def test_poll_generates_due_topics(self, generate, extract, due, _beat):
         report.main()
         extract.assert_called_once()
         generate.assert_called_once()

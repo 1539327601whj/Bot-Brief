@@ -1009,6 +1009,29 @@
   font-size: 13px;
 }
 
+.topic-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.topic-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.topic-progress span { color: #c5d0dc; font-size: 13px; }
+.topic-progress strong { font-size: 12px; }
+.topic-progress small { color: #8b949e; font-size: 12px; line-height: 1.4; }
+.topic-progress.ok strong { color: #00d4aa; }
+.topic-progress.info strong { color: #8b9cff; }
+.topic-progress.warn strong { color: #ffc542; }
+.topic-progress.danger strong { color: #ff8080; }
+
 .status-list {
   display: flex;
   flex-direction: column;

@@ -1,6 +1,7 @@
 package com.ai.daily.controller;
 
 import com.ai.daily.dto.DueGenerationDTO;
+import com.ai.daily.dto.GenerationStatusPushDTO;
 import com.ai.daily.dto.ReportPushDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.dto.TopicSectionPushDTO;
@@ -48,6 +49,12 @@ public class ReportController {
 
     @Autowired
     private ScheduledPushTask scheduledPushTask;
+
+    @Autowired
+    private com.ai.daily.service.OpsHeartbeatService opsHeartbeatService;
+
+    @Autowired
+    private com.ai.daily.service.TopicGenerationStatusService topicGenerationStatusService;
 
     @Value("${report.ingest-token:}")
     private String ingestToken;
@@ -98,6 +105,44 @@ public class ReportController {
         data.put("date", reportDate.toString());
         data.put("items", items);
         return Result.ok(data);
+    }
+
+    @PostMapping("/poller-heartbeat")
+    public Result<Boolean> pollerHeartbeat(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @RequestBody(required = false) Map<String, Object> body) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        String detail = body != null && body.get("detail") != null ? String.valueOf(body.get("detail")) : "ok";
+        opsHeartbeatService.beat(com.ai.daily.service.OpsHeartbeatService.POLLER, detail);
+        return Result.ok(true);
+    }
+
+    @PostMapping("/generation-status")
+    public Result<Boolean> ingestGenerationStatus(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @Valid @RequestBody GenerationStatusPushDTO dto) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        String window = resolveWindow(dto.getEdition());
+        if (window == null) {
+            return Result.error(400, "window 只支持 w00_06 / w06_12 / w12_18 / w18_24");
+        }
+        try {
+            topicGenerationStatusService.record(
+                    dto.getReportDate(),
+                    window,
+                    dto.getTopic(),
+                    dto.getStatus(),
+                    dto.getMessage(),
+                    dto.getRunId()
+            );
+            return Result.ok(true);
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
     }
 
     @PostMapping("/sections/ingest")

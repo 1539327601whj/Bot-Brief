@@ -89,6 +89,56 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
     return False
 
 
+def post_poller_heartbeat(detail="ok"):
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    try:
+        resp = req.post(
+            f"{backend_url}/api/reports/poller-heartbeat",
+            json={"detail": detail},
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 15),
+        )
+        return resp.status_code == 200
+    except req.RequestException as e:
+        print(f"  ⚠️ 心跳上报失败: {e}")
+        return False
+
+
+def report_generation_status(edition, report_date, topic, status, message="", run_id=""):
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    payload = {
+        "edition": edition,
+        "reportDate": report_date,
+        "topic": topic,
+        "status": status,
+        "message": message,
+        "runId": run_id,
+    }
+    try:
+        resp = req.post(
+            f"{backend_url}/api/reports/generation-status",
+            json=payload,
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 20),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        return resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
+    except req.RequestException as e:
+        print(f"  ⚠️ 主题状态上报失败: {e}")
+        return False
+
+
 def fetch_due_generations(report_date=None):
     """询问后端：当前已到最早订阅时刻、尚未生成的主题段。"""
     import requests as req
@@ -689,18 +739,27 @@ def topic_search_urls(topic):
     ]
 
 
-def fetch_topic_search_news(topic, limit=8):
-    """按自定义词单独检索，不复用公共 AI 资讯池。"""
+def news_mentions_topic(item, topic):
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    token = (topic or "").strip().lower()
+    if token and token in text:
+        return True
+    return topic_match_score(item, topic) >= 1
+
+
+def fetch_topic_search_news(topic, limit=5):
+    """按自定义词单独检索，只保留标题或摘要真正提到该词的条目。"""
     collected = []
     for source, url in topic_search_urls(topic):
         xml = fetch_feed(url, timeout=8)
         if not xml:
             continue
         try:
-            collected.extend(parse_rss_items(xml, source, max_items=15))
+            collected.extend(parse_rss_items(xml, source, max_items=12))
         except Exception as e:
             print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
-    return dedupe_news_items(collected)[:limit]
+    filtered = [item for item in dedupe_news_items(collected) if news_mentions_topic(item, topic)]
+    return filtered[:limit]
 
 
 def collect_news_for_topic(news_items, topic):
@@ -794,21 +853,27 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
     selected = collect_news_for_topic(news_items, topic)
     if not selected:
         print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
+        report_generation_status(edition, report_date, topic, "skipped_no_news", "今天没有抓到与该主题直接相关的资讯", run_id)
         return False
     prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition), topic, edition)
     try:
         content = call_llm_with_retry(prompt)
     except Exception as e:
         print(f"  ⚠️ 主题「{topic}」生成失败，跳过: {e}")
+        report_generation_status(edition, report_date, topic, "failed", "模型生成失败，稍后重试", run_id)
         return False
     if not has_substantive_report_content(content):
         print(f"  ⏭️ 主题「{topic}」没有实质正文，跳过")
+        report_generation_status(edition, report_date, topic, "failed", "模型没有写出实质正文", run_id)
         return False
     if not content.lstrip().startswith("##"):
         content = f"## {topic}\n\n{content.strip()}"
     title = f"{topic} · {report_date}"
     summary = content[:100] + "..." if len(content) > 100 else content
-    return push_topic_section(edition, report_date, topic, title, content, summary, run_id)
+    if push_topic_section(edition, report_date, topic, title, content, summary, run_id):
+        return True
+    report_generation_status(edition, report_date, topic, "failed", "内容已生成但入库失败", run_id)
+    return False
 
 
 def generate_topic_sections(news_items, edition, topics, report_date, run_id):
@@ -887,6 +952,7 @@ def main():
         print("❌ 缺少 API Key 环境变量，请配置 DEEPSEEK_API_KEY")
         sys.exit(1)
     if mode == "poll":
+        post_poller_heartbeat("checking")
         if not backend_configured:
             print("❌ 轮询模式需要配置 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
             sys.exit(1)

@@ -8,7 +8,8 @@ import { getReportEditionInfo } from '../utils/reportEdition'
 import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
-import { demoChannels, demoSubscription } from '../demo/fixtures'
+import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
+import { type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Subscription.css'
 
 interface PublicReportPreview {
@@ -164,6 +165,7 @@ export default function Subscription() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'ok' | 'error'>('ok')
+  const [todayStatus, setTodayStatus] = useState<TodayProgress>({ items: [] })
 
   const showMessage = (text: string, type: 'ok' | 'error' = 'ok') => {
     setMessageType(type)
@@ -175,6 +177,7 @@ export default function Subscription() {
     if (isDemo) {
       setData(normalizeSubscription(demoSubscription))
       setChannels(demoChannels)
+      setTodayStatus(demoTodayStatus)
       setLoading(false)
       return
     }
@@ -214,6 +217,14 @@ export default function Subscription() {
         }
         showMessage(apiMessage(err, undefined, '通讯录加载失败'), 'error')
       }
+      try {
+        const statusRes = await api.get('/subscription/today-status')
+        if (statusRes.data?.code === 200) {
+          setTodayStatus(statusRes.data.data || { items: [] })
+        }
+      } catch {
+        setTodayStatus({ items: [] })
+      }
       if (user?.role === 'ADMIN') {
         const [morning, evening, market] = await Promise.all([
           loadPublicPreview('morning'),
@@ -250,6 +261,8 @@ export default function Subscription() {
 
   const topicItems = (topic: string) => items.filter(item => interestKey(item.topic) === interestKey(topic))
   const topicEnabled = (topic: string) => topicItems(topic).some(item => item.enabled)
+  const slotProgress = (topic: string, time: string): TopicProgressItem | undefined =>
+    todayStatus.items.find(item => item.topic === topic && item.time === time)
 
   const updateItems = (next: TopicScheduleItem[]) => {
     if (isDemo) return
@@ -423,6 +436,9 @@ export default function Subscription() {
       )}
 
       <section className={isAdmin ? 'subscription-pane personal' : undefined}>
+      {isAdmin && todayStatus.poller && !todayStatus.poller.healthy && (
+        <div className="alert-line danger">订阅生成器超过 20 分钟没有心跳，个人简报可能停了。最近一次：{todayStatus.poller.lastSeen || '从未上报'}</div>
+      )}
       {isAdmin && (
         <div className="section-title-row pane-intro">
           <div>
@@ -545,6 +561,11 @@ export default function Subscription() {
                       <span className={item.channelIds.length ? 'schedule-badge bound' : 'schedule-badge'}>
                         {item.channelIds.length ? `已绑 ${item.channelIds.length} 个渠道` : '仅网页'}
                       </span>
+                      {slotProgress(topic, item.time) && (
+                        <span className={`schedule-badge status-${slotProgress(topic, item.time)?.status || ''}`} title={slotProgress(topic, item.time)?.message}>
+                          {slotProgress(topic, item.time)?.label}
+                        </span>
+                      )}
                       <div className="schedule-actions">
                         {slotIndex === 0 && (
                           <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>再加时段</button>

@@ -7,7 +7,8 @@ import { getReportEditionInfo } from '../utils/reportEdition'
 import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
-import { demoPushLogs, demoSubscription } from '../demo/fixtures'
+import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
+import { slotEmptyHint, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Dashboard.css'
 
 interface Report {
@@ -197,7 +198,15 @@ function FocusCard({ report }: { report: Report | null }) {
   )
 }
 
-function SubscriptionCard({ subscription }: { subscription: Subscription | null }) {
+function progressTone(status?: string) {
+  if (status === 'failed') return 'danger'
+  if (status === 'skipped') return 'warn'
+  if (status === 'ready' || status === 'delivered') return 'ok'
+  if (status === 'preparing') return 'info'
+  return ''
+}
+
+function SubscriptionCard({ subscription, progress }: { subscription: Subscription | null; progress: TopicProgressItem[] }) {
   if (!subscription) {
     return (
       <div className="overview-card">
@@ -240,6 +249,17 @@ function SubscriptionCard({ subscription }: { subscription: Subscription | null 
       <div className="preference-tags">
         {fields.length > 0 ? fields.map(field => <span key={field} className="preference-tag">{field}</span>) : <span className="overview-muted">暂未设置关注领域</span>}
       </div>
+      {progress.length > 0 && (
+        <div className="topic-progress-list">
+          {progress.map(item => (
+            <div key={`${item.topic}-${item.time}`} className={`topic-progress ${progressTone(item.status)}`}>
+              <span>{item.time} · {item.topic}</span>
+              <strong>{item.label}</strong>
+              <small>{item.message}</small>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -358,6 +378,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [pushLogs, setPushLogs] = useState<PushLog[]>([])
+  const [todayProgress, setTodayProgress] = useState<TodayProgress>({ items: [] })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -366,7 +387,7 @@ export default function Dashboard() {
     async function loadOverview() {
       setLoading(true)
       const today = dayjs.tz().format('YYYY-MM-DD')
-      const [morningReport, eveningReport, etfEvening, personalPage, statsData, subscriptionData, pushLogData, recentData] = await Promise.all([
+      const [morningReport, eveningReport, etfEvening, personalPage, statsData, subscriptionData, pushLogData, recentData, progressData] = await Promise.all([
         canSeePublicDigest ? latestPublicReport('morning') : Promise.resolve(null),
         canSeePublicDigest ? latestPublicReport('evening') : Promise.resolve(null),
         latestPublicReport('market_watch_evening'),
@@ -375,6 +396,7 @@ export default function Dashboard() {
         isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
         isDemo ? Promise.resolve(demoPushLogs) : safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }),
         safeGet<{ records: Report[] }>('/reports', { params: { page: 1, size: canSeePublicDigest ? 12 : 6 } }),
+        isDemo ? Promise.resolve(demoTodayStatus) : safeGet<TodayProgress>('/subscription/today-status'),
       ])
 
       if (!mounted) return
@@ -387,6 +409,7 @@ export default function Dashboard() {
       setSubscription(subscriptionData)
       setPushLogs(pushLogData || [])
       setRecentReports(recent)
+      setTodayProgress(progressData || { items: [] })
       setLoading(false)
     }
 
@@ -420,7 +443,6 @@ export default function Dashboard() {
   const alerts = useMemo(() => {
     const now = dayjs.tz()
     const items: string[] = []
-    const topics = subscriptionItems(subscription)
     if ((stats?.todayCount ?? todayReports.length) === 0) {
       items.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
     }
@@ -429,14 +451,13 @@ export default function Dashboard() {
       if (now.hour() >= 21 && !isToday(evening?.createdAt)) items.push('今日晚间简报尚未生成')
     }
     if (!isDemo) {
-      itemsDueToday(topics).forEach(item => {
-        const time = toHHmm(item.time)
-        const [hour, minute] = time.split(':').map(Number)
-        if (now.hour() > hour || (now.hour() === hour && now.minute() >= minute)) {
-          const report = personalByTime.get(time)
-          if (!report || !isToday(report.createdAt)) items.push(`${time} 的主题尚未生成`)
-        }
+      todayProgress.items.forEach(item => {
+        if (item.status === 'failed') items.push(`${item.time} 「${item.topic}」生成失败`)
+        if (item.status === 'skipped') items.push(`${item.time} 「${item.topic}」没有匹配资讯`)
       })
+      if (isAdmin && todayProgress.poller && !todayProgress.poller.healthy) {
+        items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
+      }
     }
     if (now.hour() >= 18 && !isToday(marketWatch?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
@@ -447,7 +468,7 @@ export default function Dashboard() {
         : '订阅已开启，但今日暂无推送记录')
     }
     return [...new Set(items)]
-  }, [stats, todayReports, morning, evening, marketWatch, personalByTime, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest])
+  }, [stats, todayReports, morning, evening, marketWatch, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest, todayProgress, isAdmin])
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
@@ -465,6 +486,9 @@ export default function Dashboard() {
   return (
     <div className="dashboard-new">
       {isDemo && <DemoNotice publicContent />}
+      {isAdmin && todayProgress.poller && !todayProgress.poller.healthy && (
+        <div className="alert-line danger">订阅生成器超过 20 分钟没有心跳，个人简报可能停了。最近一次：{todayProgress.poller.lastSeen || '从未上报'}</div>
+      )}
       <div className="overview-hero">
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
@@ -527,13 +551,13 @@ export default function Dashboard() {
                     report={personalByTime.get(time) || null}
                     edition="personal"
                     displayTime={time}
-                    emptyHint={`预计 ${time} 按你勾选的主题生成`}
+                    emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
                   />
                 ))
               )}
             </div>
             <div className="overview-main-grid">
-              <SubscriptionCard subscription={subscription} />
+              <SubscriptionCard subscription={subscription} progress={todayProgress.items} />
               <PushStatusCard logs={pushLogs} todayReports={todayReports} />
               <div className="overview-card">
                 <div className="overview-card-title">🔥 近期热点</div>
@@ -577,7 +601,7 @@ export default function Dashboard() {
                   report={personalByTime.get(time) || null}
                   edition="personal"
                   displayTime={time}
-                  emptyHint={`预计 ${time} 按你勾选的主题生成`}
+                  emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
                 />
               ))
             )}
@@ -591,7 +615,7 @@ export default function Dashboard() {
           </div>
 
           <div className="overview-main-grid">
-            <SubscriptionCard subscription={subscription} />
+            <SubscriptionCard subscription={subscription} progress={todayProgress.items} />
             <PushStatusCard logs={pushLogs} todayReports={todayReports} />
             <div className="overview-card">
               <div className="overview-card-title">🔥 近期热点</div>

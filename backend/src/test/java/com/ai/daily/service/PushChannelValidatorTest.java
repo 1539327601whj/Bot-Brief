@@ -47,6 +47,15 @@ class PushChannelValidatorTest {
 
         assertThatThrownBy(() -> validator.validateForSend(channel))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Webhook 地址不是受支持的官方机器人地址");
+                .hasMessageContaining("qyapi.weixin.qq.com");
+    }
+
+    @Test
+    void rejectsWecomAdminProfileAsWebhook() {
+        assertThatThrownBy(() -> validator.validate(
+                "wechat",
+                "https://work.weixin.qq.com/wework_admin/common/openBotProfile/abc"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("机器人主页");
     }
 }

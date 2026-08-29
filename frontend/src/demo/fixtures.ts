@@ -16,8 +16,8 @@ import type {
 const demoNow = dayjs()
 
 export const demoPushLogs = [
-  { id: 501, reportId: 301, channelId: 401, channelType: 'email', status: 'success' as const, errorMessage: null, pushedAt: demoNow.hour(8).minute(15).second(0).toISOString() },
-  { id: 502, reportId: 302, channelId: 402, channelType: 'feishu', status: 'success' as const, errorMessage: null, pushedAt: demoNow.hour(20).minute(15).second(0).toISOString() },
+  { id: 501, reportId: 301, channelId: 401, channelType: 'email', status: 'success' as const, errorMessage: null, dispatchKey: 'scheduled:2026-08-29:08:15:1:401', pushedAt: demoNow.hour(8).minute(15).second(0).toISOString() },
+  { id: 502, reportId: 302, channelId: 402, channelType: 'feishu', status: 'success' as const, errorMessage: null, dispatchKey: 'scheduled:2026-08-29:20:15:1:402', pushedAt: demoNow.hour(20).minute(15).second(0).toISOString() },
   { id: 503, reportId: 299, channelId: 401, channelType: 'email', status: 'failed' as const, errorMessage: '合成示例：目标渠道暂时不可达', pushedAt: demoNow.subtract(1, 'day').hour(20).minute(15).second(0).toISOString() },
 ]
 
@@ -120,6 +120,18 @@ export const demoSubscription = {
       ...demoTopics.filter((_, index) => index > 2 && index !== 5 && index !== 7).map(topic => ({ topic, enabled: false, time: '08:15', channelIds: [] })),
     ],
   },
+}
+
+export const demoTodayStatus = {
+  date: '2026-08-29',
+  leadMinutes: 30,
+  poller: { healthy: true, lastSeen: '2026-08-29 20:10:00', detail: 'running' },
+  items: [
+    { topic: 'AI大模型', time: '08:15', status: 'delivered' as const, label: '已生成', message: '网页已可查看，绑定的渠道会按此时刻投递' },
+    { topic: 'Web开发', time: '08:15', status: 'delivered' as const, label: '已生成', message: '网页已可查看，绑定的渠道会按此时刻投递' },
+    { topic: 'AI大模型', time: '20:15', status: 'ready' as const, label: '已备好', message: '内容已写好，到 20:15 会显示并推送' },
+    { topic: '安全', time: '20:15', status: 'skipped' as const, label: '无匹配资讯', message: '今天没有抓到与该主题直接相关的资讯，已跳过' },
+  ],
 }
 
 export const demoChannels = [

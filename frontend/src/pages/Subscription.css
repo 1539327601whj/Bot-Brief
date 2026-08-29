@@ -6,6 +6,20 @@
   animation: fadeIn 0.3s ease;
 }
 
+.subscription-page .alert-line {
+  margin: 0 0 16px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.subscription-page .alert-line.danger {
+  color: #ffb4ad;
+  background: rgba(255, 123, 114, 0.08);
+  border: 1px solid rgba(255, 123, 114, 0.2);
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -835,6 +849,25 @@ a.ghost-link {
 .schedule-badge.bound {
   background: rgba(0, 212, 170, 0.12);
   color: #00d4aa;
+}
+
+.schedule-badge.status-delivered,
+.schedule-badge.status-ready {
+  background: rgba(0, 212, 170, 0.12);
+  color: #00d4aa;
+}
+.schedule-badge.status-preparing,
+.schedule-badge.status-upcoming {
+  background: rgba(139, 156, 255, 0.12);
+  color: #a8b2ff;
+}
+.schedule-badge.status-skipped {
+  background: rgba(255, 195, 66, 0.12);
+  color: #ffc542;
+}
+.schedule-badge.status-failed {
+  background: rgba(255, 128, 128, 0.12);
+  color: #ff8080;
 }
 
 .schedule-actions {
