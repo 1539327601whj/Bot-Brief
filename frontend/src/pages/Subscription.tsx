@@ -102,7 +102,8 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
       topic,
       enabled: Boolean(row?.enabled),
       time,
-      channelIds: [...new Set((row?.channelIds || []).filter((id: any) => Number.isInteger(id) && id > 0))],
+      channelIds: (Array.isArray(row?.channelIds) ? row.channelIds : [])
+        .filter((id: unknown): id is number => Number.isInteger(id) && Number(id) > 0),
     })
   })
   return items
