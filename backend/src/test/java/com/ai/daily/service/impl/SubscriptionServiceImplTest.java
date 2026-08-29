@@ -1,6 +1,8 @@
 package com.ai.daily.service.impl;
 
 import com.ai.daily.entity.Subscription;
+import com.ai.daily.service.SubscriptionPreferences;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -10,31 +12,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class SubscriptionServiceImplTest {
 
-    private final SubscriptionServiceImpl service = new SubscriptionServiceImpl();
-
     @Test
-    void usesOnlyReportLevelTimeForMorningAndEvening() {
+    void dueCheckUsesTopicTimesNotLegacyColumns() {
+        SubscriptionPreferences preferences = new SubscriptionPreferences(new ObjectMapper());
         Subscription subscription = new Subscription();
+        subscription.setEnabled(true);
         subscription.setMorningTime(LocalTime.of(8, 15));
-        subscription.setEveningTime(LocalTime.of(20, 15));
-        subscription.setTopicSchedules("{\"morning\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\"}]}");
+        subscription.setTopicSchedules("{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\"}]}");
 
-        assertThat(service.isDueForEdition(subscription, "morning", LocalTime.of(8, 15))).isTrue();
-        assertThat(service.isDueForEdition(subscription, "morning", LocalTime.of(9, 0))).isFalse();
-        assertThat(service.isDueForEdition(subscription, "evening", LocalTime.of(20, 15))).isTrue();
-        assertThat(service.isDueForEdition(subscription, "unknown", LocalTime.of(8, 15))).isFalse();
-    }
-
-    @Test
-    void catchUpIncludesRecentlyMissedTimesButNotHoursLater() {
-        Subscription subscription = new Subscription();
-        subscription.setMorningTime(LocalTime.of(8, 0));
-        subscription.setEveningTime(LocalTime.of(20, 0));
-
-        assertThat(service.isDueThrough(subscription, "morning", LocalTime.of(8, 5), Duration.ofHours(3))).isTrue();
-        assertThat(service.isDueThrough(subscription, "morning", LocalTime.of(13, 58), Duration.ofHours(3))).isFalse();
-        assertThat(service.isDueThrough(subscription, "morning", LocalTime.of(13, 58), null)).isTrue();
-        assertThat(service.isDueThrough(subscription, "morning", LocalTime.of(7, 59), Duration.ofHours(3))).isFalse();
-        assertThat(service.isDueThrough(subscription, "evening", LocalTime.of(20, 10), Duration.ofHours(3))).isTrue();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO)).isTrue();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(8, 15), Duration.ZERO)).isFalse();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(11, 0), Duration.ofHours(3))).isTrue();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(13, 0), Duration.ofHours(3))).isFalse();
     }
 }

@@ -21,21 +21,21 @@ class ReportQueryServiceTest {
         publicMorning.setId(8L);
         publicMorning.setUserId(Report.PUBLIC_OWNER_ID);
         publicMorning.setEdition("morning");
-        Report userMorning = new Report();
-        userMorning.setId(9L);
-        userMorning.setUserId(7L);
-        userMorning.setEdition("morning");
+        Report userBrief = new Report();
+        userBrief.setId(9L);
+        userBrief.setUserId(7L);
+        userBrief.setEdition(Report.PERSONAL);
         Report market = new Report();
         market.setId(10L);
         market.setUserId(Report.PUBLIC_OWNER_ID);
         market.setEdition("market_watch_evening");
         when(reports.getById(8L)).thenReturn(publicMorning);
-        when(reports.getById(9L)).thenReturn(userMorning);
+        when(reports.getById(9L)).thenReturn(userBrief);
         when(reports.getById(10L)).thenReturn(market);
 
         assertThat(service.getById(7L, true, 8L)).isSameAs(publicMorning);
         assertThat(service.getById(7L, false, 8L)).isNull();
-        assertThat(service.getById(7L, false, 9L)).isSameAs(userMorning);
+        assertThat(service.getById(7L, false, 9L)).isSameAs(userBrief);
         assertThat(service.getById(7L, false, 10L)).isSameAs(market);
         assertThat(service.getById(7L, true, 9L)).isNull();
     }

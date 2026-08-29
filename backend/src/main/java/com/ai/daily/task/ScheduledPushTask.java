@@ -7,6 +7,7 @@ import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
 import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportAssemblyService;
+import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.dto.SubscriptionDTO;
@@ -27,13 +28,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 每分钟扫描所有订阅，命中已到点或刚错过订阅时刻的用户，分派对应版次的最新简报。
- *
- * 简报由定时脚本先入库，生成往往晚于 08:00/20:00。若只在整分精确匹配，
- * 报告未就绪时会直接放弃，当天不再补推，仪表盘「今日推送」也会一直为 0。
- *
- * 幂等：每个北京时间日期、版次、用户和渠道仅认领一次持久化推送记录。
- * 时区：Asia/Shanghai（与 application.yml 的 jackson.time-zone 一致）。
+ * 每分钟扫描订阅，按用户选定的时刻拼装并推送。
+ * 同一用户同一分钟只发一封；不同时刻各发一封。
+ * 幂等键包含展示时刻。未绑定渠道的主题只入库网页简报。
  */
 @Slf4j
 @Component
@@ -53,30 +50,22 @@ public class ScheduledPushTask {
     @Scheduled(cron = "0 * * * * *", zone = "Asia/Shanghai")
     public void tick() {
         ZonedDateTime now = ZonedDateTime.now(ZONE);
-        LocalTime currentTime = now.toLocalTime().withSecond(0).withNano(0);
-        LocalDate currentDate = now.toLocalDate();
-
-        dispatchEdition("morning", currentTime, currentDate, TICK_CATCH_UP_WINDOW);
-        dispatchEdition("evening", currentTime, currentDate, TICK_CATCH_UP_WINDOW);
+        dispatchDue(now.toLocalTime().withSecond(0).withNano(0), now.toLocalDate(), TICK_CATCH_UP_WINDOW);
     }
 
-    /**
-     * 简报刚入库时补推：当天已过订阅时刻的用户都会尝试分发（dispatch_key 保证不重复发）。
-     */
-    public void catchUpEdition(String edition, LocalDate date) {
-        if (!Report.isPersonalizedEdition(edition)) return;
+    public void catchUpToday(LocalDate date) {
         ZonedDateTime now = ZonedDateTime.now(ZONE);
         LocalDate targetDate = date != null ? date : now.toLocalDate();
         if (!targetDate.equals(now.toLocalDate())) return;
-        dispatchEdition(edition, now.toLocalTime().withSecond(0).withNano(0), targetDate, null);
+        dispatchDue(now.toLocalTime().withSecond(0).withNano(0), targetDate, null);
     }
 
-    void dispatchEdition(String edition, LocalTime now, LocalDate date) {
-        dispatchEdition(edition, now, date, TICK_CATCH_UP_WINDOW);
+    void dispatchDue(LocalTime now, LocalDate date) {
+        dispatchDue(now, date, TICK_CATCH_UP_WINDOW);
     }
 
-    void dispatchEdition(String edition, LocalTime now, LocalDate date, Duration maxLateness) {
-        List<Subscription> due = subscriptionService.findDueThrough(edition, now, maxLateness);
+    void dispatchDue(LocalTime now, LocalDate date, Duration maxLateness) {
+        List<Subscription> due = subscriptionService.findDueThrough(now, maxLateness);
         if (due.isEmpty()) return;
 
         Map<Long, User> users = userMapper.selectBatchIds(
@@ -93,55 +82,64 @@ public class ScheduledPushTask {
                 .toList();
         if (due.isEmpty()) return;
 
-        for (Subscription s : due) {
-            try {
-                List<SubscriptionDTO.TopicScheduleItemDTO> items = subscriptionPreferences.enabledTopicItems(s, edition);
-                if (items.isEmpty()) {
-                    log.info("[{}] user={} 未勾选主题，跳过推送", edition, s.getUserId());
-                    continue;
-                }
-                List<String> allTopics = items.stream().map(SubscriptionDTO.TopicScheduleItemDTO::getTopic).toList();
-                Report persisted = reportAssemblyService.assembleAndPersist(s.getUserId(), edition, date, allTopics);
-                if (persisted == null) {
-                    log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", edition, s.getUserId(), allTopics.size());
-                    continue;
-                }
-
-                List<PushChannel> channels = pushChannelService.listEnabledByUser(s.getUserId());
-                Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
-                for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
-                    if (item.getChannelIds() == null) {
-                        channels.forEach(channel -> interestsByChannel
-                                .computeIfAbsent(channel.getId(), ignored -> new java.util.ArrayList<>())
-                                .add(item.getTopic()));
-                    } else {
-                        item.getChannelIds().forEach(channelId -> {
-                            if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
-                                interestsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>())
-                                        .add(item.getTopic());
-                            }
-                        });
-                    }
-                }
-                Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
-                for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
-                    Report personalized = reportAssemblyService.assembleEphemeral(
-                            persisted.getId(), edition, date, entry.getValue());
-                    if (personalized != null) {
-                        reportsByChannel.put(entry.getKey(), personalized);
-                    }
-                }
-                if (reportsByChannel.isEmpty()) {
-                    log.warn("[{}] user={} 已拼装简报但各渠道主题均无内容", edition, s.getUserId());
-                    continue;
-                }
-                PushDispatcher.DispatchResult r = pushDispatcher.dispatchScheduledByChannel(
-                        s.getUserId(), reportsByChannel, edition, date);
-                log.info("[{}] user={} interests={} channels={} 分发结果 total={} ok={} fail={} skipped={}",
-                        edition, s.getUserId(), items.size(), reportsByChannel.size(), r.total(), r.ok(), r.fail(), r.skipped());
-            } catch (Exception e) {
-                log.error("[{}] user={} 分发异常", edition, s.getUserId(), e);
+        for (Subscription subscription : due) {
+            for (LocalTime displayTime : subscriptionPreferences.dueDisplayTimes(subscription, now, maxLateness)) {
+                dispatchAt(subscription, date, displayTime);
             }
+        }
+    }
+
+    private void dispatchAt(Subscription subscription, LocalDate date, LocalTime displayTime) {
+        String slot = ReportWindows.format(displayTime);
+        try {
+            List<SubscriptionDTO.TopicScheduleItemDTO> items =
+                    subscriptionPreferences.enabledTopicItemsAt(subscription, displayTime);
+            if (items.isEmpty()) {
+                log.info("[{}] user={} 该时刻没有主题，跳过", slot, subscription.getUserId());
+                return;
+            }
+            List<String> allTopics = items.stream().map(SubscriptionDTO.TopicScheduleItemDTO::getTopic).toList();
+            Report persisted = reportAssemblyService.assembleAndPersist(
+                    subscription.getUserId(), date, displayTime, allTopics);
+            if (persisted == null) {
+                log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", slot, subscription.getUserId(), allTopics.size());
+                return;
+            }
+
+            List<PushChannel> channels = pushChannelService.listEnabledByUser(subscription.getUserId());
+            Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
+            for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
+                if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
+                item.getChannelIds().forEach(channelId -> {
+                    if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
+                        interestsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>())
+                                .add(item.getTopic());
+                    }
+                });
+            }
+            if (interestsByChannel.isEmpty()) {
+                log.info("[{}] user={} 已入库网页简报，未绑定渠道", slot, subscription.getUserId());
+                return;
+            }
+            Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
+            for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
+                Report personalized = reportAssemblyService.assembleEphemeral(
+                        persisted.getId(), date, displayTime, entry.getValue());
+                if (personalized != null) {
+                    reportsByChannel.put(entry.getKey(), personalized);
+                }
+            }
+            if (reportsByChannel.isEmpty()) {
+                log.warn("[{}] user={} 已拼装简报但各渠道主题均无内容", slot, subscription.getUserId());
+                return;
+            }
+            PushDispatcher.DispatchResult result = pushDispatcher.dispatchScheduledByChannel(
+                    subscription.getUserId(), reportsByChannel, slot, date);
+            log.info("[{}] user={} interests={} channels={} 分发结果 total={} ok={} fail={} skipped={}",
+                    slot, subscription.getUserId(), items.size(), reportsByChannel.size(),
+                    result.total(), result.ok(), result.fail(), result.skipped());
+        } catch (Exception e) {
+            log.error("[{}] user={} 分发异常", slot, subscription.getUserId(), e);
         }
     }
 }

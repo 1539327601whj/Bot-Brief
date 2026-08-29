@@ -3,14 +3,17 @@ package com.ai.daily.service.impl;
 import com.ai.daily.entity.Report;
 import com.ai.daily.mapper.ReportMapper;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.service.ReportWindows;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -41,6 +44,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         report.setUserId(Report.PUBLIC_OWNER_ID);
         report.setEdition(edition);
         report.setReportDate(reportDate);
+        report.setDisplayTime(ReportWindows.publicDisplayTime(edition));
         report.setTitle(title);
         report.setContent(content);
         report.setSummary(summary);
@@ -84,21 +88,26 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
     }
 
     @Override
-    public Report saveUserReport(Long userId, LocalDate reportDate, String edition, String title, String content, String summary) {
+    public Report saveUserReport(Long userId, LocalDate reportDate, LocalTime displayTime, String title, String content, String summary) {
         if (userId == null || userId == Report.PUBLIC_OWNER_ID) {
             throw new IllegalArgumentException("用户简报必须指定用户");
+        }
+        if (displayTime == null) {
+            throw new IllegalArgumentException("展示时间不能为空");
         }
         if (!hasSubstantiveContent(content)) {
             throw new IllegalArgumentException("简报缺少实质正文");
         }
-        Long existingId = baseMapper.findIdByUserEditionAndReportDate(userId, edition, reportDate);
+        LocalTime minute = displayTime.withSecond(0).withNano(0);
+        Long existingId = baseMapper.findIdByUserEditionDateAndTime(userId, Report.PERSONAL, reportDate, minute);
         if (existingId != null) {
             return this.getById(existingId);
         }
         Report report = new Report();
         report.setUserId(userId);
-        report.setEdition(edition);
+        report.setEdition(Report.PERSONAL);
         report.setReportDate(reportDate);
+        report.setDisplayTime(minute);
         report.setTitle(title);
         report.setContent(content);
         report.setSummary(summary);
@@ -109,7 +118,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             }
             return report;
         } catch (DuplicateKeyException e) {
-            Long raced = baseMapper.findIdByUserEditionAndReportDate(userId, edition, reportDate);
+            Long raced = baseMapper.findIdByUserEditionDateAndTime(userId, Report.PERSONAL, reportDate, minute);
             if (raced != null) {
                 return this.getById(raced);
             }
@@ -166,8 +175,32 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 .eq(Report::getUserId, userId)
                 .eq(Report::getEdition, edition)
                 .eq(Report::getReportDate, date)
+                .orderByDesc(Report::getDisplayTime)
                 .last("LIMIT 1")
                 .one();
+    }
+
+    @Override
+    public Report getByUserEditionDateAndTime(Long userId, String edition, LocalDate date, LocalTime displayTime) {
+        if (userId == null || edition == null || date == null || displayTime == null) return null;
+        return this.lambdaQuery()
+                .eq(Report::getUserId, userId)
+                .eq(Report::getEdition, edition)
+                .eq(Report::getReportDate, date)
+                .eq(Report::getDisplayTime, displayTime.withSecond(0).withNano(0))
+                .last("LIMIT 1")
+                .one();
+    }
+
+    @Override
+    public List<Report> listForUserOnDate(Long userId, LocalDate date) {
+        if (userId == null || date == null) return List.of();
+        return this.lambdaQuery()
+                .eq(Report::getUserId, userId)
+                .eq(Report::getEdition, Report.PERSONAL)
+                .eq(Report::getReportDate, date)
+                .orderByAsc(Report::getDisplayTime)
+                .list();
     }
 
     @Override

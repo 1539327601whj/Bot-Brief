@@ -1,6 +1,5 @@
 package com.ai.daily.service;
 
-import com.ai.daily.entity.Report;
 import com.ai.daily.entity.TopicSection;
 import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.service.impl.ReportServiceImpl;
@@ -22,8 +21,8 @@ import java.util.Map;
 public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSection> {
 
     public boolean saveSection(LocalDate sectionDate, String edition, String topic, String title, String content, String summary, String runId) {
-        if (!Report.isPersonalizedEdition(edition)) {
-            throw new IllegalArgumentException("主题段落只支持 morning / evening");
+        if (!ReportWindows.isGenerationWindow(edition)) {
+            throw new IllegalArgumentException("主题段落只支持四个时间段");
         }
         String topicKey = topic == null ? "" : topic.trim();
         if (topicKey.isEmpty()) {

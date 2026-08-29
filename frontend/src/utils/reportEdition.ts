@@ -1,4 +1,15 @@
-export function getReportEditionInfo(edition: string) {
+export function getReportEditionInfo(edition: string, displayTime?: string) {
+  const time = displayTime ? displayTime.slice(0, 5) : ''
+  if (edition === 'personal') {
+    return {
+      icon: '✨',
+      label: time ? `我的简报 ${time}` : '我的简报',
+      shortLabel: time || '简报',
+      className: 'tag tag-morning',
+      version: '我的简报',
+      expectedLabel: time || '--:--',
+    }
+  }
   if (edition === 'morning') {
     return { icon: '🌅', label: 'AI 早间简报', shortLabel: 'AI 早报', className: 'tag tag-morning', version: 'AI 简报', expectedLabel: '08:00' }
   }

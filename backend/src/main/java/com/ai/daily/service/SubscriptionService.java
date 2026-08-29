@@ -31,18 +31,13 @@ public interface SubscriptionService extends IService<Subscription> {
                        LocalTime eveningTime);
 
     /**
-     * 查询所有 enabled 且指定版次在当前分钟到期的用户订阅
+     * 查询已到点或已错过任一主题时刻、仍可补推的用户。
+     * {@code maxLateness} 为 null 时不限制迟到时长。
      */
-    List<Subscription> findDueForEdition(String edition, LocalTime nowFloor);
+    List<Subscription> findDueThrough(LocalTime nowFloor, Duration maxLateness);
 
     /**
-     * 查询已到点或已错过订阅时刻、仍可补推的用户。
-     * {@code maxLateness} 为 null 时不限制迟到时长（用于入库后立即补推）。
+     * 总开关打开的订阅。
      */
-    List<Subscription> findDueThrough(String edition, LocalTime nowFloor, Duration maxLateness);
-
-    /**
-     * 该版次已开启接收的有效订阅（不限是否到点）。
-     */
-    List<Subscription> listEnabledForEdition(String edition);
+    List<Subscription> listEnabled();
 }

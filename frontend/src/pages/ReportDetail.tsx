@@ -14,6 +14,7 @@ interface Report {
   summary: string
   runId: string
   createdAt: string
+  displayTime?: string
 }
 
 export default function ReportDetail() {
@@ -31,7 +32,7 @@ export default function ReportDetail() {
   if (loading) return <div className="loading">加载中...</div>
   if (!report) return <div className="loading">简报不存在</div>
 
-  const editionInfo = getReportEditionInfo(report.edition)
+  const editionInfo = getReportEditionInfo(report.edition, report.displayTime)
   const editionLabel = `${editionInfo.icon} ${editionInfo.label}`
   const editionClass = editionInfo.className
 

@@ -84,7 +84,10 @@ export default function Chat() {
   }
 
   const formatEdition = (edition: string) => {
-    return edition === 'morning' ? '🌅 早间' : '🌙 晚间'
+    if (edition === 'personal') return '✨ 我的简报'
+    if (edition === 'morning') return '🌅 早间'
+    if (edition === 'evening') return '🌙 晚间'
+    return '📄 简报'
   }
 
   return (

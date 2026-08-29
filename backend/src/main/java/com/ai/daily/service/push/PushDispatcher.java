@@ -62,15 +62,15 @@ public class PushDispatcher {
         return new DispatchResult(channels.size(), ok, fail);
     }
 
-    public DispatchResult dispatchScheduled(Long userId, Report report, String edition, LocalDate date) {
+    public DispatchResult dispatchScheduled(Long userId, Report report, String slotKey, LocalDate date) {
         List<PushChannel> channels = channelService.listEnabledByUser(userId);
         Map<Long, Report> reportsByChannel = new HashMap<>();
         channels.forEach(channel -> reportsByChannel.put(channel.getId(), report));
-        return dispatchScheduledByChannel(userId, reportsByChannel, edition, date);
+        return dispatchScheduledByChannel(userId, reportsByChannel, slotKey, date);
     }
 
     public DispatchResult dispatchScheduledByChannel(Long userId, Map<Long, Report> reportsByChannel,
-                                                       String edition, LocalDate date) {
+                                                       String slotKey, LocalDate date) {
         List<PushChannel> channels = channelService.listEnabledByUser(userId);
         int ok = 0, fail = 0, skipped = 0;
         int total = 0;
@@ -78,7 +78,7 @@ public class PushDispatcher {
             Report report = reportsByChannel.get(channel.getId());
             if (report == null) continue;
             total++;
-            String dispatchKey = scheduledDispatchKey(userId, channel.getId(), edition, date);
+            String dispatchKey = scheduledDispatchKey(userId, channel.getId(), slotKey, date);
             Long logId = pushLogService.claimScheduled(userId, report.getId(), channel.getId(),
                     channel.getChannelType(), dispatchKey);
             if (logId == null) {
@@ -126,8 +126,8 @@ public class PushDispatcher {
         }
     }
 
-    private String scheduledDispatchKey(Long userId, Long channelId, String edition, LocalDate date) {
-        return "scheduled:" + date + ":" + edition + ":" + userId + ":" + channelId;
+    private String scheduledDispatchKey(Long userId, Long channelId, String slotKey, LocalDate date) {
+        return "scheduled:" + date + ":" + slotKey + ":" + userId + ":" + channelId;
     }
 
     private String safeError(Exception error) {

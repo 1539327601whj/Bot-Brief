@@ -1,5 +1,6 @@
 package com.ai.daily.controller;
 
+import com.ai.daily.dto.DueGenerationDTO;
 import com.ai.daily.dto.ReportPushDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.dto.TopicSectionPushDTO;
@@ -7,6 +8,7 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscribedTopicService;
 import com.ai.daily.service.TopicSectionService;
 import com.ai.daily.task.ScheduledPushTask;
@@ -63,14 +65,39 @@ public class ReportController {
     @GetMapping("/subscribed-topics")
     public Result<Map<String, List<String>>> subscribedTopics(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
-            @RequestParam String edition) {
+            @RequestParam(required = false) String window,
+            @RequestParam(required = false) String edition) {
         if (invalidIngestToken(token)) {
             return Result.error(401, "入库 token 无效");
         }
-        if (!Report.isPersonalizedEdition(edition)) {
-            return Result.error(400, "edition 只支持 morning 或 evening");
+        String resolved = resolveWindow(window != null ? window : edition);
+        if (resolved == null) {
+            return Result.error(400, "window 只支持 w00_06 / w06_12 / w12_18 / w18_24");
         }
-        return Result.ok(Map.of("topics", subscribedTopicService.listTopics(edition)));
+        return Result.ok(Map.of("topics", subscribedTopicService.listTopics(resolved)));
+    }
+
+    @GetMapping("/due-generations")
+    public Result<Map<String, Object>> dueGenerations(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @RequestParam(required = false) String date) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        LocalDate reportDate = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        if (date != null && !date.isBlank()) {
+            try {
+                reportDate = LocalDate.parse(date);
+            } catch (Exception e) {
+                return Result.error(400, "日期无效");
+            }
+        }
+        LocalTime now = LocalTime.now(java.time.ZoneId.of("Asia/Shanghai")).withSecond(0).withNano(0);
+        List<DueGenerationDTO> items = subscribedTopicService.listDueGenerations(reportDate, now);
+        Map<String, Object> data = new HashMap<>();
+        data.put("date", reportDate.toString());
+        data.put("items", items);
+        return Result.ok(data);
     }
 
     @PostMapping("/sections/ingest")
@@ -96,6 +123,11 @@ public class ReportController {
                     summary,
                     dto.getRunId()
             );
+            try {
+                scheduledPushTask.catchUpToday(dto.getReportDate());
+            } catch (Exception e) {
+                log.warn("主题段落入库后补推失败 window={} date={}", dto.getEdition(), dto.getReportDate(), e);
+            }
             return Result.ok(created ? "主题段落已保存" : "主题段落已存在", created);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
@@ -118,11 +150,6 @@ public class ReportController {
                     summary,
                     dto.getRunId()
             );
-            try {
-                scheduledPushTask.catchUpEdition(dto.getEdition(), dto.getReportDate());
-            } catch (Exception e) {
-                log.warn("简报入库后补推失败 edition={} date={}", dto.getEdition(), dto.getReportDate(), e);
-            }
             return Result.ok(created ? "简报已保存" : "简报已存在", created);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
@@ -194,6 +221,13 @@ public class ReportController {
             return Result.error(404, "简报不存在");
         }
         return Result.ok(report);
+    }
+
+    private String resolveWindow(String value) {
+        if (value == null || value.isBlank()) return null;
+        if ("morning".equals(value)) return ReportWindows.W06_12;
+        if ("evening".equals(value)) return ReportWindows.W18_24;
+        return ReportWindows.isGenerationWindow(value) ? value : null;
     }
 
     private boolean invalidIngestToken(String token) {

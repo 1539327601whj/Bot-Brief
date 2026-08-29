@@ -128,11 +128,11 @@ schema_ready="$(
     -P "$db_port" \
     -u "$db_user" \
     "$db_name" \
-    -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'topic_sections' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'reports' AND column_name = 'user_id';"
+    -e "SELECT COUNT(*) = 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'topic_sections' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'reports' AND column_name = 'user_id' UNION ALL SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'reports' AND column_name = 'display_time';"
 )"
 if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
   docker image rm "$image_tag" >/dev/null 2>&1 || true
-  echo "Database schema is missing V10. Back up the database and run backend/sql/V10__topic_sections_and_user_reports.sql before deployment."
+  echo "Database schema is missing V10/V11. Back up the database and run backend/sql/V10__topic_sections_and_user_reports.sql then backend/sql/V11__topic_windows_and_display_time.sql before deployment."
   exit 1
 fi
 

@@ -619,6 +619,56 @@
   cursor: not-allowed;
 }
 
+.topic-slot-card .slot-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr auto;
+  gap: 16px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.topic-slot-card .slot-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.channel-binds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.channel-bind {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+  color: #9aa4b5;
+  font-size: 12px;
+}
+
+.channel-bind select {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: #0d111b;
+  color: #f4f7fb;
+}
+
+.ghost-link {
+  border: 0;
+  background: transparent;
+  color: #8b9cff;
+  cursor: pointer;
+}
+
+.ghost-link:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .interest-help {
   margin: 10px 0 0;
   color: #8b949e;
@@ -640,7 +690,8 @@
 @media (max-width: 760px) {
   .subscription-summary,
   .topic-schedule-list,
-  .edition-row {
+  .edition-row,
+  .topic-slot-card .slot-row {
     grid-template-columns: 1fr;
   }
 

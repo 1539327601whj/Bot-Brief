@@ -32,11 +32,13 @@ public class SubscriptionDTO {
     /** 晚间版 Web 展示时间，范围 15:00-23:59 */
     private String eveningTime;
 
-    /** 按早/晚间版分组的兴趣选择 */
+    /** 按主题列出的订阅（每条自带每天的展示/推送时刻） */
     private TopicSchedulesDTO topicSchedules;
 
     @Data
     public static class TopicSchedulesDTO {
+        private List<TopicScheduleItemDTO> items;
+        /** 旧版早/晚分组，仅用于读取兼容 */
         private List<TopicScheduleItemDTO> morning;
         private List<TopicScheduleItemDTO> evening;
     }
@@ -46,6 +48,8 @@ public class SubscriptionDTO {
     public static class TopicScheduleItemDTO {
         private String topic;
         private Boolean enabled;
+        /** HH:mm，网页显示与渠道推送使用同一时刻 */
+        private String time;
         private List<Long> channelIds;
     }
 }

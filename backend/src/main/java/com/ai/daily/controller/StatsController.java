@@ -2,8 +2,11 @@ package com.ai.daily.controller;
 
 import com.ai.daily.dto.Result;
 import com.ai.daily.entity.Report;
+import com.ai.daily.entity.Subscription;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ReportQueryService;
+import com.ai.daily.service.SubscriptionPreferences;
+import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.util.MarkdownUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,6 +45,12 @@ public class StatsController {
     @Autowired
     private ReportQueryService reportQueryService;
 
+    @Autowired
+    private SubscriptionService subscriptionService;
+
+    @Autowired
+    private SubscriptionPreferences subscriptionPreferences;
+
     @GetMapping("/dashboard")
     public Result<Map<String, Object>> dashboard() {
         LocalDateTime now = ZonedDateTime.now(BEIJING).toLocalDateTime();
@@ -61,11 +70,22 @@ public class StatsController {
         data.put("todayCount", todayCount);
         data.put("totalCount", totalCount);
         data.put("hotTags", hotTags);
-        data.put("nextPushAt", nextPushAt(now).toString());
+        data.put("nextPushAt", nextPushAt(now, userId, demo).toString());
         return Result.ok(data);
     }
 
-    private LocalDateTime nextPushAt(LocalDateTime now) {
+    private LocalDateTime nextPushAt(LocalDateTime now, Long userId, boolean demo) {
+        if (!demo && userId != null) {
+            Subscription subscription = subscriptionService.getOrCreateForUser(userId);
+            List<LocalTime> times = subscriptionPreferences.displayTimes(subscription);
+            if (!times.isEmpty()) {
+                for (LocalTime time : times) {
+                    LocalDateTime candidate = now.toLocalDate().atTime(time);
+                    if (now.isBefore(candidate)) return candidate;
+                }
+                return now.toLocalDate().plusDays(1).atTime(times.get(0));
+            }
+        }
         LocalDateTime morningToday = now.toLocalDate().atTime(MORNING_PUSH);
         LocalDateTime eveningToday = now.toLocalDate().atTime(EVENING_PUSH);
         if (now.isBefore(morningToday)) return morningToday;

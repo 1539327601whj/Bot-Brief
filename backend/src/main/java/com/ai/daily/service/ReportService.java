@@ -16,9 +16,9 @@ public interface ReportService extends IService<Report> {
     boolean saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId);
 
     /**
-     * 保存或返回用户当日拼装简报。同一用户同一业务日同一版次已存在时返回已有记录。
+     * 保存或返回用户当日拼装简报。同一用户同一业务日同一展示时刻已存在时返回已有记录。
      */
-    Report saveUserReport(Long userId, LocalDate reportDate, String edition, String title, String content, String summary);
+    Report saveUserReport(Long userId, LocalDate reportDate, java.time.LocalTime displayTime, String title, String content, String summary);
 
     /**
      * 获取最新公共简报
@@ -30,6 +30,10 @@ public interface ReportService extends IService<Report> {
     Report getLatestByEditionForDate(String edition, LocalDate date);
 
     Report getByUserEditionDate(Long userId, String edition, LocalDate date);
+
+    Report getByUserEditionDateAndTime(Long userId, String edition, LocalDate date, java.time.LocalTime displayTime);
+
+    java.util.List<Report> listForUserOnDate(Long userId, LocalDate date);
 
     Report getLatestForUser(Long userId, String edition);
 

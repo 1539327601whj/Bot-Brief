@@ -143,7 +143,7 @@ class DeliveryTests(unittest.TestCase):
     @patch.object(report, "format_news_for_prompt", return_value="news")
     @patch.object(report, "build_prompt", return_value="prompt")
     @patch.object(report, "call_llm_with_retry", return_value="## 要点\n正文")
-    @patch.object(report, "fetch_subscribed_topics", return_value=[])
+    @patch.object(report, "generate_due_topic_sections", return_value=0)
     @patch.object(report, "push_to_backend", return_value=True)
     @patch.object(report, "push_to_wechat")
     @patch("builtins.open", new_callable=mock_open)
@@ -163,7 +163,7 @@ class TopicSectionTests(unittest.TestCase):
         selected = report.select_news_for_topic(items, "数据库")
         self.assertEqual([item["title"] for item in selected], ["PostgreSQL 18 发布"])
 
-    def test_skips_topic_generation_when_no_matching_news(self):
+    def test_skips_preset_topic_generation_when_no_matching_news(self):
         saved = report.generate_topic_sections(
             [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
             "morning",
@@ -172,6 +172,31 @@ class TopicSectionTests(unittest.TestCase):
             "run-1",
         )
         self.assertEqual(saved, 0)
+
+    def test_custom_topic_is_not_treated_as_preset(self):
+        self.assertTrue(report.is_preset_topic("数据库"))
+        self.assertFalse(report.is_preset_topic("具身智能"))
+
+    def test_custom_topic_searches_when_pool_has_no_match(self):
+        searched = [{"title": "具身智能新突破", "summary": "机器人落地", "score": 8, "source": "主题检索·中文"}]
+        with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:
+            selected = report.collect_news_for_topic(
+                [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
+                "具身智能",
+            )
+        self.assertEqual(selected, searched)
+        search.assert_called_once_with("具身智能")
+
+    def test_custom_topic_uses_pool_and_skips_search_when_matched(self):
+        pool_item = {"title": "具身智能融资", "summary": "机器人公司", "score": 9}
+        with patch.object(report, "fetch_topic_search_news") as search:
+            selected = report.collect_news_for_topic([pool_item], "具身智能")
+        self.assertEqual(selected, [pool_item])
+        search.assert_not_called()
+
+    def test_topic_search_urls_include_encoded_query(self):
+        urls = [url for _, url in report.topic_search_urls("具身智能")]
+        self.assertTrue(any("q=%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD" in url for url in urls))
 
     @patch.dict(os.environ, {
         "BACKEND_API_URL": "https://backend.test",
@@ -184,6 +209,29 @@ class TopicSectionTests(unittest.TestCase):
         get.return_value = response
         self.assertEqual(report.fetch_subscribed_topics("morning"), ["AI大模型", "安全"])
         self.assertIn("subscribed-topics", get.call_args.args[0])
+
+    @patch.dict(os.environ, {
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+    }, clear=False)
+    @patch("requests.get")
+    def test_fetch_due_generations_reads_backend_list(self, get):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "code": 200,
+            "data": {"date": "2026-08-29", "items": [
+                {"window": "w06_12", "topic": "AI大模型", "generateAt": "08:00"},
+            ]},
+        }
+        get.return_value = response
+        self.assertEqual(report.fetch_due_generations("2026-08-29"), [
+            {"window": "w06_12", "topic": "AI大模型", "generateAt": "08:00"},
+        ])
+        self.assertIn("due-generations", get.call_args.args[0])
+
+    def test_window_digest_style(self):
+        self.assertEqual(report.window_digest_style("w06_12"), "morning")
+        self.assertEqual(report.window_digest_style("w18_24"), "evening")
 
 
 if __name__ == "__main__":

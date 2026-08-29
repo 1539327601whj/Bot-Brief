@@ -155,9 +155,10 @@ mysql -u root -p ai_daily < backend/sql/V7__market_data_history.sql
 mysql -u root -p ai_daily < backend/sql/V8__report_ingest_idempotency.sql
 mysql -u root -p ai_daily < backend/sql/V9__report_business_date_idempotency.sql
 mysql -u root -p ai_daily < backend/sql/V10__topic_sections_and_user_reports.sql
+mysql -u root -p ai_daily < backend/sql/V11__topic_windows_and_display_time.sql
 ```
 
-在已有数据库上执行 V6 及之后的变更前，请先备份数据库并阅读脚本内说明。现网升级到按主题推送前必须先跑 V10，否则后端发布会被拦住。
+在已有数据库上执行 V6 及之后的变更前，请先备份数据库并阅读脚本内说明。现网升级到按主题推送前必须先跑 V10 和 V11，否则后端发布会被拦住。
 
 ### 4. 配置后端
 

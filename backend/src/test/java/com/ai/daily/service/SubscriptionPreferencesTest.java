@@ -5,6 +5,8 @@ import com.ai.daily.entity.Subscription;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -18,7 +20,7 @@ class SubscriptionPreferencesTest {
     private final SubscriptionPreferences preferences = new SubscriptionPreferences(objectMapper);
 
     @Test
-    void normalizesCustomInterestsAndIgnoresLegacyTimes() throws Exception {
+    void normalizesCustomInterestsAndFlattensLegacyGroups() throws Exception {
         String json = """
                 {
                   "morning": [
@@ -36,41 +38,39 @@ class SubscriptionPreferencesTest {
         SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
 
         assertThat(normalized.preferenceFields()).containsExactly("具身 智能", "AI大模型");
-        assertThat(normalized.schedules().getMorning()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
-                .containsExactly("具身 智能", "AI大模型");
-        assertThat(normalized.schedulesJson()).doesNotContain("time");
+        assertThat(normalized.schedules().getItems()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
+                .containsExactly("具身 智能", "AI大模型", "具身 智能");
+        assertThat(normalized.schedulesJson()).contains("\"time\"");
     }
 
     @Test
     void preservesAndNormalizesChannelAssignments() {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
-        SubscriptionDTO.TopicScheduleItemDTO item = item("AI大模型", true);
+        SubscriptionDTO.TopicScheduleItemDTO item = item("AI大模型", true, "08:15");
         item.setChannelIds(Arrays.asList(12L, 12L, null, -1L, 13L));
-        schedules.setMorning(List.of(item));
-        schedules.setEvening(List.of());
+        schedules.setItems(List.of(item));
         dto.setTopicSchedules(schedules);
 
         SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
 
-        assertThat(normalized.schedules().getMorning().get(0).getChannelIds()).containsExactly(12L, 13L);
+        assertThat(normalized.schedules().getItems().get(0).getChannelIds()).containsExactly(12L, 13L);
     }
 
     @Test
-    void keepsExplicitEmptyChannelAssignmentsDistinctFromLegacyAssignments() {
+    void emptyChannelAssignmentsMeanWebOnly() {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
-        SubscriptionDTO.TopicScheduleItemDTO explicit = item("AI大模型", true);
+        SubscriptionDTO.TopicScheduleItemDTO explicit = item("AI大模型", true, "08:15");
         explicit.setChannelIds(List.of());
-        SubscriptionDTO.TopicScheduleItemDTO legacy = item("数据库", true);
-        schedules.setMorning(List.of(explicit, legacy));
-        schedules.setEvening(List.of());
+        SubscriptionDTO.TopicScheduleItemDTO legacy = item("数据库", true, "08:15");
+        schedules.setItems(List.of(explicit, legacy));
         dto.setTopicSchedules(schedules);
 
         SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
 
-        assertThat(normalized.schedules().getMorning().get(0).getChannelIds()).isEmpty();
-        assertThat(normalized.schedules().getMorning().get(1).getChannelIds()).isNull();
+        assertThat(normalized.schedules().getItems().get(0).getChannelIds()).isEmpty();
+        assertThat(normalized.schedules().getItems().get(1).getChannelIds()).isEmpty();
     }
 
     @Test
@@ -81,9 +81,21 @@ class SubscriptionPreferencesTest {
 
         SubscriptionDTO.TopicSchedulesDTO schedules = preferences.readSchedules(subscription);
 
-        assertThat(schedules.getMorning()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
+        assertThat(schedules.getItems()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
                 .containsExactly("AI大模型", "端侧推理");
-        assertThat(schedules.getEvening()).allMatch(item -> Boolean.TRUE.equals(item.getEnabled()));
+        assertThat(schedules.getItems()).allMatch(item -> Boolean.TRUE.equals(item.getEnabled()));
+    }
+
+    @Test
+    void rejectsSameTopicTwiceInOneWindow() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        schedules.setItems(List.of(item("AI大模型", true, "08:00"), item("AI大模型", true, "10:00")));
+        dto.setTopicSchedules(schedules);
+
+        assertThatThrownBy(() -> preferences.normalize(dto))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("同一时间段");
     }
 
     @Test
@@ -101,35 +113,34 @@ class SubscriptionPreferencesTest {
     }
 
     @Test
-    void preservesDisabledCustomInterestsButExcludesThemFromUnion() {
-        SubscriptionDTO dto = new SubscriptionDTO();
-        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
-        schedules.setMorning(List.of(item("自定义主题", false), item("AI大模型", true)));
-        schedules.setEvening(List.of());
-        dto.setTopicSchedules(schedules);
+    void dueTimesUseTopicClocksNotLegacyColumns() {
+        Subscription subscription = new Subscription();
+        subscription.setEnabled(true);
+        subscription.setMorningTime(LocalTime.of(8, 15));
+        subscription.setTopicSchedules("{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\"}]}");
 
-        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
-
-        assertThat(normalized.preferenceFields()).containsExactly("AI大模型");
-        assertThat(normalized.schedules().getMorning()).extracting(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
-                .containsExactly("自定义主题", "AI大模型");
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO)).isTrue();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(8, 15), Duration.ZERO)).isFalse();
+        assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(9, 5), Duration.ofHours(3)))
+                .containsExactly(LocalTime.of(9, 0));
+        assertThat(preferences.dueDisplayTimes(subscription, LocalTime.of(13, 0), Duration.ofHours(3))).isEmpty();
     }
 
     private SubscriptionDTO dtoWithTopics(int count) {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
         List<SubscriptionDTO.TopicScheduleItemDTO> items = new ArrayList<>();
-        for (int index = 0; index < count; index++) items.add(item("兴趣" + index, true));
-        schedules.setMorning(items);
-        schedules.setEvening(List.of());
+        for (int index = 0; index < count; index++) items.add(item("兴趣" + index, true, "08:15"));
+        schedules.setItems(items);
         dto.setTopicSchedules(schedules);
         return dto;
     }
 
-    private SubscriptionDTO.TopicScheduleItemDTO item(String topic, boolean enabled) {
+    private SubscriptionDTO.TopicScheduleItemDTO item(String topic, boolean enabled, String time) {
         SubscriptionDTO.TopicScheduleItemDTO item = new SubscriptionDTO.TopicScheduleItemDTO();
         item.setTopic(topic);
         item.setEnabled(enabled);
+        item.setTime(time);
         return item;
     }
 }

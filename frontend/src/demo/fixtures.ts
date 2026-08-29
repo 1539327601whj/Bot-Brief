@@ -109,8 +109,16 @@ export const demoSubscription = {
   receiveTime: 'both', preferenceFields: ['AI大模型', 'Web开发', '数据分析', '具身智能'], enabled: true,
   morningEnabled: true, morningTime: '08:15', eveningEnabled: true, eveningTime: '20:15',
   topicSchedules: {
-    morning: [...demoTopics.map((topic, index) => ({ topic, enabled: index < 3, channelIds: index === 0 ? [401] : index === 1 ? [402] : [401, 402] })), { topic: '具身智能', enabled: true, channelIds: [402] }],
-    evening: [...demoTopics.map((topic, index) => ({ topic, enabled: index === 0 || index === 5 || index === 7, channelIds: index === 0 ? [402] : [401] })), { topic: '具身智能', enabled: false, channelIds: [] }],
+    items: [
+      { topic: 'AI大模型', enabled: true, time: '08:15', channelIds: [401] },
+      { topic: 'Web开发', enabled: true, time: '08:15', channelIds: [402] },
+      { topic: '移动端', enabled: true, time: '08:15', channelIds: [401] },
+      { topic: '具身智能', enabled: true, time: '08:15', channelIds: [402] },
+      { topic: 'AI大模型', enabled: true, time: '20:15', channelIds: [402] },
+      { topic: '安全', enabled: true, time: '20:15', channelIds: [401] },
+      { topic: '数据分析', enabled: true, time: '20:15', channelIds: [401] },
+      ...demoTopics.filter((_, index) => index > 2 && index !== 5 && index !== 7).map(topic => ({ topic, enabled: false, time: '08:15', channelIds: [] })),
+    ],
   },
 }
 

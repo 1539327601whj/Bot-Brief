@@ -12,6 +12,7 @@ import sys
 import time
 import feedparser
 from datetime import datetime, timezone, timedelta
+from urllib.parse import quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
@@ -85,6 +86,47 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
             print(f"  ⏳ {wait_time} 秒后重试...")
             time.sleep(wait_time)
     return False
+
+
+def fetch_due_generations(report_date=None):
+    """询问后端：当前已到最早订阅时刻、尚未生成的主题段。"""
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return []
+    params = {}
+    if report_date:
+        params["date"] = report_date
+    try:
+        resp = req.get(
+            f"{backend_url}/api/reports/due-generations",
+            params=params,
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 30),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
+            data = body.get("data")
+            items = data.get("items") if isinstance(data, dict) else data
+            if isinstance(items, list):
+                due = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    topic = str(item.get("topic") or "").strip()
+                    window = str(item.get("window") or "").strip()
+                    generate_at = str(item.get("generateAt") or "").strip()
+                    if topic and window:
+                        due.append({"window": window, "topic": topic, "generateAt": generate_at})
+                return due
+        print(f"  ⚠️ 获取到期主题失败: HTTP {resp.status_code}")
+    except req.RequestException as e:
+        print(f"  ⚠️ 获取到期主题失败: {e}")
+    return []
 
 
 def fetch_subscribed_topics(edition):
@@ -291,6 +333,29 @@ def fetch_feed(feed_url, timeout=10):
         return None
 
 
+def parse_rss_items(xml, source, max_items=20):
+    items = []
+    feed = feedparser.parse(xml)
+    for entry in feed.entries[:max_items]:
+        title = (entry.get("title") or "").strip()
+        summary = entry.get("summary", "") or entry.get("description", "")
+        link = entry.get("link", "")
+        published = entry.get("published", "")[:16] if entry.get("published") else ""
+        summary = re.sub(r"<[^>]+>", "", summary)
+        summary = re.sub(r"\s+", " ", summary).strip()[:180]
+        if not title:
+            continue
+        items.append({
+            "source": source,
+            "title": title,
+            "summary": summary,
+            "link": link,
+            "published": published,
+            "score": score_news_item(source, title, summary),
+        })
+    return items
+
+
 def normalize_title(title):
     title = re.sub(r"[\W_]+", "", title.lower())
     return title[:40]
@@ -357,28 +422,13 @@ def extract_ai_news(max_feeds=None, max_items=60):
             continue
         source_count = 0
         try:
-            feed = feedparser.parse(xml)
-            for entry in feed.entries[:max_items]:
-                title = entry.get("title", "")
-                summary = entry.get("summary", "") or entry.get("description", "")
-                link = entry.get("link", "")
-                published = entry.get("published", "")[:16] if entry.get("published") else ""
-
-                summary = re.sub(r'<[^>]+>', '', summary)
-                summary = re.sub(r"\s+", " ", summary).strip()[:180]
-
-                text = (title + " " + summary).lower()
+            parsed = parse_rss_items(xml, name, max_items=max_items)
+            for item in parsed:
+                text = f"{item['title']} {item['summary']}".lower()
                 if any(kw.lower() in text for kw in AI_KEYWORDS):
                     source_count += 1
-                    all_items.append({
-                        "source": name,
-                        "title": title.strip(),
-                        "summary": summary,
-                        "link": link,
-                        "published": published,
-                        "score": score_news_item(name, title, summary)
-                    })
-            print(f"  ✅ {name}: {len(feed.entries)} 条，抓取到 {source_count} 条 AI 相关")
+                    all_items.append(item)
+            print(f"  ✅ {name}: 解析 {len(parsed)} 条，抓取到 {source_count} 条 AI 相关")
         except Exception as e:
             print(f"  ⚠️ 解析失败 {name}: {e}")
 
@@ -622,9 +672,56 @@ def select_news_for_topic(items, topic, limit=8):
     return [item for _, _, item in scored[:limit]]
 
 
+def is_preset_topic(topic):
+    if not topic:
+        return False
+    key = topic.strip().lower()
+    return any(name.lower() == key for name in TOPIC_KEYWORDS)
+
+
+def topic_search_urls(topic):
+    query = quote(topic.strip())
+    return [
+        ("主题检索·中文", f"https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+        ("主题检索·英文", f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"),
+        ("Hacker News", f"https://hnrss.org/newest?q={query}&count=20"),
+    ]
+
+
+def fetch_topic_search_news(topic, limit=8):
+    """按自定义词单独检索，不复用公共 AI 资讯池。"""
+    collected = []
+    for source, url in topic_search_urls(topic):
+        xml = fetch_feed(url, timeout=8)
+        if not xml:
+            continue
+        try:
+            collected.extend(parse_rss_items(xml, source, max_items=15))
+        except Exception as e:
+            print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
+    return dedupe_news_items(collected)[:limit]
+
+
+def collect_news_for_topic(news_items, topic):
+    selected = select_news_for_topic(news_items, topic)
+    if selected:
+        return selected
+    if is_preset_topic(topic):
+        return []
+    print(f"  🔍 自定义主题「{topic}」在公共资讯池无匹配，改为按词检索")
+    return fetch_topic_search_news(topic)
+
+
+def window_digest_style(window):
+    if window in ("evening", "w12_18", "w18_24"):
+        return "evening"
+    return "morning"
+
+
 def format_topic_news_for_prompt(items, topic, edition="morning"):
     today = now_beijing().strftime("%Y-%m-%d")
-    edition_focus = "昨日夜间 + 今日早晨" if edition == "morning" else "今日全天"
+    style = window_digest_style(edition)
+    edition_focus = "昨日夜间 + 今日早晨" if style == "morning" else "今日全天"
     lines = [
         f"日期：{today}",
         f"主题：{topic}",
@@ -643,7 +740,7 @@ def format_topic_news_for_prompt(items, topic, edition="morning"):
 
 
 def build_topic_prompt(news_text, topic, edition="morning"):
-    edition_hint = "晚间" if edition == "evening" else "早间"
+    edition_hint = "晚间" if window_digest_style(edition) == "evening" else "早间"
     return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}简报段落。
 
 【要求】
@@ -666,11 +763,27 @@ def build_topic_prompt(news_text, topic, edition="morning"):
 """
 
 
+def generate_due_topic_sections(news_items, report_date, run_id):
+    """按四个时间段的最早到期时刻生成主题段。"""
+    due = fetch_due_generations(report_date)
+    if not due:
+        print("🧩 当前没有到期的订阅主题，跳过主题段生成")
+        return 0
+    grouped = {}
+    for item in due:
+        grouped.setdefault(item["window"], []).append(item["topic"])
+    saved = 0
+    for window, topics in grouped.items():
+        print(f"🧩 {window} 将为 {len(topics)} 个到期主题生成段落")
+        saved += generate_topic_sections(news_items, window, topics, report_date, run_id)
+    return saved
+
+
 def generate_topic_sections(news_items, edition, topics, report_date, run_id):
     """只为有人勾选的主题生成段落；单个主题失败不影响其余主题。"""
     saved = 0
     for topic in topics:
-        selected = select_news_for_topic(news_items, topic)
+        selected = collect_news_for_topic(news_items, topic)
         if not selected:
             print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
             continue
@@ -715,8 +828,9 @@ def detect_edition():
 
 def main():
     today = now_beijing().strftime("%Y-%m-%d")
+    mode = os.environ.get("MODE", "full").lower()
     edition = detect_edition()
-    edition_name = "早间版" if edition == "morning" else "晚间版"
+    edition_name = "轮询到期主题" if mode == "poll" else ("早间版" if edition == "morning" else "晚间版")
 
     print(f"\n{'='*50}")
     print(f"🤖 AI 每日简报 · {today}（{edition_name}）")
@@ -734,12 +848,22 @@ def main():
     if not has_api_key:
         print("❌ 缺少 API Key 环境变量，请配置 DEEPSEEK_API_KEY")
         sys.exit(1)
-    if not backend_configured and not webhook_url:
+    if mode == "poll":
+        if not backend_configured:
+            print("❌ 轮询模式需要配置 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
+            sys.exit(1)
+    elif not backend_configured and not webhook_url:
         print("❌ 缺少 WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
     # Step 1: 抓取资讯
     news_items = extract_ai_news()
+
+    if mode == "poll":
+        run_id = os.environ.get("GITHUB_RUN_ID", "local")
+        generate_due_topic_sections(news_items, today, run_id)
+        print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
+        return
 
     if not news_items:
         print("❌ 未抓取到任何 AI 相关资讯，不生成、不入库、不推送")
@@ -768,12 +892,7 @@ def main():
     summary_text = report[:100] + "..." if len(report) > 100 else report
 
     if backend_configured:
-        topics = fetch_subscribed_topics(edition)
-        if topics:
-            print(f"🧩 将为 {len(topics)} 个已订阅主题生成段落（同主题只生成一次）")
-            generate_topic_sections(news_items, edition, topics, today, run_id)
-        else:
-            print("🧩 当前没有普通用户勾选主题，跳过主题段生成")
+        generate_due_topic_sections(news_items, today, run_id)
         if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
             print("❌ 同步到后端失败，本次日报不继续推送")
             sys.exit(1)

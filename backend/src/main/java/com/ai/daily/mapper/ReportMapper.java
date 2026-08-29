@@ -29,4 +29,12 @@ public interface ReportMapper extends BaseMapper<Report> {
             @Param("edition") String edition,
             @Param("reportDate") LocalDate reportDate
     );
+
+    @Select("SELECT id FROM reports WHERE user_id = #{userId} AND edition = #{edition} AND report_date = #{reportDate} AND display_time = #{displayTime} LIMIT 1")
+    Long findIdByUserEditionDateAndTime(
+            @Param("userId") Long userId,
+            @Param("edition") String edition,
+            @Param("reportDate") LocalDate reportDate,
+            @Param("displayTime") java.time.LocalTime displayTime
+    );
 }

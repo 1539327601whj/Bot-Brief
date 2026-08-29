@@ -23,7 +23,7 @@ class TopicSectionServiceTest {
         when(mapper.selectList(any())).thenReturn(List.of(section("数据库"), section("安全")));
 
         List<TopicSection> found = service.findFor(
-                LocalDate.of(2026, 8, 28), "morning", List.of("安全", "区块链", "数据库"));
+                LocalDate.of(2026, 8, 28), ReportWindows.W06_12, List.of("安全", "区块链", "数据库"));
 
         assertThat(found).extracting(TopicSection::getTopicKey).containsExactly("安全", "数据库");
     }

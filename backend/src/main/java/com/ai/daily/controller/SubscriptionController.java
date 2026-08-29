@@ -1,10 +1,12 @@
 package com.ai.daily.controller;
 
+import com.ai.daily.dto.PushChannelResponse;
 import com.ai.daily.dto.Result;
 import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.PushChannelService;
+import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +17,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalTime;
-import java.time.format.DateTimeParseException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -40,23 +45,26 @@ public class SubscriptionController {
         if (userId == null) return Result.error(401, "未登录");
 
         try {
-            LocalTime morningTime = parseEditionTime(dto.getMorningTime(), "morning");
-            LocalTime eveningTime = parseEditionTime(dto.getEveningTime(), "evening");
             SubscriptionPreferences.NormalizedPreferences preferences = subscriptionPreferences.normalize(dto);
-            var ownedChannelIds = pushChannelService.listResponsesByUser(userId).stream()
-                    .map(response -> response.getId())
-                    .collect(Collectors.toSet());
+            List<PushChannelResponse> channels = pushChannelService.listResponsesByUser(userId);
+            validateOneChannelPerType(preferences.schedules(), channels);
+            var ownedChannelIds = channels.stream().map(PushChannelResponse::getId).collect(Collectors.toSet());
             var filteredSchedules = subscriptionPreferences.filterChannelIds(preferences.schedules(), ownedChannelIds);
             String schedulesJson = subscriptionPreferences.writeSchedules(filteredSchedules);
+            List<SubscriptionDTO.TopicScheduleItemDTO> enabled = filteredSchedules.getItems() == null
+                    ? List.of()
+                    : filteredSchedules.getItems().stream().filter(item -> Boolean.TRUE.equals(item.getEnabled())).toList();
+            LocalTime morningTime = firstTimeIn(enabled, 0, 12, LocalTime.of(8, 15));
+            LocalTime eveningTime = firstTimeIn(enabled, 12, 24, LocalTime.of(20, 15));
             Subscription updated = subscriptionService.updateForUser(
                     userId,
                     dto.getReceiveTime(),
                     preferences.preferenceFieldsJson(),
                     schedulesJson,
                     dto.getEnabled(),
-                    dto.getMorningEnabled(),
+                    enabled.stream().anyMatch(item -> hourOf(item) < 12),
                     morningTime,
-                    dto.getEveningEnabled(),
+                    enabled.stream().anyMatch(item -> hourOf(item) >= 12),
                     eveningTime
             );
             return Result.ok("订阅配置已更新", convertToDTO(updated));
@@ -67,44 +75,48 @@ public class SubscriptionController {
         }
     }
 
-    private LocalTime parseEditionTime(String value, String edition) {
-        String label = "morning".equals(edition) ? "早报" : "晚报";
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(label + " Web 展示时间不能为空");
+    private void validateOneChannelPerType(
+            SubscriptionDTO.TopicSchedulesDTO schedules, List<PushChannelResponse> channels) {
+        Map<Long, String> typeById = channels.stream()
+                .collect(Collectors.toMap(PushChannelResponse::getId, PushChannelResponse::getChannelType, (a, b) -> a));
+        if (schedules == null || schedules.getItems() == null) return;
+        for (SubscriptionDTO.TopicScheduleItemDTO item : schedules.getItems()) {
+            if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
+            Set<String> types = new HashSet<>();
+            for (Long channelId : item.getChannelIds()) {
+                String type = typeById.get(channelId);
+                if (type == null) continue;
+                if (!types.add(type)) {
+                    throw new IllegalArgumentException("同一主题每种推送方式只能绑定一个账号");
+                }
+            }
         }
-        if (!value.matches("\\d{2}:\\d{2}(:\\d{2})?")) {
-            throw new IllegalArgumentException(label + " Web 展示时间格式无效");
-        }
-        LocalTime time;
-        try {
-            time = value.length() == 5 ? LocalTime.parse(value + ":00") : LocalTime.parse(value);
-        } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException(label + " Web 展示时间格式无效");
-        }
-        LocalTime boundary = LocalTime.of(15, 0);
-        if ("morning".equals(edition) && !time.isBefore(boundary)) {
-            throw new IllegalArgumentException("早报 Web 展示时间只能在 00:00–14:59");
-        }
-        if ("evening".equals(edition) && time.isBefore(boundary)) {
-            throw new IllegalArgumentException("晚报 Web 展示时间只能在 15:00–23:59");
-        }
-        return time;
     }
 
     private SubscriptionDTO convertToDTO(Subscription subscription) {
         SubscriptionDTO dto = new SubscriptionDTO();
         dto.setReceiveTime(subscription.getReceiveTime());
         dto.setEnabled(subscription.getEnabled());
-        dto.setMorningEnabled(subscription.getMorningEnabled());
-        dto.setMorningTime(formatTime(subscription.getMorningTime()));
-        dto.setEveningEnabled(subscription.getEveningEnabled());
-        dto.setEveningTime(formatTime(subscription.getEveningTime()));
         dto.setPreferenceFields(subscriptionPreferences.readPreferenceFields(subscription.getPreferenceFields()));
         dto.setTopicSchedules(subscriptionPreferences.readSchedules(subscription));
+        List<SubscriptionDTO.TopicScheduleItemDTO> enabled = subscriptionPreferences.enabledTopicItems(subscription);
+        dto.setMorningEnabled(enabled.stream().anyMatch(item -> hourOf(item) < 12));
+        dto.setEveningEnabled(enabled.stream().anyMatch(item -> hourOf(item) >= 12));
+        dto.setMorningTime(ReportWindows.format(firstTimeIn(enabled, 0, 12, LocalTime.of(8, 15))));
+        dto.setEveningTime(ReportWindows.format(firstTimeIn(enabled, 12, 24, LocalTime.of(20, 15))));
         return dto;
     }
 
-    private String formatTime(LocalTime time) {
-        return time == null ? null : String.format("%02d:%02d", time.getHour(), time.getMinute());
+    private static int hourOf(SubscriptionDTO.TopicScheduleItemDTO item) {
+        return ReportWindows.parse(item.getTime()).getHour();
+    }
+
+    private static LocalTime firstTimeIn(
+            List<SubscriptionDTO.TopicScheduleItemDTO> items, int startHour, int endHour, LocalTime fallback) {
+        return items.stream()
+                .map(item -> ReportWindows.parse(item.getTime()))
+                .filter(time -> time.getHour() >= startHour && time.getHour() < endHour)
+                .findFirst()
+                .orElse(fallback);
     }
 }

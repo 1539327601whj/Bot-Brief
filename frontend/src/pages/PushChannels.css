@@ -85,6 +85,12 @@
 .channels-msg.error { color: #ff8080; }
 .channels-msg.info { color: #79c0ff; }
 
+a.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .btn-primary {
   padding: 10px 18px;
   background: linear-gradient(135deg, #7c4dff 0%, #00d4aa 100%);

@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 @Service
@@ -16,52 +17,53 @@ public class ReportAssemblyService {
     private final TopicSectionService topicSectionService;
     private final ReportService reportService;
 
-    public Report assembleAndPersist(Long userId, String edition, LocalDate date, List<String> topics) {
-        if (userId == null || !Report.isPersonalizedEdition(edition) || date == null) return null;
+    public Report assembleAndPersist(Long userId, LocalDate date, LocalTime displayTime, List<String> topics) {
+        if (userId == null || date == null || displayTime == null) return null;
         if (topics == null || topics.isEmpty()) return null;
-        Report existing = reportService.getByUserEditionDate(userId, edition, date);
+        LocalTime minute = displayTime.withSecond(0).withNano(0);
+        Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
 
-        List<TopicSection> sections = topicSectionService.findFor(date, edition, topics);
+        List<TopicSection> sections = topicSectionService.findFor(date, ReportWindows.of(minute), topics);
         if (sections.isEmpty()) return null;
 
-        String content = render(date, edition, sections);
-        String title = titleFor(edition, date);
+        String content = render(date, minute, sections);
+        String title = titleFor(date, minute);
         String summary = MarkdownUtils.stripToPlainText(content, 100);
-        return reportService.saveUserReport(userId, date, edition, title, content, summary);
+        return reportService.saveUserReport(userId, date, minute, title, content, summary);
     }
 
-    public Report assembleEphemeral(Long reportId, String edition, LocalDate date, List<String> topics) {
-        if (!Report.isPersonalizedEdition(edition) || date == null || topics == null || topics.isEmpty()) return null;
-        List<TopicSection> sections = topicSectionService.findFor(date, edition, topics);
+    public Report assembleEphemeral(Long reportId, LocalDate date, LocalTime displayTime, List<String> topics) {
+        if (date == null || displayTime == null || topics == null || topics.isEmpty()) return null;
+        LocalTime minute = displayTime.withSecond(0).withNano(0);
+        List<TopicSection> sections = topicSectionService.findFor(date, ReportWindows.of(minute), topics);
         if (sections.isEmpty()) return null;
         Report report = new Report();
         report.setId(reportId);
-        report.setEdition(edition);
+        report.setEdition(Report.PERSONAL);
         report.setReportDate(date);
-        report.setTitle(titleFor(edition, date));
-        report.setContent(render(date, edition, sections));
+        report.setDisplayTime(minute);
+        report.setTitle(titleFor(date, minute));
+        report.setContent(render(date, minute, sections));
         report.setSummary(MarkdownUtils.stripToPlainText(report.getContent(), 100));
         return report;
     }
 
-    public Report assembleForWebIfReady(Long userId, String edition, LocalDate date, List<String> topics) {
-        if (userId == null || !Report.isPersonalizedEdition(edition) || date == null) return null;
-        Report existing = reportService.getByUserEditionDate(userId, edition, date);
+    public Report assembleForWebIfReady(Long userId, LocalDate date, LocalTime displayTime, List<String> topics) {
+        if (userId == null || date == null || displayTime == null) return null;
+        LocalTime minute = displayTime.withSecond(0).withNano(0);
+        Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
-        if (!reportService.publicReportExists(edition, date)) return null;
-        return assembleAndPersist(userId, edition, date, topics);
+        return assembleAndPersist(userId, date, minute, topics);
     }
 
-    static String titleFor(String edition, LocalDate date) {
-        String label = "evening".equals(edition) ? "晚间版" : "早间版";
-        return "【" + label + "】我的简报 " + date;
+    static String titleFor(LocalDate date, LocalTime time) {
+        return "【" + ReportWindows.format(time) + "】我的简报 " + date;
     }
 
-    static String render(LocalDate date, String edition, List<TopicSection> sections) {
-        String label = "evening".equals(edition) ? "晚间版" : "早间版";
+    static String render(LocalDate date, LocalTime time, List<TopicSection> sections) {
         StringBuilder content = new StringBuilder();
-        content.append("# 🎯 我的").append(label).append(" · ").append(date).append("\n\n---\n\n");
+        content.append("# 🎯 我的简报 ").append(ReportWindows.format(time)).append(" · ").append(date).append("\n\n---\n\n");
         for (int i = 0; i < sections.size(); i++) {
             if (i > 0) content.append("\n\n");
             content.append(sections.get(i).getContent().strip());

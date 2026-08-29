@@ -19,6 +19,7 @@ interface Report {
   title: string
   summary: string
   createdAt: string
+  displayTime?: string
 }
 
 interface PageData {
@@ -160,7 +161,7 @@ export default function History() {
         <div className="history-header">
           <div className="header-info">
             <h2>📋 历史简报</h2>
-            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : 'AI 早报/晚报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
+            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
           </div>
           <div className="header-stats">
             <div className="stat-badge">
@@ -176,14 +177,23 @@ export default function History() {
               className={`history-chip ${edition === '' ? 'active' : ''}`}
               onClick={() => changeEdition('')}
             >全部</button>
-            <button
-              className={`history-chip ${edition === 'morning' ? 'active' : ''}`}
-              onClick={() => changeEdition('morning')}
-            >🌅 AI 早报</button>
-            <button
-              className={`history-chip ${edition === 'evening' ? 'active' : ''}`}
-              onClick={() => changeEdition('evening')}
-            >🌙 AI 晚报</button>
+            {isDemo ? (
+              <>
+                <button
+                  className={`history-chip ${edition === 'morning' ? 'active' : ''}`}
+                  onClick={() => changeEdition('morning')}
+                >🌅 AI 早报</button>
+                <button
+                  className={`history-chip ${edition === 'evening' ? 'active' : ''}`}
+                  onClick={() => changeEdition('evening')}
+                >🌙 AI 晚报</button>
+              </>
+            ) : (
+              <button
+                className={`history-chip ${edition === 'personal' ? 'active' : ''}`}
+                onClick={() => changeEdition('personal')}
+              >✨ 我的简报</button>
+            )}
             <button
               className={`history-chip ${edition === 'market_watch_morning' ? 'active' : ''}`}
               onClick={() => changeEdition('market_watch_morning')}
@@ -233,7 +243,7 @@ export default function History() {
           <>
             <div className="reports-list">
               {reports.map(report => {
-                const editionInfo = getReportEditionInfo(report.edition)
+                const editionInfo = getReportEditionInfo(report.edition, report.displayTime)
                 return (
                   <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
                     <div className="report-icon">{editionInfo.icon}</div>

@@ -1,5 +1,6 @@
 package com.ai.daily.service;
 
+import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -25,10 +27,7 @@ public class ReportQueryService {
 
     public void ensureTodayAssembled(Long userId) {
         if (userId == null) return;
-        LocalDate today = LocalDate.now(BEIJING);
-        Subscription subscription = subscriptionService.getOrCreateForUser(userId);
-        assembleIfReady(userId, "morning", today, subscription);
-        assembleIfReady(userId, "evening", today, subscription);
+        assembleDueForToday(userId);
     }
 
     public Report getLatest(Long userId, boolean demo, String edition) {
@@ -39,17 +38,17 @@ public class ReportQueryService {
             return reportService.getLatestByEdition(edition);
         }
         if (userId == null) return null;
-        ensureTodayAssembled(userId, edition);
+        ensureTodayAssembled(userId);
         if (edition != null && !edition.isBlank()) {
             if (Report.isPersonalizedEdition(edition)) {
-                return reportService.getLatestForUser(userId, edition);
+                return reportService.getLatestForUser(userId, Report.PERSONAL);
             }
             if (Report.isSharedPublicEdition(edition)) {
                 return reportService.getLatestByEdition(edition);
             }
             return null;
         }
-        Report mine = reportService.getLatestForUser(userId, null);
+        Report mine = reportService.getLatestForUser(userId, Report.PERSONAL);
         Report market = reportService.getLatestPublicMarketWatch();
         if (mine == null) return market;
         if (market == null) return mine;
@@ -79,7 +78,7 @@ public class ReportQueryService {
             LocalDateTime end,
             String keyword) {
         if (!demo && userId != null) {
-            ensureTodayAssembled(userId, edition);
+            ensureTodayAssembled(userId);
         }
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
         if (demo) {
@@ -89,7 +88,7 @@ public class ReportQueryService {
             return page;
         } else if (edition != null && !edition.isBlank()) {
             if (Report.isPersonalizedEdition(edition)) {
-                wrapper.eq(Report::getUserId, userId).eq(Report::getEdition, edition);
+                wrapper.eq(Report::getUserId, userId).eq(Report::getEdition, Report.PERSONAL);
             } else if (Report.isSharedPublicEdition(edition)) {
                 wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID).eq(Report::getEdition, edition);
             } else {
@@ -146,21 +145,16 @@ public class ReportQueryService {
                         .likeRight(Report::getEdition, "market_watch")));
     }
 
-    private void ensureTodayAssembled(Long userId, String edition) {
+    private void assembleDueForToday(Long userId) {
         LocalDate today = LocalDate.now(BEIJING);
+        LocalTime now = LocalTime.now(BEIJING).withSecond(0).withNano(0);
         Subscription subscription = subscriptionService.getOrCreateForUser(userId);
-        if (edition == null || edition.isBlank()) {
-            assembleIfReady(userId, "morning", today, subscription);
-            assembleIfReady(userId, "evening", today, subscription);
-            return;
+        for (LocalTime time : subscriptionPreferences.displayTimes(subscription)) {
+            if (time.isAfter(now)) continue;
+            List<String> topics = subscriptionPreferences.enabledTopicItemsAt(subscription, time).stream()
+                    .map(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
+                    .toList();
+            reportAssemblyService.assembleForWebIfReady(userId, today, time, topics);
         }
-        if (Report.isPersonalizedEdition(edition)) {
-            assembleIfReady(userId, edition, today, subscription);
-        }
-    }
-
-    private void assembleIfReady(Long userId, String edition, LocalDate date, Subscription subscription) {
-        List<String> topics = subscriptionPreferences.enabledTopics(subscription, edition);
-        reportAssemblyService.assembleForWebIfReady(userId, edition, date, topics);
     }
 }

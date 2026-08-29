@@ -47,7 +47,7 @@ public class SecurityConfig {
                                 "/api/reports/ingest", "/api/reports/sections/ingest",
                                 "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
-                                "/api/reports/subscribed-topics").permitAll()
+                                "/api/reports/subscribed-topics", "/api/reports/due-generations").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/market-valuations/*/latest", "/api/etf-prices/*/latest", "/api/health").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,

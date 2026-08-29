@@ -2,9 +2,11 @@ package com.ai.daily.service.impl;
 
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.mapper.SubscriptionMapper;
+import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -13,6 +15,9 @@ import java.util.List;
 
 @Service
 public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Subscription> implements SubscriptionService {
+
+    @Autowired
+    private SubscriptionPreferences subscriptionPreferences;
 
     @Override
     public Subscription getOrCreateForUser(Long userId) {
@@ -65,75 +70,14 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
     }
 
     @Override
-    public List<Subscription> findDueForEdition(String edition, LocalTime nowFloor) {
-        LocalTime minute = nowFloor.withSecond(0).withNano(0);
-        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Subscription::getEnabled, true);
-        if ("morning".equals(edition)) {
-            wrapper.eq(Subscription::getMorningEnabled, true)
-                    .eq(Subscription::getMorningTime, minute);
-        } else if ("evening".equals(edition)) {
-            wrapper.eq(Subscription::getEveningEnabled, true)
-                    .eq(Subscription::getEveningTime, minute);
-        } else {
-            return List.of();
-        }
-        return this.list(wrapper);
+    public List<Subscription> findDueThrough(LocalTime nowFloor, Duration maxLateness) {
+        return listEnabled().stream()
+                .filter(subscription -> subscriptionPreferences.isDueThrough(subscription, nowFloor, maxLateness))
+                .toList();
     }
 
     @Override
-    public List<Subscription> findDueThrough(String edition, LocalTime nowFloor, Duration maxLateness) {
-        LocalTime minute = nowFloor.withSecond(0).withNano(0);
-        LocalTime earliest = earliestCatchUpTime(minute, maxLateness);
-        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Subscription::getEnabled, true);
-        if ("morning".equals(edition)) {
-            wrapper.eq(Subscription::getMorningEnabled, true)
-                    .le(Subscription::getMorningTime, minute)
-                    .ge(Subscription::getMorningTime, earliest);
-        } else if ("evening".equals(edition)) {
-            wrapper.eq(Subscription::getEveningEnabled, true)
-                    .le(Subscription::getEveningTime, minute)
-                    .ge(Subscription::getEveningTime, earliest);
-        } else {
-            return List.of();
-        }
-        return this.list(wrapper);
-    }
-
-    @Override
-    public List<Subscription> listEnabledForEdition(String edition) {
-        LambdaQueryWrapper<Subscription> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Subscription::getEnabled, true);
-        if ("morning".equals(edition)) {
-            wrapper.eq(Subscription::getMorningEnabled, true);
-        } else if ("evening".equals(edition)) {
-            wrapper.eq(Subscription::getEveningEnabled, true);
-        } else {
-            return List.of();
-        }
-        return this.list(wrapper);
-    }
-
-    boolean isDueForEdition(Subscription subscription, String edition, LocalTime minute) {
-        return isDueThrough(subscription, edition, minute, Duration.ZERO);
-    }
-
-    boolean isDueThrough(Subscription subscription, String edition, LocalTime minute, Duration maxLateness) {
-        LocalTime scheduled = "morning".equals(edition)
-                ? subscription.getMorningTime()
-                : "evening".equals(edition) ? subscription.getEveningTime() : null;
-        if (scheduled == null || minute == null) return false;
-        LocalTime scheduledMinute = scheduled.withSecond(0).withNano(0);
-        LocalTime nowMinute = minute.withSecond(0).withNano(0);
-        if (scheduledMinute.isAfter(nowMinute)) return false;
-        LocalTime earliest = earliestCatchUpTime(nowMinute, maxLateness);
-        return !scheduledMinute.isBefore(earliest);
-    }
-
-    private static LocalTime earliestCatchUpTime(LocalTime nowMinute, Duration maxLateness) {
-        if (maxLateness == null) return LocalTime.MIN;
-        LocalTime earliest = nowMinute.minus(maxLateness);
-        return earliest.isAfter(nowMinute) ? LocalTime.MIN : earliest;
+    public List<Subscription> listEnabled() {
+        return this.lambdaQuery().eq(Subscription::getEnabled, true).list();
     }
 }
