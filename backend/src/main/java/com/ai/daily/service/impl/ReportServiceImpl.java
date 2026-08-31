@@ -47,6 +47,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             existing.setRunId(runId);
             existing.setIngestKey(ingestKey);
             existing.setDisplayTime(ReportWindows.publicDisplayTime(edition));
+            existing.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
             return baseMapper.updateById(existing) > 0;
         }
         Report report = new Report();

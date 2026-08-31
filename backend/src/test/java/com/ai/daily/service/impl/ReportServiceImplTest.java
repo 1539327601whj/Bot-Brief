@@ -85,6 +85,7 @@ class ReportServiceImplTest {
         verify(mapper, never()).insert(any());
         assertThat(existing.getTitle()).isEqualTo("刷新早报");
         assertThat(existing.getSummary()).isEqualTo("新摘要");
+        assertThat(existing.getCreatedAt()).isNotNull();
     }
 
     @Test

@@ -104,6 +104,7 @@ public class SubscribedTopicService {
     private static boolean needsEtfRefresh(Report existing) {
         String content = existing.getContent() == null ? "" : existing.getContent();
         if (!content.contains("IOPV不可用")
+                && !content.contains("IOPV未与行情同步")
                 && !content.contains("HTTPSConnectionPool")
                 && !content.contains("Max retries exceeded")) {
             return false;

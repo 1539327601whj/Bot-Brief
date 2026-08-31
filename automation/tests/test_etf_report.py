@@ -693,8 +693,32 @@ class ReportTests(unittest.TestCase):
 
     def test_last_completed_trading_day_skips_weekend(self):
         from datetime import date
-        self.assertEqual(report.last_completed_trading_day(date(2026, 8, 31)), date(2026, 8, 28))
+        self.assertEqual(report.last_completed_trading_day(date(2026, 8, 31)), date(2026, 8, 31))
+        self.assertEqual(report.last_completed_trading_day(date(2026, 8, 30)), date(2026, 8, 28))
         self.assertEqual(report.last_completed_trading_day(date(2026, 8, 28)), date(2026, 8, 28))
+        morning = datetime(2026, 8, 31, 10, 0, tzinfo=report.BEIJING_TZ)
+        evening = datetime(2026, 8, 31, 15, 0, tzinfo=report.BEIJING_TZ)
+        self.assertEqual(report.last_completed_trading_day(now=morning), date(2026, 8, 28))
+        self.assertEqual(report.last_completed_trading_day(now=evening), date(2026, 8, 31))
+
+    @patch.object(report, "http_get")
+    def test_premium_falls_back_to_ulist_after_empty_stock_iopv(self, get):
+        get.side_effect = [
+            response({"data": {"f57": ETF["code"], "f124": 0, "f2": None, "f441": -3249454560.0}}),
+            response({"data": {"total": 1, "diff": [{
+                "f12": ETF["code"],
+                "f124": int(NOW.timestamp()),
+                "f2": 4100,
+                "f441": 4.0,
+            }]}}),
+        ]
+        premium = report.fetch_etf_premium(
+            ETF, {"latest_price": 4.1, "data_time": "2026-07-27 15:00:00"}
+        )
+        self.assertAlmostEqual(premium["premium_rate"], 2.5)
+        self.assertIsNone(premium["error"])
+        self.assertEqual(premium["data_time"][:10], "2026-07-27")
+        self.assertEqual(get.call_count, 2)
 
     def test_morning_edition_is_rejected(self):
         with patch.dict(os.environ, {"EDITION": "morning"}, clear=False):
