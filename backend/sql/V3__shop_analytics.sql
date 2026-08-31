@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS shop_store (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL,
-    platform VARCHAR(30) NOT NULL DEFAULT 'manual' COMMENT 'taobao|douyin|wechat_shop|pdd|kuaishou|manual',
+    platform VARCHAR(30) NOT NULL DEFAULT 'manual' COMMENT 'taobao|jd|douyin|wechat_shop|pdd|kuaishou|manual',
     store_name VARCHAR(100) NOT NULL,
     external_store_id VARCHAR(100) DEFAULT NULL,
     enabled TINYINT(1) NOT NULL DEFAULT 1,

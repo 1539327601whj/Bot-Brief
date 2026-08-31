@@ -516,6 +516,28 @@
   line-height: 1.65;
 }
 
+.shop-create-fields {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.shop-create-fields label {
+  display: grid;
+  gap: 6px;
+  color: #8b949e;
+  font-size: 13px;
+}
+
+.shop-create-fields select,
+.shop-create-fields input {
+  border: 1px solid #3d444d;
+  background: #21262d;
+  color: #e6edf3;
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+
 .shop-import-controls {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(220px, 1.4fr) auto;

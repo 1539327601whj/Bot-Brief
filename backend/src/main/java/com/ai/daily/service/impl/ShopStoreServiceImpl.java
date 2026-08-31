@@ -8,9 +8,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore> implements ShopStoreService {
+
+    private static final Set<String> PLATFORMS = Set.of(
+            "manual", "taobao", "jd", "douyin", "wechat_shop", "pdd", "kuaishou");
 
     @Override
     public List<ShopStore> listForUser(Long userId) {
@@ -23,7 +28,7 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
     public ShopStore createForUser(Long userId, String platform, String storeName) {
         ShopStore store = new ShopStore();
         store.setUserId(userId);
-        store.setPlatform(platform == null || platform.isBlank() ? "manual" : platform);
+        store.setPlatform(normalizePlatform(platform));
         store.setStoreName(storeName == null || storeName.isBlank() ? "我的店铺" : storeName);
         store.setEnabled(true);
         this.save(store);
@@ -47,5 +52,15 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
                 .last("LIMIT 1"));
         if (store != null) return store;
         return createForUser(userId, "manual", "我的店铺");
+    }
+
+    static String normalizePlatform(String platform) {
+        if (platform == null || platform.isBlank()) return "manual";
+        String normalized = platform.trim().toLowerCase(Locale.ROOT);
+        if ("jingdong".equals(normalized) || "京东".equals(platform.trim())) return "jd";
+        if (!PLATFORMS.contains(normalized)) {
+            throw new IllegalArgumentException("不支持的店铺平台");
+        }
+        return normalized;
     }
 }

@@ -31,8 +31,12 @@ public class ShopStoreController {
     public Result<ShopStoreDTO> createStore(@RequestBody ShopStoreDTO dto) {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
-        ShopStore store = shopStoreService.createForUser(userId, dto.getPlatform(), dto.getStoreName());
-        return Result.ok("店铺已创建", toDTO(store));
+        try {
+            ShopStore store = shopStoreService.createForUser(userId, dto.getPlatform(), dto.getStoreName());
+            return Result.ok("店铺已创建", toDTO(store));
+        } catch (IllegalArgumentException e) {
+            return Result.error(400, e.getMessage());
+        }
     }
 
     private ShopStoreDTO toDTO(ShopStore store) {
