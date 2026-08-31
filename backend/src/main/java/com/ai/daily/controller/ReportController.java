@@ -196,7 +196,9 @@ public class ReportController {
                     summary,
                     dto.getRunId()
             );
-            if ("morning".equals(dto.getEdition()) || "evening".equals(dto.getEdition())) {
+            if ("morning".equals(dto.getEdition())
+                    || "evening".equals(dto.getEdition())
+                    || (dto.getEdition() != null && dto.getEdition().startsWith("market_watch"))) {
                 try {
                     scheduledPushTask.catchUpToday(dto.getReportDate());
                 } catch (Exception e) {

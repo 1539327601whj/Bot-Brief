@@ -92,7 +92,7 @@ class ReportAssemblyServiceTest {
         saved.setId(12L);
         when(reports.saveUserReport(eq(7L), eq(date), eq(time), any(), any(), any())).thenReturn(saved);
 
-        Report result = service.assembleAndPersist(7L, date, time, List.of("科技"));
+        Report result = service.assembleAndPersist(7L, date, time, List.of("AI科技"));
 
         assertThat(result).isSameAs(saved);
         verify(reports).saveUserReport(
@@ -117,10 +117,29 @@ class ReportAssemblyServiceTest {
         digest.setContent("晚间正文");
         when(reports.getLatestByEditionForDate("evening", date)).thenReturn(digest);
 
-        Report result = service.assembleEphemeral(9L, date, time, List.of("科技"));
+        Report result = service.assembleEphemeral(9L, date, time, List.of("AI科技"));
 
         assertThat(result.getTitle()).isEqualTo("【晚间版】AI 每日简报 2026-08-31");
         assertThat(result.getContent()).isEqualTo("晚间正文");
+        verify(sections, never()).findFor(any(), any(), any());
+    }
+
+    @Test
+    void etfDigestUsesPublicMarketWatchReport() {
+        TopicSectionService sections = mock(TopicSectionService.class);
+        ReportService reports = mock(ReportService.class);
+        ReportAssemblyService service = new ReportAssemblyService(sections, reports);
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        LocalTime time = LocalTime.of(18, 0);
+        Report digest = new Report();
+        digest.setTitle("【ETF市场数据简报】沪深300ETF / 纳指100ETF / 标普500ETF 2026-08-31");
+        digest.setContent("ETF 正文");
+        when(reports.getLatestByEditionForDate("market_watch_evening", date)).thenReturn(digest);
+
+        Report result = service.assembleEphemeral(4L, date, time, List.of("纳指标普沪深300ETF"));
+
+        assertThat(result.getTitle()).contains("ETF市场数据简报");
+        assertThat(result.getContent()).isEqualTo("ETF 正文");
         verify(sections, never()).findFor(any(), any(), any());
     }
 

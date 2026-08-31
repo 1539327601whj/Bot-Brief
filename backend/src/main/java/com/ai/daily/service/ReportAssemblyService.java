@@ -58,16 +58,15 @@ public class ReportAssemblyService {
     private Assembled assemble(LocalDate date, LocalTime minute, List<String> topics) {
         List<TopicSection> sections = resolveSections(date, minute, topics);
         if (sections.isEmpty()) return null;
-        boolean onlyTech = topics.stream().anyMatch(DigestTopics::isTech)
-                && topics.stream().noneMatch(topic -> !DigestTopics.isTech(topic));
+        boolean onlyDigest = topics.stream().allMatch(DigestTopics::isDigest);
         String title;
         String content;
-        if (onlyTech) {
-            TopicSection tech = sections.get(0);
-            title = tech.getTitle() != null && !tech.getTitle().isBlank()
-                    ? tech.getTitle()
+        if (onlyDigest && sections.size() == 1) {
+            TopicSection digest = sections.get(0);
+            title = digest.getTitle() != null && !digest.getTitle().isBlank()
+                    ? digest.getTitle()
                     : titleFor(date, minute);
-            content = tech.getContent();
+            content = digest.getContent();
         } else {
             title = titleFor(date, minute);
             content = render(date, minute, sections);
@@ -77,15 +76,17 @@ public class ReportAssemblyService {
 
     private List<TopicSection> resolveSections(LocalDate date, LocalTime minute, List<String> topics) {
         List<TopicSection> sections = new ArrayList<>();
-        List<String> regular = topics.stream().filter(topic -> !DigestTopics.isTech(topic)).toList();
-        if (topics.stream().anyMatch(DigestTopics::isTech)) {
-            Report digest = reportService.getLatestByEditionForDate(DigestTopics.publicEditionFor(minute), date);
+        List<String> regular = topics.stream().filter(topic -> !DigestTopics.isDigest(topic)).toList();
+        for (String topic : topics) {
+            String edition = DigestTopics.publicEditionFor(topic, minute);
+            if (edition == null) continue;
+            Report digest = reportService.getLatestByEditionForDate(edition, date);
             if (digest != null && digest.getContent() != null && !digest.getContent().isBlank()) {
-                TopicSection tech = new TopicSection();
-                tech.setTopicKey(DigestTopics.TECH);
-                tech.setTitle(digest.getTitle());
-                tech.setContent(digest.getContent());
-                sections.add(tech);
+                TopicSection section = new TopicSection();
+                section.setTopicKey(topic);
+                section.setTitle(digest.getTitle());
+                section.setContent(digest.getContent());
+                sections.add(section);
             }
         }
         if (!regular.isEmpty()) {

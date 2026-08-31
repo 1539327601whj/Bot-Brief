@@ -848,14 +848,15 @@ def generation_concurrency():
         return 4
 
 
-def is_tech_digest_topic(topic):
-    return (topic or "").strip() == "科技"
+def is_digest_topic(topic):
+    name = (topic or "").strip().lower().replace(" ", "")
+    return name in {"ai科技", "科技", "纳指标普沪深300etf", "etf", "市场观察"}
 
 
 def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
     """生成并入库单个主题。失败返回 False，不影响其他主题。"""
-    if is_tech_digest_topic(topic):
-        print("  skip topic 科技: use public morning/evening digest")
+    if is_digest_topic(topic):
+        print("  skip digest topic: use public morning/evening/etf report")
         return False
     selected = collect_news_for_topic(news_items, topic)
     if not selected:

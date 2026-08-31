@@ -191,9 +191,10 @@ class TopicSectionTests(unittest.TestCase):
 
     def test_tech_digest_is_not_generated_as_short_section(self):
         with patch.object(report, "collect_news_for_topic") as collect:
-            saved = report.generate_one_topic_section([], "morning", "科技", "2026-08-31", "run-1")
+            saved = report.generate_one_topic_section([], "morning", "AI科技", "2026-08-31", "run-1")
         self.assertFalse(saved)
         collect.assert_not_called()
+        self.assertTrue(report.is_digest_topic("纳指标普沪深300ETF"))
 
     def test_custom_topic_searches_when_pool_has_no_match(self):
         searched = [{"title": "具身智能新突破", "summary": "机器人落地", "score": 8, "source": "主题检索·中文"}]

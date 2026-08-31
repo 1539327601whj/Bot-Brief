@@ -91,7 +91,7 @@ public class SubscribedTopicService {
         for (Subscription subscription : subscriptions) {
             for (var item : subscriptionPreferences.enabledTopicItemsOn(subscription, date)) {
                 if (item.getTopic() == null || item.getTopic().isBlank()) continue;
-                if (DigestTopics.isTech(item.getTopic())) continue;
+                if (DigestTopics.isDigest(item.getTopic())) continue;
                 LocalTime time = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
                 String window = ReportWindows.of(time);
                 String key = window + "|" + item.getTopic().toLowerCase(Locale.ROOT);

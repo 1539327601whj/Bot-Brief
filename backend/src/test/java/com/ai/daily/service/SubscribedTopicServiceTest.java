@@ -109,7 +109,7 @@ class SubscribedTopicServiceTest {
         Subscription alice = subscription(1L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice));
         when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(
-                item("科技", "08:00"), item("数据库", "08:20")));
+                item("AI科技", "08:00"), item("纳指标普沪深300ETF", "18:00"), item("数据库", "08:20")));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
         when(sections.findId(any(), any(), any())).thenReturn(null);
 

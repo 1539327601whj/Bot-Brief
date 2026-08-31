@@ -64,9 +64,9 @@ public class SubscriptionProgressService {
         row.setWindow(window);
 
         Report assembled = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, today, readyAt);
+        String digestEdition = DigestTopics.publicEditionFor(topic, readyAt);
         boolean hasSection = topicSectionMapper.findId(today, window, topic) != null
-                || (DigestTopics.isTech(topic)
-                && reportService.publicReportExists(DigestTopics.publicEditionFor(readyAt), today));
+                || (digestEdition != null && reportService.publicReportExists(digestEdition, today));
         TopicGenerationStatus recorded = generationStatusService.find(today, window, topic);
 
         if (assembled != null) {
