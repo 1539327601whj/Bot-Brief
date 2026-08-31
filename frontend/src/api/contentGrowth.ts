@@ -126,6 +126,36 @@ export const platformLabel = (platform?: string) => {
   return platformOptions.find(item => item.value === platform)?.label || platform || '-'
 }
 
+const platformHosts: Record<string, string[]> = {
+  douyin: ['douyin.com', 'iesdouyin.com'],
+  xiaohongshu: ['xiaohongshu.com', 'xhslink.com'],
+  kuaishou: ['kuaishou.com'],
+  bilibili: ['bilibili.com', 'b23.tv'],
+}
+
+export const bindStatusLabel = (status?: string) => {
+  if (status === 'manual' || !status) return '手工登记'
+  if (status === 'BOUND' || status === 'synced') return '已同步'
+  return status
+}
+
+export const homepageUrlError = (platform: string | undefined, value?: string) => {
+  const url = value?.trim()
+  if (!url) return
+  if (url.length > 1000) return '链接不能超过 1000 个字符'
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '主页链接需要以 http:// 或 https:// 开头'
+    const host = parsed.hostname.toLowerCase()
+    const allowed = platform ? platformHosts[platform] : undefined
+    if (allowed && !allowed.some(suffix => host === suffix || host.endsWith(`.${suffix}`))) {
+      return '主页链接要对应所选平台'
+    }
+  } catch {
+    return '主页链接需要以 http:// 或 https:// 开头'
+  }
+}
+
 export const getAccounts = () => api.get('/content-growth/accounts')
 export const createAccount = (data: AccountPayload) => api.post('/content-growth/accounts', data)
 export const updateAccount = (id: number, data: AccountPayload) => api.put(`/content-growth/accounts/${id}`, data)

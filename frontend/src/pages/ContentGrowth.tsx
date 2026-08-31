@@ -20,6 +20,8 @@ import {
   getOverview,
   getWorks,
   importWorks,
+  bindStatusLabel,
+  homepageUrlError,
   platformLabel,
   platformOptions,
   recommendTopics,
@@ -431,6 +433,7 @@ export default function ContentGrowth() {
 
         <section className="growth-toolbar">
           <Select allowClear placeholder="查看全部账号" value={selectedAccountId} options={accountSelectOptions} onChange={setSelectedAccountId} className="growth-account-select" />
+          {selectedAccount && <Tag>{bindStatusLabel(selectedAccount.bindStatus)}</Tag>}
           <Button onClick={openEditAccount} disabled={isDemo || !selectedAccount}>编辑账号</Button>
           <Button danger onClick={handleDeleteAccount} disabled={isDemo || !selectedAccount}>删除账号</Button>
           <Button onClick={openCreateWork} disabled={isDemo || !accounts.length}>录入作品数据</Button>
@@ -438,10 +441,10 @@ export default function ContentGrowth() {
           <Button onClick={() => { if (!isDemo) setCompetitorModalOpen(true) }} disabled={isDemo}>添加竞品账号</Button>
         </section>
 
-        {!accounts.length && <Alert type="info" showIcon message="先添加一个内容账号" description="第一版先支持手动绑定账号和录入作品数据，平台自动同步数据后续开放。" className="growth-alert" />}
+        {!accounts.length && <Alert type="info" showIcon message="先添加一个内容账号" description="现在是手工登记：填平台、名称和主页链接即可。数据不会从平台自动拉取。" className="growth-alert" />}
 
         <section className="growth-stat-grid">
-          <Card><div className="growth-stat"><span>已绑定账号</span><strong>{overview?.accountCount || 0}</strong></div></Card>
+          <Card><div className="growth-stat"><span>已登记账号</span><strong>{overview?.accountCount || 0}</strong></div></Card>
           <Card><div className="growth-stat"><span>总粉丝</span><strong>{formatNumber(overview?.totalFollowers)}</strong></div></Card>
           <Card><div className="growth-stat"><span>总播放</span><strong>{formatNumber(overview?.totalPlayCount)}</strong></div></Card>
           <Card><div className="growth-stat"><span>总互动</span><strong>{formatNumber((overview?.totalLikeCount || 0) + (overview?.totalCommentCount || 0) + (overview?.totalCollectCount || 0) + (overview?.totalShareCount || 0))}</strong></div></Card>
@@ -467,7 +470,24 @@ export default function ContentGrowth() {
 
         <Card title="AI 改稿建议" className="growth-rewrite-card"><Form form={rewriteForm} layout="vertical" disabled={isDemo} initialValues={{ targetPlatform: 'douyin', goal: '提高完播和收藏' }}><div className="growth-form-grid"><Form.Item name="targetPlatform" label="目标平台" rules={[{ required: true }]}><Select options={platformOptions} /></Form.Item><Form.Item name="goal" label="优化目标" rules={[{ required: true }]}><Input /></Form.Item></div><Form.Item name="draftTitle" label="标题草稿"><Input /></Form.Item><Form.Item name="draftScript" label="脚本草稿" rules={[{ required: true, message: '请输入脚本草稿或内容方向' }]}><Input.TextArea rows={5} /></Form.Item><Button type="primary" loading={aiLoading === 'rewrite'} disabled={isDemo} onClick={runRewriteAdvice}>生成改稿建议</Button></Form>{rewriteResult && <AiResult result={rewriteResult} />}</Card>
 
-        <Modal title={editingAccount ? '编辑内容账号' : '添加内容账号'} open={accountModalOpen} onOk={handleSaveAccount} confirmLoading={saving} onCancel={closeAccountModal} destroyOnClose><Form form={accountForm} layout="vertical"><Form.Item name="platform" label="平台" rules={[{ required: true }]}><Select options={platformOptions} disabled={Boolean(editingAccount)} /></Form.Item><Form.Item name="accountName" label="账号名称" rules={[{ required: true }, { max: 120 }]}><Input /></Form.Item><Form.Item name="homepageUrl" label="主页链接" rules={[{ max: 1000 }]}><Input /></Form.Item><Form.Item name="followerCount" label="当前粉丝数"><InputNumber min={0} precision={0} className="growth-full" /></Form.Item><Form.Item name="accountPositioning" label="账号定位" rules={[{ max: 500 }]}><Input.TextArea rows={3} /></Form.Item></Form></Modal>
+        <Modal title={editingAccount ? '编辑内容账号' : '添加内容账号'} open={accountModalOpen} onOk={handleSaveAccount} confirmLoading={saving} onCancel={closeAccountModal} destroyOnClose>
+          <Alert type="info" showIcon className="growth-alert" message="手工登记不会登录平台，也不会自动同步粉丝和作品。" />
+          <Form form={accountForm} layout="vertical">
+            <Form.Item name="platform" label="平台" rules={[{ required: true }]}><Select options={platformOptions} disabled={Boolean(editingAccount)} /></Form.Item>
+            <Form.Item name="accountName" label="账号名称" rules={[{ required: true }, { max: 120 }]}><Input /></Form.Item>
+            <Form.Item name="homepageUrl" label="主页链接" extra="选填。填写时请用该平台的主页地址。" rules={[
+              { max: 1000 },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const error = homepageUrlError(getFieldValue('platform'), value)
+                  return error ? Promise.reject(error) : Promise.resolve()
+                },
+              }),
+            ]}><Input placeholder="https://" /></Form.Item>
+            <Form.Item name="followerCount" label="当前粉丝数"><InputNumber min={0} precision={0} className="growth-full" /></Form.Item>
+            <Form.Item name="accountPositioning" label="账号定位" rules={[{ max: 500 }]}><Input.TextArea rows={3} /></Form.Item>
+          </Form>
+        </Modal>
 
         <Modal title={editingWork ? '编辑作品数据' : '录入作品数据'} open={workModalOpen} onOk={handleSaveWork} confirmLoading={saving} onCancel={closeWorkModal} destroyOnClose width={720}><Form form={workForm} layout="vertical"><div className="growth-form-grid"><Form.Item name="accountId" label="内容账号" rules={[{ required: true }]}><Select options={accountSelectOptions} onChange={handleWorkAccountChange} /></Form.Item><Form.Item name="platform" label="平台"><Select options={platformOptions} disabled /></Form.Item></div><Form.Item name="title" label="作品标题" rules={[{ required: true }, { max: 500 }]}><Input /></Form.Item><div className="growth-form-grid"><Form.Item name="workUrl" label="作品链接" rules={[{ max: 1000 }]}><Input /></Form.Item><Form.Item name="coverUrl" label="封面链接" rules={[{ max: 1000 }]}><Input /></Form.Item></div><Form.Item name="publishTime" label="发布时间"><DatePicker showTime className="growth-full" /></Form.Item><div className="growth-number-grid">{['playCount', 'likeCount', 'commentCount', 'collectCount', 'shareCount', 'followerGain'].map((name, index) => <Form.Item name={name} label={['播放', '点赞', '评论', '收藏', '分享', '涨粉'][index]} key={name}><InputNumber min={0} precision={0} /></Form.Item>)}</div><Form.Item name="contentType" hidden><Input /></Form.Item></Form></Modal>
 

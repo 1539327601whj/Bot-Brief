@@ -6,6 +6,7 @@ import com.ai.daily.entity.CompetitorAccount;
 import com.ai.daily.entity.ContentAccount;
 import com.ai.daily.entity.ContentWork;
 import com.ai.daily.security.SecurityUtils;
+import com.ai.daily.service.ContentAccountBindRules;
 import com.ai.daily.service.ContentGrowthService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -210,7 +211,9 @@ public class ContentGrowthController {
         if (!SUPPORTED_PLATFORMS.contains(request.getPlatform().trim())) return "不支持的内容平台";
         if (blank(request.getAccountName())) return "账号名不能为空";
         if (request.getAccountName().trim().length() > 120) return "账号名不能超过 120 个字符";
-        if (tooLong(request.getHomepageUrl(), 1000) || tooLong(request.getAvatarUrl(), 1000)) return "链接不能超过 1000 个字符";
+        String homepageError = ContentAccountBindRules.validateHomepage(request.getPlatform(), request.getHomepageUrl());
+        if (homepageError != null) return homepageError;
+        if (tooLong(request.getAvatarUrl(), 1000)) return "链接不能超过 1000 个字符";
         if (tooLong(request.getAccountPositioning(), 500)) return "账号定位不能超过 500 个字符";
         if (request.getFollowerCount() != null && request.getFollowerCount() < 0) return "粉丝数不能为负数";
         return null;

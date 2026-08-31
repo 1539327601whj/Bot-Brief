@@ -22,8 +22,8 @@ export const demoPushLogs = [
 ]
 
 export const demoContentAccounts: ContentAccount[] = [
-  { id: 101, platform: 'douyin', accountName: '城市灵感实验室', homepageUrl: 'https://example.invalid/creator/city-lab', followerCount: 28600, accountPositioning: '城市生活与效率技巧', bindStatus: 'BOUND' },
-  { id: 102, platform: 'xiaohongshu', accountName: '慢读科技手册', homepageUrl: 'https://example.invalid/creator/tech-notes', followerCount: 17400, accountPositioning: '通俗科技与数字生活', bindStatus: 'BOUND' },
+  { id: 101, platform: 'douyin', accountName: '城市灵感实验室', homepageUrl: 'https://www.douyin.com/user/demo-city-lab', followerCount: 28600, accountPositioning: '城市生活与效率技巧', bindStatus: 'manual' },
+  { id: 102, platform: 'xiaohongshu', accountName: '慢读科技手册', homepageUrl: 'https://www.xiaohongshu.com/user/profile/demo-tech-notes', followerCount: 17400, accountPositioning: '通俗科技与数字生活', bindStatus: 'manual' },
 ]
 
 export const demoContentWorks: ContentWork[] = [

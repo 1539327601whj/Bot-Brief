@@ -65,6 +65,20 @@ class ContentGrowthControllerTest {
     }
 
     @Test
+    void createAccountRejectsHomepageFromAnotherPlatform() {
+        ContentGrowthDTO.AccountRequest request = new ContentGrowthDTO.AccountRequest();
+        request.setPlatform("douyin");
+        request.setAccountName("测试号");
+        request.setHomepageUrl("https://www.bilibili.com/space/1");
+
+        Result<ContentAccount> result = controller.createAccount(request);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).contains("主页链接要对应所选平台");
+        verify(service, never()).createAccount(eq(7L), any());
+    }
+
+    @Test
     void createAccountPassesCurrentUser() {
         ContentGrowthDTO.AccountRequest request = new ContentGrowthDTO.AccountRequest();
         request.setPlatform("bilibili");
