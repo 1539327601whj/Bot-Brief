@@ -25,7 +25,7 @@ interface DashboardStats {
   todayCount: number
   totalCount: number
   hotTags: string[]
-  nextPushAt: string
+  nextPushAt?: string | null
 }
 
 interface TopicScheduleItem {
@@ -438,7 +438,7 @@ export default function Dashboard() {
     || marketWatch
   const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
   const failedLogs = todayLogs.filter(log => log.status === 'failed')
-  const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '--:--'
+  const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '未设置'
 
   const alerts = useMemo(() => {
     const now = dayjs.tz()

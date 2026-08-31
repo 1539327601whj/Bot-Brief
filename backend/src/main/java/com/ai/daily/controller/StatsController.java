@@ -72,11 +72,12 @@ public class StatsController {
         data.put("todayCount", todayCount);
         data.put("totalCount", totalCount);
         data.put("hotTags", hotTags);
-        data.put("nextPushAt", nextPushAt(now, userId, demo, allowPublicDigest).toString());
+        LocalDateTime nextPush = nextPushAt(now, userId, demo, allowPublicDigest);
+        data.put("nextPushAt", nextPush == null ? null : nextPush.toString());
         return Result.ok(data);
     }
 
-    private LocalDateTime nextPushAt(
+    LocalDateTime nextPushAt(
             LocalDateTime now, Long userId, boolean demo, boolean allowPublicDigest) {
         List<LocalDateTime> candidates = new ArrayList<>();
         if (!demo && userId != null) {
@@ -96,10 +97,7 @@ public class StatsController {
             if (now.isBefore(eveningToday)) candidates.add(eveningToday);
             candidates.add(now.toLocalDate().plusDays(1).atTime(MORNING_PUSH));
         }
-        return candidates.stream().min(LocalDateTime::compareTo).orElseGet(() -> {
-            LocalDateTime morningToday = now.toLocalDate().atTime(MORNING_PUSH);
-            return now.isBefore(morningToday) ? morningToday : now.toLocalDate().plusDays(1).atTime(MORNING_PUSH);
-        });
+        return candidates.stream().min(LocalDateTime::compareTo).orElse(null);
     }
 
     private List<String> extractHotTags(List<Report> reports, int topN) {
