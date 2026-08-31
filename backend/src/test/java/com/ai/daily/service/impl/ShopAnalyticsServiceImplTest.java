@@ -70,4 +70,16 @@ class ShopAnalyticsServiceImplTest {
         assertThat(overview.getToday().getSalesAmount()).isEqualByComparingTo("10748.00");
         assertThat(overview.getRequestedRange()).isEqualTo(7);
     }
+
+    @Test
+    void overviewWithoutSalesDoesNotInventABusyDay() {
+        when(sales.selectOne(any())).thenReturn(null);
+        when(sales.selectList(any())).thenReturn(List.of());
+
+        ShopOverviewDTO overview = service.getOverview(7L, 3L, 7);
+
+        assertThat(overview.getEffectiveDays()).isZero();
+        assertThat(overview.getToday().getOrderCount()).isZero();
+        assertThat(overview.getToday().getSalesAmount()).isEqualByComparingTo("0");
+    }
 }

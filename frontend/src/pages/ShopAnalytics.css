@@ -445,6 +445,13 @@
   line-height: 1.7;
 }
 
+.shop-empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .shop-btn-secondary {
   background: #21262d !important;
   color: #c9d1d9 !important;
