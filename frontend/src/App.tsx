@@ -35,7 +35,7 @@ function Sidebar() {
     { path: '/reports', icon: '📋', label: '历史简报' },
     ...(canSeePublicDigest ? [{ path: '/market-watch', icon: '市', label: '市场观察' }] : []),
     { path: '/pricing', icon: '💎', label: '套餐权益' },
-    { path: '/creator-tools', icon: '🎬', label: '短视频分析', wip: true },
+    { path: '/creator-tools', icon: '🎬', label: '短视频分析' },
     { path: '/content-growth', icon: '📈', label: '内容增长' },
     { path: '/shop-analytics', icon: '🛍️', label: '店铺分析' },
     { path: '/subscription', icon: '📬', label: '订阅管理' },
@@ -76,7 +76,7 @@ function Sidebar() {
           >
             <span className="nav-icon">{item.icon}</span>
             <span className="nav-label">{item.label}</span>
-            {'wip' in item && item.wip && <span className="nav-badge-wip">即将</span>}
+            {'wip' in item && (item as { wip?: boolean }).wip && <span className="nav-badge-wip">即将</span>}
           </Link>
         ))}
       </nav>

@@ -197,7 +197,8 @@
   margin-top: 14px !important;
 }
 
-.coming-soon {
+.coming-soon,
+.business-go {
   display: inline-flex;
   margin-top: 16px;
   padding: 7px 12px;
@@ -206,6 +207,17 @@
   background: rgba(245, 196, 81, 0.07);
   color: #f7d88a;
   font-size: 12px;
+}
+
+.business-go {
+  border-color: rgba(139, 156, 255, 0.36);
+  background: var(--accent-soft);
+  color: #dce1ff;
+  text-decoration: none;
+}
+
+.business-go:hover {
+  border-color: rgba(139, 156, 255, 0.6);
 }
 
 @media (max-width: 1320px) {
