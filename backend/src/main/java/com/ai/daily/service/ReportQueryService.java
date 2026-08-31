@@ -44,10 +44,7 @@ public class ReportQueryService {
             return reportService.getLatestByEdition(edition);
         }
         if (edition != null && !edition.isBlank()) {
-            if (Report.isSharedPublicEdition(edition)) {
-                return reportService.getLatestByEdition(edition);
-            }
-            if (allowPublicDigest && Report.isPublicDigest(edition)) {
+            if (allowPublicDigest && (Report.isSharedPublicEdition(edition) || Report.isPublicDigest(edition))) {
                 return reportService.getLatestByEdition(edition);
             }
             if (userId == null) return null;
@@ -60,7 +57,7 @@ public class ReportQueryService {
         if (userId == null) return null;
         safeEnsureTodayAssembled(userId);
         Report mine = reportService.getLatestForUser(userId, Report.PERSONAL);
-        Report market = reportService.getLatestPublicMarketWatch();
+        Report market = allowPublicDigest ? reportService.getLatestPublicMarketWatch() : null;
         Report digest = allowPublicDigest ? latestPublicDigest() : null;
         return newest(newest(mine, market), digest);
     }
@@ -77,8 +74,9 @@ public class ReportQueryService {
         }
         if (userId != null && userId.equals(report.getUserId())) return report;
         if (!Report.isPublicOwner(report.getUserId())) return null;
-        if (Report.isSharedPublicEdition(report.getEdition())) return report;
-        return allowPublicDigest && Report.isPublicDigest(report.getEdition()) ? report : null;
+        if (!allowPublicDigest) return null;
+        return Report.isSharedPublicEdition(report.getEdition()) || Report.isPublicDigest(report.getEdition())
+                ? report : null;
     }
 
     public Page<Report> pageVisible(
@@ -113,7 +111,7 @@ public class ReportQueryService {
         } else if (edition != null && !edition.isBlank()) {
             if (Report.isPersonalizedEdition(edition)) {
                 wrapper.eq(Report::getUserId, userId).eq(Report::getEdition, Report.PERSONAL);
-            } else if (Report.isSharedPublicEdition(edition)) {
+            } else if (allowPublicDigest && Report.isSharedPublicEdition(edition)) {
                 wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID).eq(Report::getEdition, edition);
             } else if (allowPublicDigest && Report.isPublicDigest(edition)) {
                 wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID).eq(Report::getEdition, edition);
@@ -176,10 +174,10 @@ public class ReportQueryService {
             return;
         }
         wrapper.and(w -> {
-            w.eq(Report::getUserId, userId)
-                    .or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
-                            .likeRight(Report::getEdition, "market_watch"));
+            w.eq(Report::getUserId, userId);
             if (allowPublicDigest) {
+                w.or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
+                        .likeRight(Report::getEdition, "market_watch"));
                 w.or(or -> or.eq(Report::getUserId, Report.PUBLIC_OWNER_ID)
                         .in(Report::getEdition, "morning", "evening"));
             }

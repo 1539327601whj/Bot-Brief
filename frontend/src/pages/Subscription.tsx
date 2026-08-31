@@ -139,7 +139,7 @@ const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
 const PUBLIC_PREVIEWS: Array<{ edition: 'morning' | 'evening' | 'market_watch_evening'; hint: string }> = [
   { edition: 'morning', hint: '每天 08:00 全站推送' },
   { edition: 'evening', hint: '每天 20:00 全站推送' },
-  { edition: 'market_watch_evening', hint: 'ETF / A股观察，全站可见' },
+  { edition: 'market_watch_evening', hint: 'ETF / A股观察，仅管理员和 Demo 可见' },
 ]
 
 async function loadPublicPreview(edition: string): Promise<PublicReportPreview | null> {
@@ -402,7 +402,7 @@ export default function Subscription() {
             <div>
               <p className="subscription-pane-kicker">公共内容</p>
               <h3>全站日报</h3>
-              <p className="section-sub">早报、晚报和 ETF 日报对管理员始终可见，不需要在下面勾选。</p>
+              <p className="section-sub">早报、晚报和 ETF 日报对管理员和 Demo 始终可见，不需要在下面勾选。</p>
             </div>
             <Link to="/reports" className="ghost-link">历史日报 →</Link>
           </div>

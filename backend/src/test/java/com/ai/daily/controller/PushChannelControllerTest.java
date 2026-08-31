@@ -40,17 +40,30 @@ class PushChannelControllerTest {
     }
 
     @Test
-    void testPushFallsBackToMarketWatchWhenNoPersonalBrief() {
+    void testPushDoesNotFallBackToPublicContentForNormalUser() {
         ReportService reports = mock(ReportService.class);
         PushChannelController controller = new PushChannelController(
                 mock(PushChannelService.class), mock(PushDispatcher.class), reports);
         authenticate(7L, "USER", "PAID");
+        when(reports.getLatestForUser(anyLong(), eq(Report.PERSONAL))).thenReturn(null);
+
+        assertThat(controller.testReport(7L)).isNull();
+        verify(reports, never()).getLatestByEdition(any());
+    }
+
+    @Test
+    void testPushFallsBackToMarketWatchForAdminWhenNoPersonalBrief() {
+        ReportService reports = mock(ReportService.class);
+        PushChannelController controller = new PushChannelController(
+                mock(PushChannelService.class), mock(PushDispatcher.class), reports);
+        authenticate(1L, "ADMIN", "PAID");
         Report market = report(3L, "market_watch_evening");
         when(reports.getLatestForUser(anyLong(), eq(Report.PERSONAL))).thenReturn(null);
+        when(reports.getLatestByEdition("morning")).thenReturn(null);
+        when(reports.getLatestByEdition("evening")).thenReturn(null);
         when(reports.getLatestByEdition("market_watch_evening")).thenReturn(market);
 
-        assertThat(controller.testReport(7L)).isSameAs(market);
-        verify(reports, never()).getLatestByEdition("morning");
+        assertThat(controller.testReport(1L)).isSameAs(market);
     }
 
     private static void authenticate(long userId, String role, String accountType) {

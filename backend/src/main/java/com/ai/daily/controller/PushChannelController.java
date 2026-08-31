@@ -99,12 +99,11 @@ public class PushChannelController {
     Report testReport(Long userId) {
         Report personal = reportService.getLatestForUser(userId, Report.PERSONAL);
         if (personal != null) return personal;
-        if (SecurityUtils.canReadPublicDigest()) {
-            Report morning = reportService.getLatestByEdition("morning");
-            if (morning != null) return morning;
-            Report evening = reportService.getLatestByEdition("evening");
-            if (evening != null) return evening;
-        }
+        if (!SecurityUtils.canReadPublicDigest()) return null;
+        Report morning = reportService.getLatestByEdition("morning");
+        if (morning != null) return morning;
+        Report evening = reportService.getLatestByEdition("evening");
+        if (evening != null) return evening;
         return reportService.getLatestByEdition("market_watch_evening");
     }
 

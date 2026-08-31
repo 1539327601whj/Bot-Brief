@@ -390,7 +390,7 @@ export default function Dashboard() {
       const [morningReport, eveningReport, etfEvening, personalPage, statsData, subscriptionData, pushLogData, recentData, progressData] = await Promise.all([
         canSeePublicDigest ? latestPublicReport('morning') : Promise.resolve(null),
         canSeePublicDigest ? latestPublicReport('evening') : Promise.resolve(null),
-        latestPublicReport('market_watch_evening'),
+        canSeePublicDigest ? latestPublicReport('market_watch_evening') : Promise.resolve(null),
         isDemo ? Promise.resolve(null) : safeGet<{ records: Report[] }>('/reports', { params: { edition: 'personal', startDate: today, endDate: today, page: 1, size: 20 } }),
         safeGet<DashboardStats>('/stats/dashboard'),
         isDemo ? Promise.resolve(demoSubscription) : safeGet<Subscription>('/subscription'),
@@ -429,13 +429,12 @@ export default function Dashboard() {
   const todayReports = useMemo(() => {
     const candidates = canSeePublicDigest
       ? [morning, evening, ...personalReports, marketWatch]
-      : [...personalReports, marketWatch]
+      : [...personalReports]
     return candidates.filter((report): report is Report => !!report && isToday(report.createdAt))
   }, [canSeePublicDigest, morning, evening, marketWatch, personalReports])
   const focusReport = todayReports.find(report => report.edition === 'personal' || report.edition === 'evening' || report.edition === 'morning')
     || todayReports[0]
-    || (canSeePublicDigest ? morning || evening : personalReports[0])
-    || marketWatch
+    || (canSeePublicDigest ? morning || evening || marketWatch : personalReports[0])
   const todayLogs = pushLogs.filter(log => isToday(log.pushedAt))
   const failedLogs = todayLogs.filter(log => log.status === 'failed')
   const nextPushLabel = stats?.nextPushAt ? dayjs(stats.nextPushAt).format('MM-DD HH:mm') : '未设置'
@@ -459,7 +458,7 @@ export default function Dashboard() {
         items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
       }
     }
-    if (now.hour() >= 18 && !isToday(marketWatch?.createdAt)) items.push('ETF/A股日报尚未生成')
+    if (canSeePublicDigest && now.hour() >= 18 && !isToday(marketWatch?.createdAt)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
     if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) {
@@ -477,9 +476,9 @@ export default function Dashboard() {
     if (!isDemo && slotTimes.some(time => !isToday(personalByTime.get(time)?.createdAt))) {
       return ['今日勾选主题尚未完全生成，可以先查看已有段落或等待下次生成。']
     }
-    if (isToday(marketWatch?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
+    if (canSeePublicDigest && isToday(marketWatch?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
     return ['今日数据状态正常，建议先查看今日重点和近期热点。']
-  }, [failedLogs.length, subscription, slotTimes, personalByTime, marketWatch, isDemo])
+  }, [failedLogs.length, subscription, slotTimes, personalByTime, marketWatch, isDemo, canSeePublicDigest])
 
   if (loading) return <div className="loading">加载中...</div>
 
@@ -493,7 +492,7 @@ export default function Dashboard() {
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
           <h1 className="welcome-title">今日概览</h1>
-          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '上半部分是全站公共日报，下半部分是你自己的个人订阅。两边互不影响。' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
+          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '上半部分是全站公共日报，下半部分是你自己的个人订阅。两边互不影响。' : '只展示你勾选的兴趣简报'}</p>
         </div>
         <div className="overview-hero-stats">
           <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
@@ -509,7 +508,7 @@ export default function Dashboard() {
               <div>
                 <p className="overview-pane-kicker">公共内容</p>
                 <h2>全站日报</h2>
-                <p className="overview-pane-desc">所有人都能看到的早报、晚报和 ETF 日报。今天没生成时显示最近一期。</p>
+                <p className="overview-pane-desc">仅管理员和 Demo 可见的早报、晚报和 ETF 日报。今天没生成时显示最近一期。</p>
               </div>
               <Link to="/reports" className="section-link">历史日报 →</Link>
             </div>
@@ -607,12 +606,16 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="overview-section-header">
-            <h2>ETF / A股观察</h2>
-          </div>
-          <div className="overview-single-grid">
-            <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
-          </div>
+          {canSeePublicDigest && (
+            <>
+              <div className="overview-section-header">
+                <h2>ETF / A股观察</h2>
+              </div>
+              <div className="overview-single-grid">
+                <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
+              </div>
+            </>
+          )}
 
           <div className="overview-main-grid">
             <SubscriptionCard subscription={subscription} progress={todayProgress.items} />

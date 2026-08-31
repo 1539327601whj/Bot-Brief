@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
+import { useAuth } from '../context/AuthContext'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -87,6 +88,22 @@ function LatestWatchCard({ config }: { config: WatchCardConfig }) {
 }
 
 export default function MarketWatch() {
+  const { user } = useAuth()
+  const canSeePublicDigest = user?.accountType === 'DEMO' || user?.role === 'ADMIN'
+  if (!canSeePublicDigest) {
+    return (
+      <div className="market-watch-page">
+        <header className="market-watch-hero">
+          <div>
+            <div className="market-watch-kicker">Market Intelligence</div>
+            <h2>市场观察</h2>
+            <p>ETF / A股观察仅管理员和 Demo 可见。普通用户只看自己订阅的简报。</p>
+          </div>
+        </header>
+      </div>
+    )
+  }
+
   return (
     <div className="market-watch-page">
       <header className="market-watch-hero">

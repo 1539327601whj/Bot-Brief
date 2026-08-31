@@ -40,7 +40,8 @@ class ReportQueryServiceTest {
         assertThat(service.getById(7L, false, 8L)).isNull();
         assertThat(service.getById(7L, false, true, 8L)).isSameAs(publicMorning);
         assertThat(service.getById(7L, false, 9L)).isSameAs(userBrief);
-        assertThat(service.getById(7L, false, 10L)).isSameAs(market);
+        assertThat(service.getById(7L, false, 10L)).isNull();
+        assertThat(service.getById(7L, false, true, 10L)).isSameAs(market);
         assertThat(service.getById(7L, true, 9L)).isNull();
     }
 
@@ -67,6 +68,8 @@ class ReportQueryServiceTest {
         assertThat(service.getLatest(7L, false, true, "morning")).isSameAs(publicMorning);
         assertThat(service.getLatest(7L, false, true, "market_watch_evening")).isSameAs(market);
         assertThat(service.getLatest(7L, false, false, "morning")).isNull();
+        assertThat(service.getLatest(7L, false, false, "market_watch_evening")).isNull();
         verify(subscriptions, never()).getOrCreateForUser(any());
+        verify(reports, never()).getLatestPublicMarketWatch();
     }
 }

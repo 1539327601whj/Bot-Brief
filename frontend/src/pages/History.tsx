@@ -54,6 +54,13 @@ export default function History() {
     return () => clearTimeout(t)
   }, [keyword])
 
+  useEffect(() => {
+    if (!canSeePublicDigest && edition.startsWith('market_watch')) {
+      setEdition('')
+      setPage(1)
+    }
+  }, [canSeePublicDigest, edition])
+
   const queryString = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
     if (edition) p.set('edition', edition)
@@ -185,7 +192,7 @@ export default function History() {
         <div className="history-header">
           <div className="header-info">
             <h2>📋 历史简报</h2>
-            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : isAdmin ? '未筛选时上面是公共日报，下面是你的个人简报。也可以用标签单独查看。' : '我的简报只显示你勾选过的主题；市场观察仍为公共内容'}</p>
+            <p className="header-desc">{isDemo ? '查看和筛选已生成的 AI 简报与市场观察' : isAdmin ? '未筛选时上面是公共日报，下面是你的个人简报。也可以用标签单独查看。' : '我的简报只显示你勾选过的主题'}</p>
           </div>
           <div className="header-stats">
             <div className="stat-badge">
@@ -219,14 +226,18 @@ export default function History() {
                 onClick={() => changeEdition('personal')}
               >✨ 我的简报</button>
             )}
-            <button
-              className={`history-chip ${edition === 'market_watch_morning' ? 'active' : ''}`}
-              onClick={() => changeEdition('market_watch_morning')}
-            >📈 市场观察·早间</button>
-            <button
-              className={`history-chip ${edition === 'market_watch_evening' ? 'active' : ''}`}
-              onClick={() => changeEdition('market_watch_evening')}
-            >📊 市场观察·晚间</button>
+            {canSeePublicDigest && (
+              <>
+                <button
+                  className={`history-chip ${edition === 'market_watch_morning' ? 'active' : ''}`}
+                  onClick={() => changeEdition('market_watch_morning')}
+                >📈 市场观察·早间</button>
+                <button
+                  className={`history-chip ${edition === 'market_watch_evening' ? 'active' : ''}`}
+                  onClick={() => changeEdition('market_watch_evening')}
+                >📊 市场观察·晚间</button>
+              </>
+            )}
           </div>
 
           <RangePicker

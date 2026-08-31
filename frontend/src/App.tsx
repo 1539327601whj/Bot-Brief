@@ -29,10 +29,11 @@ function Sidebar() {
   const nav = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
+  const canSeePublicDigest = user?.accountType === 'DEMO' || user?.role === 'ADMIN'
   const menuItems = [
     { path: '/', icon: '🏠', label: '首页概览' },
     { path: '/reports', icon: '📋', label: '历史简报' },
-    { path: '/market-watch', icon: '市', label: '市场观察' },
+    ...(canSeePublicDigest ? [{ path: '/market-watch', icon: '市', label: '市场观察' }] : []),
     { path: '/pricing', icon: '💎', label: '套餐权益' },
     { path: '/creator-tools', icon: '🎬', label: '短视频分析', wip: true },
     { path: '/content-growth', icon: '📈', label: '内容增长' },

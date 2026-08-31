@@ -63,7 +63,7 @@ public class ChatServiceImpl implements ChatService {
         if (passages.isEmpty()) {
             response.setAnswer(SecurityUtils.canReadPublicDigest()
                     ? "抱歉，没有检索到与这个问题匹配的科技日报或市场观察。可以换个主题，或先确认对应简报已经入库。"
-                    : "抱歉，没有检索到与这个问题匹配的已订阅主题或市场观察。可以换个已勾选的主题，或先确认对应简报已经入库。");
+                    : "抱歉，没有检索到与这个问题匹配的已订阅主题。可以换个已勾选的主题，或先确认对应简报已经入库。");
             response.setSources(List.of());
             return response;
         }
@@ -125,7 +125,7 @@ public class ChatServiceImpl implements ChatService {
             }
             addReports(unique, pageReports(userId, Report.PERSONAL, start, 15, allowPublicDigest));
         }
-        if (intent != ChatReportRanker.Intent.TECH) {
+        if (intent != ChatReportRanker.Intent.TECH && allowPublicDigest) {
             addReports(unique, pageReports(userId, "market_watch_evening", start, 15, allowPublicDigest));
             addReports(unique, pageReports(userId, "market_watch_morning", start, 5, allowPublicDigest));
         }

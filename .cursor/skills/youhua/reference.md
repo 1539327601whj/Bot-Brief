@@ -14,8 +14,9 @@
 ## 内容隔离（不要改错）
 
 - **我的简报**（`edition=personal`，`user_id` 为当前用户）：按订阅生成，新用户默认空
-- **ETF / A股观察**（`market_watch_*`，`user_id=0`）：当前设计为登录用户可见的公共内容
-- Demo 只读合成数据。未登录用户不能看别人的个人简报
+- **公共内容**（AI 早晚报 + `market_watch_*` ETF/A股，`user_id=0`）：仅管理员和 Demo 可见
+- 普通用户只能看到自己订阅生成的个人简报
+- Demo 只读合成数据，可见内容和管理员类似。未登录用户不能看别人的个人简报
 - 改隔离策略必须用户明确要求，不要当 youhua 默认项
 
 ## 自测命令
@@ -40,5 +41,5 @@ python -m unittest discover -s automation/tests -p "test_*.py" -v
 
 - 提交 `.env`、DeepSeek/JWT/数据库密码、runner token
 - 为了「完美」大重构或加无关功能
-- 在 youhua 循环里把 ETF 公共观察改成私有（除非用户本轮明确说）
+- 把公共 ETF/早晚报再开放给普通用户（除非用户本轮明确说）
 - 把生产库当玩具：破坏性 SQL 先说明再执行；用户常用 Navicat 连 `ai_daily`
