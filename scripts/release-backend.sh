@@ -146,6 +146,7 @@ if [ "$(printf '%s\n' "$schema_ready" | tr -d '\r' | sort -u)" != "1" ]; then
   echo "  backend/sql/V11__topic_windows_and_display_time.sql"
   echo "  backend/sql/V12__ops_heartbeat_and_generation_status.sql"
   echo "subscription.user_id / topic_schedules / morning_* / evening_* are repaired on backend startup."
+  echo "content_account / content_work / content_growth_analysis / competitor_account are created on backend startup if missing."
   exit 1
 fi
 
