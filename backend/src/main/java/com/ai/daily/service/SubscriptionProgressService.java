@@ -90,7 +90,7 @@ public class SubscriptionProgressService {
         if (recorded != null && TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
             row.setStatus("failed");
             row.setLabel("生成失败");
-            row.setMessage(recorded.getMessage() != null ? recorded.getMessage() : "生成失败，稍后会自动重试");
+            row.setMessage(recorded.getMessage() != null ? recorded.getMessage() : "生成失败，本时间段不再重试，下一个时间段会再试");
             return row;
         }
 

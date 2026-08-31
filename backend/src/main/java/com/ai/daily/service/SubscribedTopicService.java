@@ -2,6 +2,7 @@ package com.ai.daily.service;
 
 import com.ai.daily.dto.DueGenerationDTO;
 import com.ai.daily.entity.Subscription;
+import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.mapper.UserMapper;
@@ -27,6 +28,7 @@ public class SubscribedTopicService {
     private final SubscriptionPreferences subscriptionPreferences;
     private final UserMapper userMapper;
     private final TopicSectionMapper topicSectionMapper;
+    private final TopicGenerationStatusService generationStatusService;
     private final int generationLeadMinutes;
 
     public SubscribedTopicService(
@@ -34,11 +36,13 @@ public class SubscribedTopicService {
             SubscriptionPreferences subscriptionPreferences,
             UserMapper userMapper,
             TopicSectionMapper topicSectionMapper,
+            TopicGenerationStatusService generationStatusService,
             @Value("${report.generation-lead-minutes:30}") int generationLeadMinutes) {
         this.subscriptionService = subscriptionService;
         this.subscriptionPreferences = subscriptionPreferences;
         this.userMapper = userMapper;
         this.topicSectionMapper = topicSectionMapper;
+        this.generationStatusService = generationStatusService;
         this.generationLeadMinutes = Math.max(0, generationLeadMinutes);
     }
 
@@ -58,6 +62,7 @@ public class SubscribedTopicService {
             LocalTime readyAt = ReportWindows.parse(item.getGenerateAt());
             if (startAt(readyAt).isAfter(minute)) continue;
             if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
+            if (alreadySettled(date, item.getWindow(), item.getTopic())) continue;
             due.add(item);
         }
         return due;
@@ -69,6 +74,15 @@ public class SubscribedTopicService {
         LocalTime start = readyAt.minusMinutes(generationLeadMinutes);
         // 跨日时从当天 00:00 开始预生成，避免 00:10 的订阅要等到整点才开工。
         return start.isAfter(readyAt) ? LocalTime.MIN : start;
+    }
+
+    private boolean alreadySettled(LocalDate date, String window, String topic) {
+        if (generationStatusService == null) return false;
+        TopicGenerationStatus recorded = generationStatusService.find(date, window, topic);
+        if (recorded == null || recorded.getStatus() == null) return false;
+        return TopicGenerationStatus.SKIPPED_NO_NEWS.equals(recorded.getStatus())
+                || TopicGenerationStatus.FAILED.equals(recorded.getStatus())
+                || TopicGenerationStatus.READY.equals(recorded.getStatus());
     }
 
     List<DueGenerationDTO> planEarliest(LocalDate date) {

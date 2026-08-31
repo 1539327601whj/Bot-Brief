@@ -2,6 +2,7 @@ package com.ai.daily.service;
 
 import com.ai.daily.dto.DueGenerationDTO;
 import com.ai.daily.entity.Subscription;
+import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.mapper.UserMapper;
@@ -25,7 +26,8 @@ class SubscribedTopicServiceTest {
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, 30);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
 
         Subscription alice = subscription(1L);
         Subscription bob = subscription(2L);
@@ -53,7 +55,8 @@ class SubscribedTopicServiceTest {
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, 30);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
 
         Subscription alice = subscription(1L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice));
@@ -67,6 +70,37 @@ class SubscribedTopicServiceTest {
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("区块链");
         assertThat(service.startAt(LocalTime.of(20, 20))).isEqualTo(LocalTime.of(19, 50));
+    }
+
+    @Test
+    void doesNotRequeueSkippedOrFailedTopicsInTheSameWindow() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(
+                item("区块链", "20:20"), item("安全", "20:20"), item("数据库", "20:20")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), eq("区块链"))).thenReturn(status(TopicGenerationStatus.SKIPPED_NO_NEWS));
+        when(statuses.find(any(), any(), eq("安全"))).thenReturn(status(TopicGenerationStatus.FAILED));
+        when(statuses.find(any(), any(), eq("数据库"))).thenReturn(null);
+
+        LocalDate date = LocalDate.of(2026, 8, 29);
+        assertThat(service.listDueGenerations(date, LocalTime.of(20, 0)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("数据库");
+    }
+
+    private static TopicGenerationStatus status(String value) {
+        TopicGenerationStatus row = new TopicGenerationStatus();
+        row.setStatus(value);
+        return row;
     }
 
     private com.ai.daily.dto.SubscriptionDTO.TopicScheduleItemDTO item(String topic, String time) {
