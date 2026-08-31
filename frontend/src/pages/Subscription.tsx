@@ -43,8 +43,9 @@ interface SubscriptionData {
   topicSchedules: { items: TopicScheduleItem[] }
 }
 
+const TECH_DIGEST = '科技'
 const FIELD_OPTIONS = [
-  'AI大模型', 'Web开发', '移动端', '云原生', '数据库',
+  TECH_DIGEST, 'AI大模型', 'Web开发', '移动端', '云原生', '数据库',
   '安全', 'DevOps', '数据分析', '机器学习', '区块链'
 ]
 const MAX_INTERESTS = 20
@@ -272,6 +273,14 @@ export default function Subscription() {
   const toggleTopic = (topic: string, enabled: boolean) => {
     const existing = topicItems(topic)
     if (enabled && existing.length === 0) {
+      if (interestKey(topic) === interestKey(TECH_DIGEST)) {
+        updateItems([
+          ...items,
+          { topic: TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] },
+          { topic: TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] },
+        ])
+        return
+      }
       updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
       return
     }
@@ -461,7 +470,7 @@ export default function Subscription() {
           <span className="section-count">已选 {enabledTopics.length} 个</span>
         </div>
         <div className="topic-actions">
-          <button type="button" disabled={isDemo} onClick={() => FIELD_OPTIONS.forEach(topic => { if (!topicEnabled(topic)) toggleTopic(topic, true) })}>全选常用</button>
+          <button type="button" disabled={isDemo} onClick={() => FIELD_OPTIONS.forEach(topic => { if (topic !== TECH_DIGEST && !topicEnabled(topic)) toggleTopic(topic, true) })}>全选常用</button>
           <button type="button" disabled={isDemo} onClick={() => updateItems(items.map(item => ({ ...item, enabled: false })))}>清空勾选</button>
         </div>
         <div className="topic-schedule-list">
@@ -475,6 +484,7 @@ export default function Subscription() {
                   onChange={event => toggleTopic(topic, event.target.checked)}
                 />
                 <span>{topic}</span>
+                {interestKey(topic) === interestKey(TECH_DIGEST) && <small>早晚报原文</small>}
                 {!isPreset(topic) && <small>自定义</small>}
               </label>
               {!isPreset(topic) && (
@@ -519,6 +529,7 @@ export default function Subscription() {
                     <div key={`${topic}-${index}`} className="schedule-row">
                       <div className="schedule-name">
                         <strong>{topic}</strong>
+                        {interestKey(topic) === interestKey(TECH_DIGEST) && <small>早晚报原文</small>}
                         {!isPreset(topic) && <small>自定义</small>}
                         <div className="weekday-range">
                           <select
@@ -629,7 +640,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">公共主题从当日资讯池筛选；自定义兴趣会按词单独检索。同一时间段里多人勾选同一词只生成一次。当天没有内容时跳过该段。</p>
+      <p className="interest-help">「科技」沿用全站早/晚报同一套 prompt，勾选后默认 08:00 和 20:00，绑企业微信即可收到原文。其他公共主题从当日资讯池筛选；自定义兴趣会按词单独检索。同一时间段里多人勾选同一词只生成一次。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
       </section>

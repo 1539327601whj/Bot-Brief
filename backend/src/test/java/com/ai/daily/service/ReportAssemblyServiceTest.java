@@ -76,6 +76,54 @@ class ReportAssemblyServiceTest {
         verify(reports, never()).saveUserReport(any(), any(), any(), any(), any(), any());
     }
 
+    @Test
+    void techDigestUsesPublicMorningReportInsteadOfTopicSection() {
+        TopicSectionService sections = mock(TopicSectionService.class);
+        ReportService reports = mock(ReportService.class);
+        ReportAssemblyService service = new ReportAssemblyService(sections, reports);
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        LocalTime time = LocalTime.of(8, 0);
+        Report digest = new Report();
+        digest.setTitle("【早间版】AI 每日简报 2026-08-31");
+        digest.setContent("# 🤖 AI 每日高价值简报\n\n正文");
+        when(reports.getByUserEditionDateAndTime(7L, Report.PERSONAL, date, time)).thenReturn(null);
+        when(reports.getLatestByEditionForDate("morning", date)).thenReturn(digest);
+        Report saved = new Report();
+        saved.setId(12L);
+        when(reports.saveUserReport(eq(7L), eq(date), eq(time), any(), any(), any())).thenReturn(saved);
+
+        Report result = service.assembleAndPersist(7L, date, time, List.of("科技"));
+
+        assertThat(result).isSameAs(saved);
+        verify(reports).saveUserReport(
+                eq(7L),
+                eq(date),
+                eq(time),
+                eq("【早间版】AI 每日简报 2026-08-31"),
+                eq("# 🤖 AI 每日高价值简报\n\n正文"),
+                any());
+        verify(sections, never()).findFor(any(), any(), any());
+    }
+
+    @Test
+    void techDigestAtEveningUsesPublicEveningReport() {
+        TopicSectionService sections = mock(TopicSectionService.class);
+        ReportService reports = mock(ReportService.class);
+        ReportAssemblyService service = new ReportAssemblyService(sections, reports);
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        LocalTime time = LocalTime.of(20, 0);
+        Report digest = new Report();
+        digest.setTitle("【晚间版】AI 每日简报 2026-08-31");
+        digest.setContent("晚间正文");
+        when(reports.getLatestByEditionForDate("evening", date)).thenReturn(digest);
+
+        Report result = service.assembleEphemeral(9L, date, time, List.of("科技"));
+
+        assertThat(result.getTitle()).isEqualTo("【晚间版】AI 每日简报 2026-08-31");
+        assertThat(result.getContent()).isEqualTo("晚间正文");
+        verify(sections, never()).findFor(any(), any(), any());
+    }
+
     private TopicSection section(String topic, String content) {
         TopicSection section = new TopicSection();
         section.setTopicKey(topic);

@@ -97,6 +97,29 @@ class SubscribedTopicServiceTest {
                 .containsExactly("数据库");
     }
 
+    @Test
+    void skipsTechDigestFromPollerDueList() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(
+                item("科技", "08:00"), item("数据库", "08:20")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        assertThat(service.listTopics(ReportWindows.W06_12)).containsExactly("数据库");
+        assertThat(service.listDueGenerations(date, LocalTime.of(8, 0)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("数据库");
+    }
+
     private static TopicGenerationStatus status(String value) {
         TopicGenerationStatus row = new TopicGenerationStatus();
         row.setStatus(value);

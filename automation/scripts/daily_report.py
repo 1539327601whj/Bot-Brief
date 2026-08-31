@@ -848,8 +848,15 @@ def generation_concurrency():
         return 4
 
 
+def is_tech_digest_topic(topic):
+    return (topic or "").strip() == "科技"
+
+
 def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
     """生成并入库单个主题。失败返回 False，不影响其他主题。"""
+    if is_tech_digest_topic(topic):
+        print("  skip topic 科技: use public morning/evening digest")
+        return False
     selected = collect_news_for_topic(news_items, topic)
     if not selected:
         print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")

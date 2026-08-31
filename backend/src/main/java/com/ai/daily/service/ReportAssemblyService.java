@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -24,28 +25,25 @@ public class ReportAssemblyService {
         Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
 
-        List<TopicSection> sections = topicSectionService.findFor(date, ReportWindows.of(minute), topics);
-        if (sections.isEmpty()) return null;
-
-        String content = render(date, minute, sections);
-        String title = titleFor(date, minute);
-        String summary = MarkdownUtils.stripToPlainText(content, 100);
-        return reportService.saveUserReport(userId, date, minute, title, content, summary);
+        Assembled assembled = assemble(date, minute, topics);
+        if (assembled == null) return null;
+        return reportService.saveUserReport(
+                userId, date, minute, assembled.title(), assembled.content(), assembled.summary());
     }
 
     public Report assembleEphemeral(Long reportId, LocalDate date, LocalTime displayTime, List<String> topics) {
         if (date == null || displayTime == null || topics == null || topics.isEmpty()) return null;
         LocalTime minute = displayTime.withSecond(0).withNano(0);
-        List<TopicSection> sections = topicSectionService.findFor(date, ReportWindows.of(minute), topics);
-        if (sections.isEmpty()) return null;
+        Assembled assembled = assemble(date, minute, topics);
+        if (assembled == null) return null;
         Report report = new Report();
         report.setId(reportId);
         report.setEdition(Report.PERSONAL);
         report.setReportDate(date);
         report.setDisplayTime(minute);
-        report.setTitle(titleFor(date, minute));
-        report.setContent(render(date, minute, sections));
-        report.setSummary(MarkdownUtils.stripToPlainText(report.getContent(), 100));
+        report.setTitle(assembled.title());
+        report.setContent(assembled.content());
+        report.setSummary(assembled.summary());
         return report;
     }
 
@@ -57,8 +55,50 @@ public class ReportAssemblyService {
         return assembleAndPersist(userId, date, minute, topics);
     }
 
+    private Assembled assemble(LocalDate date, LocalTime minute, List<String> topics) {
+        List<TopicSection> sections = resolveSections(date, minute, topics);
+        if (sections.isEmpty()) return null;
+        boolean onlyTech = topics.stream().anyMatch(DigestTopics::isTech)
+                && topics.stream().noneMatch(topic -> !DigestTopics.isTech(topic));
+        String title;
+        String content;
+        if (onlyTech) {
+            TopicSection tech = sections.get(0);
+            title = tech.getTitle() != null && !tech.getTitle().isBlank()
+                    ? tech.getTitle()
+                    : titleFor(date, minute);
+            content = tech.getContent();
+        } else {
+            title = titleFor(date, minute);
+            content = render(date, minute, sections);
+        }
+        return new Assembled(title, content, MarkdownUtils.stripToPlainText(content, 100));
+    }
+
+    private List<TopicSection> resolveSections(LocalDate date, LocalTime minute, List<String> topics) {
+        List<TopicSection> sections = new ArrayList<>();
+        List<String> regular = topics.stream().filter(topic -> !DigestTopics.isTech(topic)).toList();
+        if (topics.stream().anyMatch(DigestTopics::isTech)) {
+            Report digest = reportService.getLatestByEditionForDate(DigestTopics.publicEditionFor(minute), date);
+            if (digest != null && digest.getContent() != null && !digest.getContent().isBlank()) {
+                TopicSection tech = new TopicSection();
+                tech.setTopicKey(DigestTopics.TECH);
+                tech.setTitle(digest.getTitle());
+                tech.setContent(digest.getContent());
+                sections.add(tech);
+            }
+        }
+        if (!regular.isEmpty()) {
+            sections.addAll(topicSectionService.findFor(date, ReportWindows.of(minute), regular));
+        }
+        return sections;
+    }
+
     static String titleFor(LocalDate date, LocalTime time) {
         return "【" + ReportWindows.format(time) + "】我的简报 " + date;
+    }
+
+    private record Assembled(String title, String content, String summary) {
     }
 
     static String render(LocalDate date, LocalTime time, List<TopicSection> sections) {
