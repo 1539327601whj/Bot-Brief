@@ -29,6 +29,7 @@ public class SubscribedTopicService {
     private final UserMapper userMapper;
     private final TopicSectionMapper topicSectionMapper;
     private final TopicGenerationStatusService generationStatusService;
+    private final ReportService reportService;
     private final int generationLeadMinutes;
 
     public SubscribedTopicService(
@@ -37,12 +38,14 @@ public class SubscribedTopicService {
             UserMapper userMapper,
             TopicSectionMapper topicSectionMapper,
             TopicGenerationStatusService generationStatusService,
+            ReportService reportService,
             @Value("${report.generation-lead-minutes:30}") int generationLeadMinutes) {
         this.subscriptionService = subscriptionService;
         this.subscriptionPreferences = subscriptionPreferences;
         this.userMapper = userMapper;
         this.topicSectionMapper = topicSectionMapper;
         this.generationStatusService = generationStatusService;
+        this.reportService = reportService;
         this.generationLeadMinutes = Math.max(0, generationLeadMinutes);
     }
 
@@ -61,6 +64,7 @@ public class SubscribedTopicService {
         for (DueGenerationDTO item : planEarliest(date)) {
             LocalTime readyAt = ReportWindows.parse(item.getGenerateAt());
             if (startAt(readyAt).isAfter(minute)) continue;
+            if (publicDigestReady(date, item.getTopic(), readyAt)) continue;
             if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
             if (alreadySettled(date, item.getWindow(), item.getTopic())) continue;
             due.add(item);
@@ -74,6 +78,12 @@ public class SubscribedTopicService {
         LocalTime start = readyAt.minusMinutes(generationLeadMinutes);
         // 跨日时从当天 00:00 开始预生成，避免 00:10 的订阅要等到整点才开工。
         return start.isAfter(readyAt) ? LocalTime.MIN : start;
+    }
+
+    private boolean publicDigestReady(LocalDate date, String topic, LocalTime readyAt) {
+        if (reportService == null || !DigestTopics.isDigest(topic)) return false;
+        String edition = DigestTopics.publicEditionFor(topic, readyAt);
+        return edition != null && reportService.publicReportExists(edition, date);
     }
 
     private boolean alreadySettled(LocalDate date, String window, String topic) {
@@ -91,7 +101,6 @@ public class SubscribedTopicService {
         for (Subscription subscription : subscriptions) {
             for (var item : subscriptionPreferences.enabledTopicItemsOn(subscription, date)) {
                 if (item.getTopic() == null || item.getTopic().isBlank()) continue;
-                if (DigestTopics.isDigest(item.getTopic())) continue;
                 LocalTime time = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
                 String window = ReportWindows.of(time);
                 String key = window + "|" + item.getTopic().toLowerCase(Locale.ROOT);

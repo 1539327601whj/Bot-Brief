@@ -853,6 +853,82 @@ def is_digest_topic(topic):
     return name in {"ai科技", "科技", "纳指标普沪深300etf", "etf", "市场观察"}
 
 
+def is_ai_digest_topic(topic):
+    name = (topic or "").strip().lower().replace(" ", "")
+    return name in {"ai科技", "科技"}
+
+
+def is_etf_digest_topic(topic):
+    name = (topic or "").strip().lower().replace(" ", "")
+    return name in {"纳指标普沪深300etf", "etf", "市场观察"}
+
+
+def generate_public_ai_digest(news_items, edition, report_date, run_id):
+    """用原来的早晚报 prompt 生成全站科技日报并入库。"""
+    if not news_items:
+        print("  skip AI digest: no news")
+        return False
+    edition_suffix = "早间版" if edition == "morning" else "晚间版"
+    news_text = format_news_for_prompt(news_items, edition)
+    prompt = build_prompt(news_text, edition)
+    try:
+        body = call_llm_with_retry(prompt)
+    except Exception as error:
+        print(f"  AI digest LLM failed: {error}")
+        return False
+    if not has_substantive_report_content(body):
+        print("  skip AI digest: empty body")
+        return False
+    header = f"# 🤖 AI 每日高价值简报 · {report_date}（{edition_suffix}）\n\n---\n\n"
+    full_report = header + body
+    title = f"【{edition_suffix}】AI 每日简报 {report_date}"
+    summary = body[:100] + "..." if len(body) > 100 else body
+    return push_to_backend(edition, report_date, title, full_report, summary, run_id)
+
+
+def generate_due_digest_reports(due, news_items, report_date, run_id):
+    """到期的 AI科技 / ETF 走原文日报，不写短段落。"""
+    saved = 0
+    seen = set()
+    for item in due or []:
+        topic = item.get("topic")
+        window = item.get("window")
+        if is_ai_digest_topic(topic):
+            edition = window_digest_style(window)
+            key = f"ai|{edition}"
+            if key in seen:
+                continue
+            seen.add(key)
+            print(f"  generate AI digest {edition} for {topic}")
+            if generate_public_ai_digest(news_items, edition, report_date, run_id):
+                report_generation_status(window, report_date, topic, "ready", "已按早晚报原文生成", run_id)
+                saved += 1
+            else:
+                report_generation_status(window, report_date, topic, "failed", "科技日报原文生成失败", run_id)
+        elif is_etf_digest_topic(topic):
+            key = "etf"
+            if key in seen:
+                continue
+            seen.add(key)
+            print(f"  generate ETF digest for {topic}")
+            try:
+                from etf_report import generate_and_ingest, now_beijing, should_skip_weekend_report
+                if should_skip_weekend_report(now_beijing(), False):
+                    print("  skip ETF digest: weekend")
+                    report_generation_status(window, report_date, topic, "skipped_no_news", "周末休市，今日不生成 ETF 日报", run_id)
+                    continue
+                ok = generate_and_ingest()
+            except Exception as error:
+                print(f"  ETF digest failed: {error}")
+                ok = False
+            if ok:
+                report_generation_status(window, report_date, topic, "ready", "已按 ETF 原文生成", run_id)
+                saved += 1
+            else:
+                report_generation_status(window, report_date, topic, "failed", "ETF 日报原文生成失败", run_id)
+    return saved
+
+
 def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
     """生成并入库单个主题。失败返回 False，不影响其他主题。"""
     if is_digest_topic(topic):
@@ -973,10 +1049,17 @@ def main():
         if not due:
             print("🧩 当前没有到期的订阅主题，跳过爬取和生成")
             return
-        print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
-        news_items = extract_ai_news()
+        digest_due = [item for item in due if is_digest_topic(item.get("topic"))]
+        topic_due = [item for item in due if not is_digest_topic(item.get("topic"))]
         run_id = os.environ.get("GITHUB_RUN_ID", "local")
-        generate_due_topic_sections(news_items, today, run_id, due=due)
+        news_items = []
+        if topic_due or any(is_ai_digest_topic(item.get("topic")) for item in digest_due):
+            print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
+            news_items = extract_ai_news()
+        if digest_due:
+            generate_due_digest_reports(digest_due, news_items, today, run_id)
+        if topic_due:
+            generate_due_topic_sections(news_items, today, run_id, due=topic_due)
         print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
         return
 

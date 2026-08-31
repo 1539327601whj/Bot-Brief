@@ -27,7 +27,7 @@ class SubscribedTopicServiceTest {
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
         TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
 
         Subscription alice = subscription(1L);
         Subscription bob = subscription(2L);
@@ -56,7 +56,7 @@ class SubscribedTopicServiceTest {
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
         TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
 
         Subscription alice = subscription(1L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice));
@@ -79,7 +79,7 @@ class SubscribedTopicServiceTest {
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
         TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
 
         Subscription alice = subscription(1L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice));
@@ -98,13 +98,14 @@ class SubscribedTopicServiceTest {
     }
 
     @Test
-    void skipsTechDigestFromPollerDueList() {
+    void includesDigestTopicsUntilPublicReportExists() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
         TopicSectionMapper sections = mock(TopicSectionMapper.class);
         TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
-        SubscribedTopicService service = new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, 30);
+        ReportService reports = mock(ReportService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, reports);
 
         Subscription alice = subscription(1L);
         when(subscriptions.listEnabled()).thenReturn(List.of(alice));
@@ -112,12 +113,28 @@ class SubscribedTopicServiceTest {
                 item("AI科技", "08:00"), item("纳指标普沪深300ETF", "18:00"), item("数据库", "08:20")));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
         when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(reports.publicReportExists(any(), any())).thenReturn(false);
 
         LocalDate date = LocalDate.of(2026, 8, 31);
-        assertThat(service.listTopics(ReportWindows.W06_12)).containsExactly("数据库");
+        assertThat(service.listTopics(ReportWindows.W06_12)).containsExactly("AI科技", "数据库");
+        assertThat(service.listDueGenerations(date, LocalTime.of(8, 0)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("AI科技", "数据库");
+
+        when(reports.publicReportExists("morning", date)).thenReturn(true);
         assertThat(service.listDueGenerations(date, LocalTime.of(8, 0)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("数据库");
+    }
+
+    private static SubscribedTopicService serviceOf(
+            SubscriptionService subscriptions,
+            SubscriptionPreferences preferences,
+            UserMapper users,
+            TopicSectionMapper sections,
+            TopicGenerationStatusService statuses,
+            ReportService reports) {
+        return new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, reports, 30);
     }
 
     private static TopicGenerationStatus status(String value) {

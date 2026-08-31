@@ -153,9 +153,9 @@ const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
 }
 
 const PUBLIC_PREVIEWS: Array<{ edition: 'morning' | 'evening' | 'market_watch_evening'; hint: string }> = [
-  { edition: 'morning', hint: '每天 08:00 全站推送' },
-  { edition: 'evening', hint: '每天 20:00 全站推送' },
-  { edition: 'market_watch_evening', hint: 'ETF / A股观察，仅管理员和 Demo 可见' },
+  { edition: 'morning', hint: '勾选「AI科技」后按早报原文生成' },
+  { edition: 'evening', hint: '勾选「AI科技」后按晚报原文生成' },
+  { edition: 'market_watch_evening', hint: '勾选 ETF 主题后按原文生成，仅管理员和 Demo 可见' },
 ]
 
 async function loadPublicPreview(edition: string): Promise<PublicReportPreview | null> {
@@ -291,8 +291,8 @@ export default function Subscription() {
       if (isAiTechDigest(topic)) {
         updateItems([
           ...items,
-          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] },
-          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [] },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [] },
         ])
         return
       }
@@ -427,7 +427,7 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">{isAdmin ? '上面是全站公共日报，始终可以查看；下面才是你自己的个人订阅，勾选后才会单独生成。' : '勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时间展示。'}</p>
+        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。服务器会按原来的原文生成，不再依赖腾讯云 SCF。' : '勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时刻展示和推送。'}</p>
       </div>
 
       {isAdmin && (
@@ -436,7 +436,7 @@ export default function Subscription() {
             <div>
               <p className="subscription-pane-kicker">公共内容</p>
               <h3>全站日报</h3>
-              <p className="section-sub">早报、晚报和 ETF 日报对管理员和 Demo 始终可见，不需要在下面勾选。</p>
+              <p className="section-sub">管理员和 Demo 仍可在这里预览最近一期。要继续生成和推送，请在下面勾选「AI科技」和 ETF，并绑渠道。</p>
             </div>
             <Link to="/reports" className="ghost-link">历史日报 →</Link>
           </div>
@@ -478,7 +478,7 @@ export default function Subscription() {
           <div>
             <p className="subscription-pane-kicker">个人内容</p>
             <h3>我的个人订阅</h3>
-            <p className="section-sub">只影响你自己的兴趣简报。勾选主题、星期和时刻后，到点会单独生成和展示。</p>
+            <p className="section-sub">勾选主题、设时刻并绑渠道。科技日报和 ETF 走原来的全文，其他兴趣走短段落。</p>
           </div>
         </div>
       )}
@@ -665,7 +665,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">「AI科技」沿用全站早/晚报原文，默认 08:00 和 20:00。「纳指标普沪深300ETF」沿用原来的 ETF 日报，默认周一到周五 18:00。勾选后到点会在网页展示；绑了邮箱或企业微信，同一时刻也会推过去。其他兴趣按关键词爬取生成短段落。你也可以自定义添加，名字写成这两个就会走原文。</p>
+      <p className="interest-help">要收科技日报和 ETF，请在这里勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑企业微信或邮箱。服务器会按原来的早晚报 / ETF 原文生成，不再走腾讯云 SCF。其他兴趣仍按关键词爬取短段落。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
       </section>

@@ -196,6 +196,59 @@ class TopicSectionTests(unittest.TestCase):
         collect.assert_not_called()
         self.assertTrue(report.is_digest_topic("纳指标普沪深300ETF"))
 
+    @patch.object(report, "report_generation_status")
+    @patch.object(report, "generate_public_ai_digest", return_value=True)
+    def test_due_digest_generates_public_ai_report(self, generate, status):
+        saved = report.generate_due_digest_reports(
+            [{"window": "w06_12", "topic": "AI科技", "generateAt": "08:00"}],
+            [{"title": "AI", "summary": "news"}],
+            "2026-08-31",
+            "run-1",
+        )
+        self.assertEqual(saved, 1)
+        generate.assert_called_once_with(
+            [{"title": "AI", "summary": "news"}], "morning", "2026-08-31", "run-1")
+        status.assert_called_once()
+
+    @patch.object(report, "report_generation_status")
+    def test_due_digest_generates_etf_report(self, status):
+        generate = Mock(return_value=True)
+        fake = SimpleNamespace(
+            generate_and_ingest=generate,
+            now_beijing=lambda: None,
+            should_skip_weekend_report=lambda *_: False,
+        )
+        with patch.dict(sys.modules, {"etf_report": fake}):
+            saved = report.generate_due_digest_reports(
+                [{"window": "w18_24", "topic": "纳指标普沪深300ETF", "generateAt": "18:00"}],
+                [],
+                "2026-08-31",
+                "run-1",
+            )
+        self.assertEqual(saved, 1)
+        generate.assert_called_once()
+        status.assert_called_once()
+
+    @patch.object(report, "report_generation_status")
+    def test_due_etf_digest_skips_weekend(self, status):
+        generate = Mock(return_value=True)
+        fake = SimpleNamespace(
+            generate_and_ingest=generate,
+            now_beijing=lambda: None,
+            should_skip_weekend_report=lambda *_: True,
+        )
+        with patch.dict(sys.modules, {"etf_report": fake}):
+            saved = report.generate_due_digest_reports(
+                [{"window": "w18_24", "topic": "纳指标普沪深300ETF", "generateAt": "18:00"}],
+                [],
+                "2026-08-29",
+                "run-1",
+            )
+        self.assertEqual(saved, 0)
+        generate.assert_not_called()
+        status.assert_called_once()
+        self.assertEqual(status.call_args.args[3], "skipped_no_news")
+
     def test_custom_topic_searches_when_pool_has_no_match(self):
         searched = [{"title": "具身智能新突破", "summary": "机器人落地", "score": 8, "source": "主题检索·中文"}]
         with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:

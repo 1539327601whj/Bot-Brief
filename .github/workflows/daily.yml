@@ -1,8 +1,8 @@
 name: AI 每日高价值简报
 
 on:
-  # 定时触发已由腾讯云 SCF 接管（北京时间 8:00、20:00）
-  # 保留手动触发用于测试和补发
+  # 生产上由服务器 poller 按网页订阅生成，不再依赖腾讯云 SCF 定时。
+  # 保留手动触发用于测试和补发。
   workflow_dispatch:
     inputs:
       edition:

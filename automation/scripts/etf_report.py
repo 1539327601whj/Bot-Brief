@@ -2583,6 +2583,55 @@ def should_skip_weekend_report(current_time: datetime, dry_run: bool) -> bool:
     return current_time.weekday() >= 5 and not dry_run and not env_enabled("ETF_FORCE_RUN")
 
 
+def generate_and_ingest() -> bool:
+    """给订阅 poller 调用：按原来的 ETF 规则生成并入库，不直推企业微信。"""
+    current_time = now_beijing()
+    today = current_time.strftime("%Y-%m-%d")
+    edition = detect_edition()
+    label = edition_label(edition)
+    report_file = f"ETF市场数据简报_{today}（{label}）.md"
+    backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
+    if should_skip_weekend_report(current_time, False):
+        print("weekend skip ETF digest")
+        return False
+    if not backend_configured:
+        print("ETF digest needs BACKEND_API_URL and REPORT_INGEST_TOKEN")
+        return False
+
+    print("fetch ETF snapshots")
+    snapshots = []
+    for etf in ETF_LIST:
+        try:
+            snapshots.append(build_snapshot(etf))
+        except Exception as e:
+            print(f"  {etf['name']} unavailable: {e}")
+            snapshots.append(unavailable_snapshot(etf, str(e)))
+
+    print("sync valuation history")
+    for snapshot in snapshots:
+        if push_valuation_history(snapshot):
+            snapshot["pe_history"] = merge_pe_history(
+                snapshot.get("pe_history", []),
+                fetch_valuation_history(snapshot["etf"]),
+            )
+
+    stock_observations = build_a_share_observations()
+    report = build_programmatic_report(snapshots, edition, stock_observations)
+    try:
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(report)
+    except OSError as e:
+        print(f"ETF file save failed: {e}")
+
+    run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF / 标普500ETF {today}"
+    if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
+        print("ETF backend ingest failed")
+        return False
+    print("ETF digest ingested")
+    return True
+
+
 def main() -> None:
     current_time = now_beijing()
     today = current_time.strftime("%Y-%m-%d")
@@ -2610,6 +2659,12 @@ def main() -> None:
     if not backend_configured and not webhook_url and not dry_run:
         print("❌ 缺少 ETF_WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
+
+    if backend_configured and not dry_run and not sync_only:
+        if not generate_and_ingest():
+            sys.exit(1)
+        print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
+        return
 
     print("📡 正在抓取 ETF 行情...")
     snapshots = []
@@ -2649,12 +2704,7 @@ def main() -> None:
         print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
         print(wx_content)
     else:
-        if backend_configured:
-            if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
-                print("❌ ETF 报告同步到后端失败，本次不继续推送")
-                sys.exit(1)
-            print("ETF push delegated to backend subscription channels")
-        elif not push_to_wechat(wx_content, webhook_url):
+        if not push_to_wechat(wx_content, webhook_url):
             print("❌ ETF 企业微信推送失败")
             sys.exit(1)
 

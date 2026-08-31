@@ -78,11 +78,10 @@
 
 ```mermaid
 flowchart LR
-    SCF[腾讯云 SCF\n公共早晚报] --> GHA[GitHub Actions]
     POLL[服务器 poller\n整分对齐] --> PY
     RSS[RSS 资讯源] --> PY[Python 自动化]
     MARKET[公开市场数据] --> PY
-    GHA --> PY
+    GHA[GitHub Actions\n手动补发] --> PY
     PY --> DS[DeepSeek / 规则处理]
     DS --> INGEST[受保护的入库接口]
 
@@ -93,11 +92,11 @@ flowchart LR
     SCHEDULER --> CHANNELS[邮箱 / 企业微信 / 钉钉 / 飞书]
 ```
 
-系统中存在三条调度链路：
+系统中存在两条生产调度链路：
 
-- 腾讯云 SCF 仍只负责公共早/晚报和市场观察，不需要按每个订阅时刻再加定时。
-- 服务器上的 poller 按北京时间整分对齐，并提前约 30 分钟爬取和生成；用户设置的时刻只负责网页展示和外推。
+- 服务器 poller 按网页订阅生成：普通主题走短段落，「AI科技」和「纳指标普沪深300ETF」走原来的早晚报 / ETF 原文。提前约 30 分钟准备，用户设置的时刻负责网页展示和外推。
 - Spring Boot 每分钟按用户时刻拼报，并推送到订阅里绑定的渠道。
+- GitHub Actions 的 `daily.yml` / `etf-daily.yml` 只保留手动补发，不再作为日常定时入口。
 
 ## 工程实现亮点
 
@@ -119,7 +118,7 @@ flowchart LR
 | 自动化 | Python 3.11、feedparser、requests、OpenAI-compatible Python SDK |
 | AI | DeepSeek API |
 | 工程化 | Maven、npm、Docker Compose、Nginx、GitHub Actions |
-| 外部调度 | 腾讯云 SCF |
+| 外部调度 | 服务器 poller（GitHub Actions 仅手动补发） |
 
 ## 快速开始
 
@@ -279,8 +278,8 @@ npm --prefix frontend run build
 
 ## 自动化与部署
 
-- `daily.yml` 和 `etf-daily.yml` 提供公共早/晚报与市场观察的 `workflow_dispatch` 入口，生产上仍可由腾讯云 SCF 在 8:00、20:00 触发。
-- 订阅生成由服务器 `poller` 按整分对齐执行，覆盖网页上任意订阅时刻，无需按时刻配置 SCF；`daily-poll.yml` 仅用于手动补跑。
+- `daily.yml` 和 `etf-daily.yml` 只保留手动补发入口。科技日报和 ETF 日报改由网页订阅驱动，服务器 `poller` 按原来的原文生成。
+- 订阅生成由服务器 `poller` 按整分对齐执行，覆盖网页上任意订阅时刻；`daily-poll.yml` 仅用于手动补跑。
 - `deploy-frontend.yml` 和 `deploy-backend.yml` 在 `main` 分支相关目录变化时独立部署服务。
 - GitHub runner 检出目标提交并构建带提交 SHA 的 Docker 镜像，再通过 SSH/SCP 上传到服务器；服务器不再访问 GitHub，也不在部署阶段构建镜像。
 - 上传文件会进行 SHA256 校验，容器启动后自动检查前端首页和后端 `/api/health`；检查失败时恢复部署前的镜像。

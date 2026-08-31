@@ -1,7 +1,8 @@
 name: 市场观察
 
 on:
-  # 定时由腾讯云 SCF 负责，GitHub Actions 仅执行任务和支持手动回填
+  # 生产上由服务器 poller 按网页订阅生成，不再依赖腾讯云 SCF 定时。
+  # 本工作流仅保留手动补发和价格历史回填。
   workflow_dispatch:
     inputs:
       edition:
