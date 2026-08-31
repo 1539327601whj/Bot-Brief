@@ -1,3 +1,26 @@
+import dayjs from './dayjs'
+
+export function reportSlotStamp(report?: {
+  createdAt?: string
+  displayTime?: string
+  reportDate?: string
+}, format = 'MM-DD HH:mm') {
+  if (!report) return ''
+  const date = report.reportDate || (report.createdAt ? dayjs(report.createdAt).format('YYYY-MM-DD') : '')
+  const time = report.displayTime
+    ? report.displayTime.slice(0, 5)
+    : (report.createdAt ? dayjs(report.createdAt).format('HH:mm') : '')
+  if (!date) return report.createdAt ? dayjs(report.createdAt).format(format) : ''
+  return dayjs(`${date} ${time || '00:00'}`).format(format)
+}
+
+export function reportIsOnDate(report?: { createdAt?: string; reportDate?: string } | null, day = dayjs()) {
+  if (!report) return false
+  const date = report.reportDate || report.createdAt
+  if (!date) return false
+  return dayjs(date).format('YYYY-MM-DD') === day.format('YYYY-MM-DD')
+}
+
 export function getReportEditionInfo(edition: string, displayTime?: string) {
   const time = displayTime ? displayTime.slice(0, 5) : ''
   if (edition === 'personal') {

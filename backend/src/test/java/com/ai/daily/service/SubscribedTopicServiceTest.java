@@ -1,6 +1,7 @@
 package com.ai.daily.service;
 
 import com.ai.daily.dto.DueGenerationDTO;
+import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.entity.User;
@@ -125,6 +126,38 @@ class SubscribedTopicServiceTest {
         assertThat(service.listDueGenerations(date, LocalTime.of(8, 0)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("数据库");
+    }
+
+    @Test
+    void etfStartsCloserToDisplayTimeAndCanRefreshBrokenReport() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        ReportService reports = mock(ReportService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, reports);
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("纳指标普沪深300ETF", "18:00")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        assertThat(service.listDueGenerations(date, LocalTime.of(17, 49))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(17, 50)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("纳指标普沪深300ETF");
+
+        Report broken = new Report();
+        broken.setContent("溢折价：东方财富ETF实时IOPV不可用: HTTPSConnectionPool");
+        broken.setCreatedAt(java.time.LocalDateTime.of(2026, 8, 31, 10, 0));
+        when(reports.publicReportExists("market_watch_evening", date)).thenReturn(true);
+        when(reports.getLatestByEditionForDate("market_watch_evening", date)).thenReturn(broken);
+        when(statuses.find(any(), any(), any())).thenReturn(status(TopicGenerationStatus.READY));
+
+        assertThat(service.listDueGenerations(date, LocalTime.of(18, 0)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("纳指标普沪深300ETF");
     }
 
     private static SubscribedTopicService serviceOf(

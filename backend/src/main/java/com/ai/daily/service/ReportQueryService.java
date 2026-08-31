@@ -45,7 +45,7 @@ public class ReportQueryService {
         }
         if (edition != null && !edition.isBlank()) {
             if (allowPublicDigest && (Report.isSharedPublicEdition(edition) || Report.isPublicDigest(edition))) {
-                return reportService.getLatestByEdition(edition);
+                return releasedOrNull(reportService.getLatestByEdition(edition));
             }
             if (userId == null) return null;
             if (Report.isPersonalizedEdition(edition)) {
@@ -56,8 +56,8 @@ public class ReportQueryService {
         }
         if (userId == null) return null;
         safeEnsureTodayAssembled(userId);
-        Report mine = reportService.getLatestForUser(userId, Report.PERSONAL);
-        Report market = allowPublicDigest ? reportService.getLatestPublicMarketWatch() : null;
+        Report mine = releasedOrNull(reportService.getLatestForUser(userId, Report.PERSONAL));
+        Report market = allowPublicDigest ? releasedOrNull(reportService.getLatestPublicMarketWatch()) : null;
         Report digest = allowPublicDigest ? latestPublicDigest() : null;
         return newest(newest(mine, market), digest);
     }
@@ -72,11 +72,15 @@ public class ReportQueryService {
         if (demo) {
             return Report.isPublicOwner(report.getUserId()) ? report : null;
         }
-        if (userId != null && userId.equals(report.getUserId())) return report;
+        if (userId != null && userId.equals(report.getUserId())) {
+            return releasedOrNull(report);
+        }
         if (!Report.isPublicOwner(report.getUserId())) return null;
         if (!allowPublicDigest) return null;
-        return Report.isSharedPublicEdition(report.getEdition()) || Report.isPublicDigest(report.getEdition())
-                ? report : null;
+        if (!(Report.isSharedPublicEdition(report.getEdition()) || Report.isPublicDigest(report.getEdition()))) {
+            return null;
+        }
+        return releasedOrNull(report);
     }
 
     public Page<Report> pageVisible(
@@ -130,6 +134,9 @@ public class ReportQueryService {
         if (keyword != null && !keyword.isBlank()) {
             wrapper.and(w -> w.like(Report::getTitle, keyword).or().like(Report::getSummary, keyword));
         }
+        if (!demo) {
+            applyReleaseScope(wrapper);
+        }
         wrapper.orderByDesc(Report::getCreatedAt);
         return reportService.page(page, wrapper);
     }
@@ -147,6 +154,9 @@ public class ReportQueryService {
         if (start != null) wrapper.ge(Report::getCreatedAt, start);
         if (end != null) wrapper.lt(Report::getCreatedAt, end);
         applyOwnerScope(wrapper, userId, demo, allowPublicDigest);
+        if (!demo) {
+            applyReleaseScope(wrapper);
+        }
         return reportService.count(wrapper);
     }
 
@@ -160,6 +170,9 @@ public class ReportQueryService {
                 .ge(start != null, Report::getCreatedAt, start)
                 .select(Report::getTitle, Report::getSummary);
         applyOwnerScope(wrapper, userId, demo, allowPublicDigest);
+        if (!demo) {
+            applyReleaseScope(wrapper);
+        }
         return reportService.list(wrapper);
     }
 
@@ -182,6 +195,22 @@ public class ReportQueryService {
                         .in(Report::getEdition, "morning", "evening"));
             }
         });
+    }
+
+    private void applyReleaseScope(LambdaQueryWrapper<Report> wrapper) {
+        LocalDateTime now = LocalDateTime.now(BEIJING);
+        LocalDate today = now.toLocalDate();
+        LocalTime minute = now.toLocalTime().withSecond(0).withNano(0);
+        wrapper.and(w -> w
+                .isNull(Report::getReportDate)
+                .or()
+                .lt(Report::getReportDate, today)
+                .or(r -> r.eq(Report::getReportDate, today)
+                        .and(t -> t.isNull(Report::getDisplayTime).or().le(Report::getDisplayTime, minute))));
+    }
+
+    private static Report releasedOrNull(Report report) {
+        return ReportRelease.isReleased(report) ? report : null;
     }
 
     private void safeEnsureTodayAssembled(Long userId) {
@@ -217,7 +246,9 @@ public class ReportQueryService {
     }
 
     private Report latestPublicDigest() {
-        return newest(reportService.getLatestByEdition("morning"), reportService.getLatestByEdition("evening"));
+        return newest(
+                releasedOrNull(reportService.getLatestByEdition("morning")),
+                releasedOrNull(reportService.getLatestByEdition("evening")));
     }
 
     private static Report newest(Report left, Report right) {

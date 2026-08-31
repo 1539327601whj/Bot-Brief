@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
-import dayjs from '../utils/dayjs'
 import api from '../utils/api'
-import { getReportEditionInfo } from '../utils/reportEdition'
+import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import './ReportDetail.css'
 
 interface Report {
@@ -15,6 +14,7 @@ interface Report {
   runId: string
   createdAt: string
   displayTime?: string
+  reportDate?: string
 }
 
 export default function ReportDetail() {
@@ -36,9 +36,6 @@ export default function ReportDetail() {
   const editionLabel = `${editionInfo.icon} ${editionInfo.label}`
   const editionClass = editionInfo.className
 
-  // 格式化时间（使用北京时间）
-  const formatTime = (dateStr: string) => dayjs(dateStr).format('YYYY-MM-DD HH:mm')
-
   return (
     <div className="detail-page">
       <Link to="/" className="back-btn">← 返回列表</Link>
@@ -47,7 +44,7 @@ export default function ReportDetail() {
         <header className="article-header">
           <div className="meta">
             <span className={editionClass}>{editionLabel}</span>
-            <span className="time">{formatTime(report.createdAt)}</span>
+            <span className="time">{reportSlotStamp(report, 'YYYY-MM-DD HH:mm')}</span>
           </div>
           <h1>{report.title}</h1>
         </header>

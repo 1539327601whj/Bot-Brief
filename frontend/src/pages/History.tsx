@@ -6,7 +6,7 @@ import type { Dayjs } from 'dayjs'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
-import { getReportEditionInfo } from '../utils/reportEdition'
+import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { useAuth } from '../context/AuthContext'
 import './History.css'
 
@@ -20,6 +20,7 @@ interface Report {
   summary: string
   createdAt: string
   displayTime?: string
+  reportDate?: string
 }
 
 interface PageData {
@@ -153,8 +154,8 @@ export default function History() {
           <h3 className="report-title">{report.title}</h3>
           <p className="report-summary">{report.summary}</p>
           <div className="report-footer">
-            <span className="report-date">{dayjs(report.createdAt).format('YYYY-MM-DD')}</span>
-            <span className="report-time">{dayjs(report.createdAt).format('HH:mm')}</span>
+            <span className="report-date">{reportSlotStamp(report, 'YYYY-MM-DD')}</span>
+            <span className="report-time">{reportSlotStamp(report, 'HH:mm')}</span>
           </div>
         </div>
         <div className="report-arrow">→</div>

@@ -89,6 +89,32 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
     return False
 
 
+def dispatch_due_pushes():
+    """到点后补推：生成可以提前，推送必须按用户订阅时刻。"""
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    try:
+        resp = req.post(
+            f"{backend_url}/api/reports/dispatch-due",
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 60),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
+        if not ok:
+            print(f"  ⚠️ 到期推送补扫失败: HTTP {resp.status_code}")
+        return ok
+    except req.RequestException as e:
+        print(f"  ⚠️ 到期推送补扫失败: {e}")
+        return False
+
+
 def post_poller_heartbeat(detail="ok"):
     import requests as req
     backend_url = os.environ.get("BACKEND_API_URL", "")
@@ -1048,19 +1074,20 @@ def main():
         due = fetch_due_generations(today)
         if not due:
             print("🧩 当前没有到期的订阅主题，跳过爬取和生成")
-            return
-        digest_due = [item for item in due if is_digest_topic(item.get("topic"))]
-        topic_due = [item for item in due if not is_digest_topic(item.get("topic"))]
-        run_id = os.environ.get("GITHUB_RUN_ID", "local")
-        news_items = []
-        if topic_due or any(is_ai_digest_topic(item.get("topic")) for item in digest_due):
-            print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
-            news_items = extract_ai_news()
-        if digest_due:
-            generate_due_digest_reports(digest_due, news_items, today, run_id)
-        if topic_due:
-            generate_due_topic_sections(news_items, today, run_id, due=topic_due)
-        print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
+        else:
+            digest_due = [item for item in due if is_digest_topic(item.get("topic"))]
+            topic_due = [item for item in due if not is_digest_topic(item.get("topic"))]
+            run_id = os.environ.get("GITHUB_RUN_ID", "local")
+            news_items = []
+            if topic_due or any(is_ai_digest_topic(item.get("topic")) for item in digest_due):
+                print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
+                news_items = extract_ai_news()
+            if digest_due:
+                generate_due_digest_reports(digest_due, news_items, today, run_id)
+            if topic_due:
+                generate_due_topic_sections(news_items, today, run_id, due=topic_due)
+            print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
+        dispatch_due_pushes()
         return
 
     # Step 1: 抓取资讯

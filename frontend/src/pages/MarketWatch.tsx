@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
 import { useAuth } from '../context/AuthContext'
+import { reportIsOnDate } from '../utils/reportEdition'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -13,6 +14,8 @@ interface Report {
   summary: string
   content?: string
   createdAt: string
+  displayTime?: string
+  reportDate?: string
 }
 
 interface WatchCardConfig {
@@ -49,8 +52,8 @@ function LatestWatchCard({ config }: { config: WatchCardConfig }) {
       .finally(() => setLoading(false))
   }, [config.edition])
 
-  const reportDate = report ? dayjs(report.createdAt).format('YYYY-MM-DD') : ''
-  const isToday = reportDate === dayjs().format('YYYY-MM-DD')
+  const reportDate = report?.reportDate || (report ? dayjs(report.createdAt).format('YYYY-MM-DD') : '')
+  const isToday = reportIsOnDate(report)
 
   return (
     <section className="market-watch-report-card">

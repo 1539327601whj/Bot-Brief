@@ -37,8 +37,17 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         if (ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null) {
             return false;
         }
-        if (baseMapper.findIdByEditionAndReportDate(edition, reportDate) != null) {
-            return false;
+        Long existingId = baseMapper.findIdByEditionAndReportDate(edition, reportDate);
+        if (existingId != null) {
+            Report existing = baseMapper.selectById(existingId);
+            if (existing == null) return false;
+            existing.setTitle(title);
+            existing.setContent(content);
+            existing.setSummary(summary);
+            existing.setRunId(runId);
+            existing.setIngestKey(ingestKey);
+            existing.setDisplayTime(ReportWindows.publicDisplayTime(edition));
+            return baseMapper.updateById(existing) > 0;
         }
         Report report = new Report();
         report.setUserId(Report.PUBLIC_OWNER_ID);

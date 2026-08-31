@@ -72,4 +72,25 @@ class ReportQueryServiceTest {
         verify(subscriptions, never()).getOrCreateForUser(any());
         verify(reports, never()).getLatestPublicMarketWatch();
     }
+
+    @Test
+    void hidesTodaysPublicMarketWatchBeforeDisplayTime() {
+        ReportService reports = mock(ReportService.class);
+        ReportQueryService service = new ReportQueryService(
+                reports,
+                mock(ReportAssemblyService.class),
+                mock(SubscriptionService.class),
+                mock(SubscriptionPreferences.class));
+        Report market = new Report();
+        market.setId(10L);
+        market.setUserId(Report.PUBLIC_OWNER_ID);
+        market.setEdition("market_watch_evening");
+        market.setReportDate(java.time.LocalDate.now().plusDays(1));
+        market.setDisplayTime(java.time.LocalTime.of(18, 0));
+        when(reports.getLatestByEdition("market_watch_evening")).thenReturn(market);
+        when(reports.getById(10L)).thenReturn(market);
+
+        assertThat(service.getLatest(7L, false, true, "market_watch_evening")).isNull();
+        assertThat(service.getById(7L, false, true, 10L)).isNull();
+    }
 }

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs from '../utils/dayjs'
 import api from '../utils/api'
-import { getReportEditionInfo } from '../utils/reportEdition'
+import { getReportEditionInfo, reportIsOnDate, reportSlotStamp } from '../utils/reportEdition'
 import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
@@ -19,6 +19,7 @@ interface Report {
   content?: string
   createdAt: string
   displayTime?: string
+  reportDate?: string
 }
 
 interface DashboardStats {
@@ -135,8 +136,8 @@ function ReportMiniCard({ report, edition, emptyHint, displayTime, emptyTo }: {
 }) {
   const [expanded, setExpanded] = useState(false)
   const info = getReportEditionInfo(edition, report?.displayTime || displayTime)
-  const fresh = isToday(report?.createdAt)
-  const reportDate = report ? dayjs(report.createdAt).format('YYYY-MM-DD') : ''
+  const fresh = reportIsOnDate(report)
+  const reportDate = report?.reportDate || (report ? dayjs(report.createdAt).format('YYYY-MM-DD') : '')
 
   return (
     <div className={`overview-card report-mini-card ${fresh ? 'is-fresh' : ''}`}>
@@ -158,7 +159,7 @@ function ReportMiniCard({ report, edition, emptyHint, displayTime, emptyTo }: {
         <>
           <div className="report-card-meta">
             <span className={info.className}>{info.shortLabel}</span>
-            <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+            <span>{reportSlotStamp(report)}</span>
             {!fresh && <span className="stale-badge">最近一期</span>}
           </div>
           <h3 className="overview-report-title">{report.title}</h3>
@@ -196,8 +197,8 @@ function FocusCard({ report }: { report: Report | null }) {
       </div>
       <div className="report-card-meta">
         <span className={info.className}>{info.label}</span>
-        <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
-        {!isToday(report.createdAt) && <span className="stale-badge">最近一期</span>}
+        <span>{reportSlotStamp(report)}</span>
+        {!reportIsOnDate(report) && <span className="stale-badge">最近一期</span>}
       </div>
       <h2 className="focus-title">{report.title}</h2>
       <div className="focus-summary"><MarketMarkdown>{report.summary}</MarketMarkdown></div>
@@ -297,7 +298,7 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
             return (
               <div key={report.id} className="status-row">
                 <span>{info.shortLabel}</span>
-                <span>今日 {dayjs(report.createdAt).tz('Asia/Shanghai').format('HH:mm')} 已生成</span>
+                <span>今日 {reportSlotStamp(report, 'HH:mm')} 已生成</span>
               </div>
             )
           })}
@@ -343,7 +344,7 @@ function RecentReportList({ reports }: { reports: Report[] }) {
             <div key={report.id} className="report-item">
               <div className="item-left">
                 <span className={info.className}>{info.shortLabel}</span>
-                <span className="item-time">{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+                <span className="item-time">{reportSlotStamp(report)}</span>
               </div>
               <div className="item-right">
                 <Link to={`/report/${report.id}`} className="item-title">{report.title}</Link>
@@ -437,7 +438,7 @@ export default function Dashboard() {
     const candidates = canSeePublicDigest
       ? [morning, evening, ...personalReports, marketWatch]
       : [...personalReports]
-    return candidates.filter((report): report is Report => !!report && isToday(report.createdAt))
+    return candidates.filter((report): report is Report => !!report && reportIsOnDate(report))
   }, [canSeePublicDigest, morning, evening, marketWatch, personalReports])
   const focusReport = todayReports.find(report => report.edition === 'personal' || report.edition === 'evening' || report.edition === 'morning')
     || todayReports[0]
@@ -453,8 +454,8 @@ export default function Dashboard() {
       items.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
     }
     if (canSeePublicDigest) {
-      if (now.hour() >= 9 && !isToday(morning?.createdAt)) items.push('今日早间简报尚未生成')
-      if (now.hour() >= 21 && !isToday(evening?.createdAt)) items.push('今日晚间简报尚未生成')
+      if (now.hour() >= 9 && !reportIsOnDate(morning)) items.push('今日早间简报尚未生成')
+      if (now.hour() >= 21 && !reportIsOnDate(evening)) items.push('今日晚间简报尚未生成')
     }
     if (!isDemo) {
       todayProgress.items.forEach(item => {
@@ -465,7 +466,7 @@ export default function Dashboard() {
         items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
       }
     }
-    if (canSeePublicDigest && now.hour() >= 18 && !isToday(marketWatch?.createdAt)) items.push('ETF/A股日报尚未生成')
+    if (canSeePublicDigest && now.hour() >= 18 && !reportIsOnDate(marketWatch)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
     if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) {
@@ -480,10 +481,10 @@ export default function Dashboard() {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
     if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
     if (subscriptionItems(subscription).length === 0) return ['完善关注领域和时间，让后续内容更贴合你的偏好。']
-    if (!isDemo && slotTimes.some(time => !isToday(personalByTime.get(time)?.createdAt))) {
+    if (!isDemo && slotTimes.some(time => !reportIsOnDate(personalByTime.get(time)))) {
       return ['今日勾选主题尚未完全生成，可以先查看已有段落或等待下次生成。']
     }
-    if (canSeePublicDigest && isToday(marketWatch?.createdAt)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
+    if (canSeePublicDigest && reportIsOnDate(marketWatch)) return ['ETF/A股日报已更新，可以结合今日重点查看市场变化。']
     return ['今日数据状态正常，建议先查看今日重点和近期热点。']
   }, [failedLogs.length, subscription, slotTimes, personalByTime, marketWatch, isDemo, canSeePublicDigest])
 

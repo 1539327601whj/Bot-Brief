@@ -669,6 +669,32 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(premium["data_status"], "provider_error")
         self.assertIsNone(premium["premium_rate"])
         self.assertIn("502", premium["error"])
+        self.assertNotIn("https://", premium["error"])
+        self.assertGreaterEqual(get.call_count, 3)
+
+    @patch.object(report, "http_get")
+    def test_premium_switches_eastmoney_host_after_disconnect(self, get):
+        get.side_effect = [
+            response(status=502),
+            response({"data": {
+                "f57": ETF["code"],
+                "f124": int(NOW.timestamp()),
+                "f2": 4.1,
+                "f441": 4.0,
+                "f402": -2.5,
+            }}),
+        ]
+        premium = report.fetch_etf_premium(
+            ETF, {"latest_price": 4.1, "data_time": "2026-07-27 15:00:00"}
+        )
+        self.assertAlmostEqual(premium["premium_rate"], 2.5)
+        self.assertIsNone(premium["error"])
+        self.assertEqual(get.call_count, 2)
+
+    def test_last_completed_trading_day_skips_weekend(self):
+        from datetime import date
+        self.assertEqual(report.last_completed_trading_day(date(2026, 8, 31)), date(2026, 8, 28))
+        self.assertEqual(report.last_completed_trading_day(date(2026, 8, 28)), date(2026, 8, 28))
 
     def test_morning_edition_is_rejected(self):
         with patch.dict(os.environ, {"EDITION": "morning"}, clear=False):

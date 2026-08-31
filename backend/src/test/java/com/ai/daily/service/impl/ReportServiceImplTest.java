@@ -64,19 +64,27 @@ class ReportServiceImplTest {
     }
 
     @Test
-    void skipsDuplicateBusinessReportBeforeInsert() {
+    void refreshesExistingBusinessReportOnNewRun() {
         ReportMapper mapper = mock(ReportMapper.class);
         LocalDate reportDate = LocalDate.of(2026, 8, 18);
+        Report existing = new Report();
+        existing.setId(42L);
+        existing.setEdition("morning");
+        when(mapper.findIdByIngestKey("morning:run-2")).thenReturn(null);
         when(mapper.findIdByEditionAndReportDate("morning", reportDate)).thenReturn(42L);
+        when(mapper.selectById(42L)).thenReturn(existing);
+        when(mapper.updateById(existing)).thenReturn(1);
         ReportServiceImpl service = new ReportServiceImpl();
         ReflectionTestUtils.setField(service, "baseMapper", mapper);
 
         assertThat(service.saveReport(
                 reportDate,
-                "morning", "测试早报", "## 要点\n\n这是有效正文。", "摘要", "run-2"
-        )).isFalse();
+                "morning", "刷新早报", "## 要点\n\n这是更新后的正文。", "新摘要", "run-2"
+        )).isTrue();
 
         verify(mapper, never()).insert(any());
+        assertThat(existing.getTitle()).isEqualTo("刷新早报");
+        assertThat(existing.getSummary()).isEqualTo("新摘要");
     }
 
     @Test

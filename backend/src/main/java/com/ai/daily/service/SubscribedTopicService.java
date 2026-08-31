@@ -1,6 +1,7 @@
 package com.ai.daily.service;
 
 import com.ai.daily.dto.DueGenerationDTO;
+import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.entity.User;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -63,19 +65,29 @@ public class SubscribedTopicService {
         List<DueGenerationDTO> due = new ArrayList<>();
         for (DueGenerationDTO item : planEarliest(date)) {
             LocalTime readyAt = ReportWindows.parse(item.getGenerateAt());
-            if (startAt(readyAt).isAfter(minute)) continue;
-            if (publicDigestReady(date, item.getTopic(), readyAt)) continue;
-            if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
-            if (alreadySettled(date, item.getWindow(), item.getTopic())) continue;
+            if (startAt(readyAt, item.getTopic()).isAfter(minute)) continue;
+            if (DigestTopics.isDigest(item.getTopic())) {
+                if (publicDigestReady(date, item.getTopic(), readyAt)) continue;
+            } else {
+                if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
+                if (alreadySettled(date, item.getWindow(), item.getTopic())) continue;
+            }
             due.add(item);
         }
         return due;
     }
 
     LocalTime startAt(LocalTime readyAt) {
+        return startAt(readyAt, null);
+    }
+
+    LocalTime startAt(LocalTime readyAt, String topic) {
         if (readyAt == null) return LocalTime.MIN;
-        if (generationLeadMinutes <= 0) return readyAt;
-        LocalTime start = readyAt.minusMinutes(generationLeadMinutes);
+        int lead = DigestTopics.isEtf(topic)
+                ? Math.min(generationLeadMinutes, 10)
+                : generationLeadMinutes;
+        if (lead <= 0) return readyAt;
+        LocalTime start = readyAt.minusMinutes(lead);
         // 跨日时从当天 00:00 开始预生成，避免 00:10 的订阅要等到整点才开工。
         return start.isAfter(readyAt) ? LocalTime.MIN : start;
     }
@@ -83,7 +95,22 @@ public class SubscribedTopicService {
     private boolean publicDigestReady(LocalDate date, String topic, LocalTime readyAt) {
         if (reportService == null || !DigestTopics.isDigest(topic)) return false;
         String edition = DigestTopics.publicEditionFor(topic, readyAt);
-        return edition != null && reportService.publicReportExists(edition, date);
+        if (edition == null || !reportService.publicReportExists(edition, date)) return false;
+        if (!DigestTopics.isEtf(topic)) return true;
+        Report existing = reportService.getLatestByEditionForDate(edition, date);
+        return existing == null || !needsEtfRefresh(existing);
+    }
+
+    private static boolean needsEtfRefresh(Report existing) {
+        String content = existing.getContent() == null ? "" : existing.getContent();
+        if (!content.contains("IOPV不可用")
+                && !content.contains("HTTPSConnectionPool")
+                && !content.contains("Max retries exceeded")) {
+            return false;
+        }
+        LocalDateTime created = existing.getCreatedAt();
+        if (created == null) return true;
+        return created.isBefore(LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusMinutes(8));
     }
 
     private boolean alreadySettled(LocalDate date, String window, String topic) {

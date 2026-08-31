@@ -11,7 +11,7 @@ import java.time.LocalDate;
 public interface ReportService extends IService<Report> {
 
     /**
-     * 保存新简报。同一业务日同一版次或同一 ingestKey 已存在时返回 false，不重复写入。
+     * 保存公共简报。同一 run 不重复写；同一业务日同一版次再次入库时覆盖正文，便于刷新行情。
      */
     boolean saveReport(LocalDate reportDate, String edition, String title, String content, String summary, String runId);
 

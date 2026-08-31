@@ -4,7 +4,7 @@ import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
 import api, { TOKEN_KEY } from '../utils/api'
-import { getReportEditionInfo } from '../utils/reportEdition'
+import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
@@ -18,6 +18,8 @@ interface PublicReportPreview {
   title: string
   summary: string
   createdAt: string
+  displayTime?: string
+  reportDate?: string
 }
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -455,7 +457,7 @@ export default function Subscription() {
                       <strong>{report.title}</strong>
                       <p>{report.summary}</p>
                       <div className="public-preview-footer">
-                        <span>{dayjs(report.createdAt).format('MM-DD HH:mm')}</span>
+                        <span>{reportSlotStamp(report)}</span>
                         <Link to={`/report/${report.id}`}>查看 →</Link>
                       </div>
                     </>

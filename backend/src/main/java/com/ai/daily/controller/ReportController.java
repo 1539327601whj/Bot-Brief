@@ -108,6 +108,16 @@ public class ReportController {
         return Result.ok(data);
     }
 
+    @PostMapping("/dispatch-due")
+    public Result<Boolean> dispatchDue(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token) {
+        if (IngestTokens.invalid(ingestToken, token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        scheduledPushTask.catchUpToday(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")));
+        return Result.ok(true);
+    }
+
     @PostMapping("/poller-heartbeat")
     public Result<Boolean> pollerHeartbeat(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
