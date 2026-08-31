@@ -126,7 +126,13 @@ async function latestPublicReport(edition: string): Promise<Report | null> {
   return page?.records?.[0] || null
 }
 
-function ReportMiniCard({ report, edition, emptyHint, displayTime }: { report: Report | null; edition: EditionKey; emptyHint?: string; displayTime?: string }) {
+function ReportMiniCard({ report, edition, emptyHint, displayTime, emptyTo }: {
+  report: Report | null
+  edition: EditionKey
+  emptyHint?: string
+  displayTime?: string
+  emptyTo?: { href: string; label: string }
+}) {
   const [expanded, setExpanded] = useState(false)
   const info = getReportEditionInfo(edition, report?.displayTime || displayTime)
   const fresh = isToday(report?.createdAt)
@@ -146,6 +152,7 @@ function ReportMiniCard({ report, edition, emptyHint, displayTime }: { report: R
         <div className="overview-empty">
           <span>今日暂无内容</span>
           <small>{emptyHint || `预计 ${info.expectedLabel} 推送`}</small>
+          {emptyTo && <Link to={emptyTo.href} className="section-link">{emptyTo.label}</Link>}
         </div>
       ) : (
         <>
@@ -542,7 +549,12 @@ export default function Dashboard() {
             </div>
             <div className={slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
               {slotTimes.length === 0 ? (
-                <ReportMiniCard report={null} edition="personal" emptyHint="还没有个人订阅。点右上角去勾选兴趣并设定星期、时刻" />
+                <ReportMiniCard
+                  report={null}
+                  edition="personal"
+                  emptyHint="还没有个人订阅。勾选兴趣并设定星期、时刻后，到点会生成简报"
+                  emptyTo={{ href: '/subscription', label: '去订阅管理 →' }}
+                />
               ) : (
                 slotTimes.map(time => (
                   <ReportMiniCard
@@ -592,7 +604,12 @@ export default function Dashboard() {
                 <ReportMiniCard report={evening} edition="evening" />
               </>
             ) : slotTimes.length === 0 ? (
-              <ReportMiniCard report={null} edition="personal" emptyHint="请先在订阅里勾选兴趣并设定时间" />
+              <ReportMiniCard
+                report={null}
+                edition="personal"
+                emptyHint="请先勾选兴趣并设定时间，到点后这里会出现你的简报"
+                emptyTo={{ href: '/subscription', label: '去订阅管理 →' }}
+              />
             ) : (
               slotTimes.map(time => (
                 <ReportMiniCard
