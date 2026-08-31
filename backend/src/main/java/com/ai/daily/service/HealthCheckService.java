@@ -15,6 +15,7 @@ public class HealthCheckService {
 
     private final JdbcTemplate jdbcTemplate;
     private final OpsHeartbeatService heartbeatService;
+    private final PushChannelCrypto pushChannelCrypto;
 
     @Value("${jwt.secret:}")
     private String jwtSecret;
@@ -34,11 +35,13 @@ public class HealthCheckService {
         boolean jwt = jwtSecret != null && jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 32;
         boolean ingest = ingestToken != null && !ingestToken.isBlank();
         boolean mail = mailHost != null && !mailHost.isBlank() && mailUsername != null && !mailUsername.isBlank();
+        boolean encryption = pushChannelCrypto != null && pushChannelCrypto.isAvailable();
 
         checks.put("database", Map.of("ok", database));
         checks.put("jwt", Map.of("ok", jwt));
         checks.put("ingestToken", Map.of("configured", ingest));
         checks.put("mail", Map.of("configured", mail));
+        checks.put("pushChannelEncryption", Map.of("ok", encryption));
         checks.put("poller", pollerCheck());
 
         String status = "UP";
@@ -46,7 +49,8 @@ public class HealthCheckService {
         if (!database) {
             status = "DOWN";
             http = 503;
-        } else if (!jwt || !ingest || !heartbeatService.isFresh(heartbeatService.find(OpsHeartbeatService.POLLER))) {
+        } else if (!jwt || !ingest || !encryption
+                || !heartbeatService.isFresh(heartbeatService.find(OpsHeartbeatService.POLLER))) {
             status = "DEGRADED";
         }
 
