@@ -61,7 +61,7 @@
 - `shop_customer_summary`
 - `shop_ai_report`
 
-生产补表用 `CREATE TABLE IF NOT EXISTS`。不要写 `ADD COLUMN IF NOT EXISTS`（老 MySQL 语法错误）。店铺没有像内容增长那样的启动自愈，缺表时要自己补或做修复器。
+生产补表用 `CREATE TABLE IF NOT EXISTS`。不要写 `ADD COLUMN IF NOT EXISTS`（老 MySQL 语法错误）。启动时 `ShopAnalyticsSchemaRepairRunner` 按 information_schema 补建六张表，并尽量补上 V4 商品外部 ID 唯一索引。
 
 ## 模块边界（只改这些，除非跨切认证）
 
