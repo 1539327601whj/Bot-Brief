@@ -6,6 +6,7 @@ import com.ai.daily.dto.ReportPushDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.dto.TopicSectionPushDTO;
 import com.ai.daily.entity.Report;
+import com.ai.daily.security.IngestTokens;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
@@ -63,7 +64,7 @@ public class ReportController {
     public Result<Boolean> ingestReport(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody ReportPushDTO dto) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         return saveReport(dto);
@@ -74,7 +75,7 @@ public class ReportController {
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @RequestParam(required = false) String window,
             @RequestParam(required = false) String edition) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         String resolved = resolveWindow(window != null ? window : edition);
@@ -88,7 +89,7 @@ public class ReportController {
     public Result<Map<String, Object>> dueGenerations(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @RequestParam(required = false) String date) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         LocalDate reportDate = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
@@ -111,7 +112,7 @@ public class ReportController {
     public Result<Boolean> pollerHeartbeat(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @RequestBody(required = false) Map<String, Object> body) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         String detail = body != null && body.get("detail") != null ? String.valueOf(body.get("detail")) : "ok";
@@ -123,7 +124,7 @@ public class ReportController {
     public Result<Boolean> ingestGenerationStatus(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody GenerationStatusPushDTO dto) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         String window = resolveWindow(dto.getEdition());
@@ -149,7 +150,7 @@ public class ReportController {
     public Result<Boolean> ingestTopicSection(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody TopicSectionPushDTO dto) {
-        if (invalidIngestToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         String summary = dto.getSummary();
@@ -282,10 +283,6 @@ public class ReportController {
         if ("morning".equals(value)) return ReportWindows.W06_12;
         if ("evening".equals(value)) return ReportWindows.W18_24;
         return ReportWindows.isGenerationWindow(value) ? value : null;
-    }
-
-    private boolean invalidIngestToken(String token) {
-        return ingestToken == null || ingestToken.isBlank() || !ingestToken.equals(token);
     }
 
     private LocalDateTime parseStart(String startDate) {
