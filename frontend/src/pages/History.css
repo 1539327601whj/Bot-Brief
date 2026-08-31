@@ -482,6 +482,22 @@
   color: var(--text-subtle);
 }
 
+.history-page .history-empty-link {
+  min-height: 38px;
+  padding: 8px 16px;
+  border: 1px solid rgba(139, 156, 255, 0.36);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: #dce1ff;
+  text-decoration: none;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.history-page .history-empty-link:hover {
+  border-color: rgba(139, 156, 255, 0.6);
+  background: rgba(139, 156, 255, 0.16);
+}
+
 @media (max-width: 960px) {
   .history-page .history-header {
     align-items: flex-start;

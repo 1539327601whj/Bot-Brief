@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DatePicker, Input, ConfigProvider, Pagination, theme } from 'antd'
 import type { PaginationProps } from 'antd'
 import type { Dayjs } from 'dayjs'
@@ -273,7 +273,10 @@ export default function History() {
           </div>
         ) : reports.length === 0 ? (
           <div className="empty-state">
-            <p>{hasFilter ? '当前条件下暂无匹配的简报' : (isDemo ? '暂无历史简报' : isAdmin ? '暂无公共简报或你的简报' : '暂无属于你的简报，请先在订阅里勾选兴趣')}</p>
+            <p>{hasFilter ? '当前条件下暂无匹配的简报' : (isDemo ? '暂无历史简报' : isAdmin ? '暂无公共简报或你的简报' : '暂无属于你的简报，请先勾选兴趣并等到生成时刻')}</p>
+            {!hasFilter && !isDemo && (
+              <Link to="/subscription" className="history-empty-link">去订阅管理勾选兴趣</Link>
+            )}
           </div>
         ) : (
           <>
