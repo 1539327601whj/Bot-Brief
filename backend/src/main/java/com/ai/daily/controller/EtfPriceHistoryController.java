@@ -3,6 +3,7 @@ package com.ai.daily.controller;
 import com.ai.daily.dto.EtfPriceHistoryIngestDTO;
 import com.ai.daily.dto.Result;
 import com.ai.daily.entity.EtfPriceHistory;
+import com.ai.daily.security.IngestTokens;
 import com.ai.daily.service.EtfPriceHistoryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -35,7 +36,7 @@ public class EtfPriceHistoryController {
     public Result<String> ingest(
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @RequestBody @Size(min = 1, max = 250) List<@Valid EtfPriceHistoryIngestDTO> prices) {
-        if (!validToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "入库 token 无效");
         }
         try {
@@ -52,7 +53,7 @@ public class EtfPriceHistoryController {
             @PathVariable String fundCode,
             @RequestParam(defaultValue = "7") int limit,
             @RequestParam(defaultValue = "QFQ") String adjustmentType) {
-        if (!validToken(token)) {
+        if (IngestTokens.invalid(ingestToken, token)) {
             return Result.error(401, "查询 token 无效");
         }
         try {
@@ -62,7 +63,4 @@ public class EtfPriceHistoryController {
         }
     }
 
-    private boolean validToken(String token) {
-        return ingestToken != null && !ingestToken.isBlank() && ingestToken.equals(token);
-    }
 }

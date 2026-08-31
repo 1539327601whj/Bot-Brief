@@ -4,7 +4,7 @@
 
 ## 进行中
 
-- P2 普通用户对话/首页文案不再写成全站科技日报
+- P2 行情/ETF 入库改用 IngestTokens
 
 ## 计划
 
@@ -15,8 +15,7 @@
 - （无）
 
 ### P2
-- 普通用户对话/首页文案不再写成全站科技日报（进行中）
-- 行情/ETF 入库改用 IngestTokens，并补测试
+- 行情/ETF 入库改用 IngestTokens，并补测试（进行中）
 - 前端补上 test 脚本（tsc --noEmit）
 - CI setup-java 升到 v5
 - TopicGenerationStatusService 补 ready 不被降级的测试
@@ -31,6 +30,7 @@
 - `526354c` 部署与 poller / V12
 - `7854e9d` 没有订阅时首页不再假装下次 08:00 推送
 - `8750417` README V12
+- `8937a3f` 普通用户对话/首页文案不再写成全站科技日报（线上已抽查）
 
 ## 待你处理
 
