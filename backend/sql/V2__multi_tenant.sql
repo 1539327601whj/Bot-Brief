@@ -71,7 +71,9 @@ CREATE TABLE IF NOT EXISTS push_log (
 -- ------------------------------------------------------------
 -- 迁移订阅表：加 user_id + morning/evening 时间字段
 -- ------------------------------------------------------------
--- MySQL 8 支持 IF NOT EXISTS on ADD COLUMN；若不支持请手动删除后重跑
+-- 老 MySQL / MariaDB 对 ADD COLUMN IF NOT EXISTS 会语法错误。
+-- 生产由后端 SubscriptionSchemaRepairRunner 按 information_schema 补齐。
+-- 手工补列请先查列是否存在，再执行下面不带 IF NOT EXISTS 的 ALTER。
 ALTER TABLE subscription
     ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 1 AFTER id;
 ALTER TABLE subscription

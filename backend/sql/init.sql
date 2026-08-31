@@ -62,16 +62,22 @@ CREATE TABLE IF NOT EXISTS etf_price_history (
 
 CREATE TABLE IF NOT EXISTS subscription (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    user_id BIGINT NOT NULL DEFAULT 1 COMMENT '归属用户',
     receive_time VARCHAR(20) NOT NULL DEFAULT 'both' COMMENT '接收时间：morning / evening / both',
     preference_fields JSON DEFAULT NULL COMMENT '偏好领域 JSON 数组',
     topic_schedules JSON DEFAULT NULL COMMENT '早/晚间版按主题配置的推送时间',
     enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用订阅：1 启用 0 暂停',
+    morning_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否接收早间版',
+    morning_time TIME NOT NULL DEFAULT '08:00:00' COMMENT '早间版时间',
+    evening_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否接收晚间版',
+    evening_time TIME NOT NULL DEFAULT '20:00:00' COMMENT '晚间版时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_subscription_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订阅配置表';
 
-INSERT INTO subscription (id, receive_time, preference_fields, enabled)
-VALUES (1, 'both', '["AI大模型", "Web开发"]', 1)
+INSERT INTO subscription (id, user_id, receive_time, preference_fields, enabled)
+VALUES (1, 1, 'both', '["AI大模型", "Web开发"]', 1)
 ON DUPLICATE KEY UPDATE
     receive_time = VALUES(receive_time),
     preference_fields = VALUES(preference_fields),

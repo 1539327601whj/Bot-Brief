@@ -9,7 +9,7 @@
 - 线上演示：`http://124.222.194.103/`
 - 本机健康：前端 `http://127.0.0.1:8080/`，后端 `http://127.0.0.1:8081/api/health`
 
-部署未绿时常见原因：国内拉 GitHub 要用代理包；后端缺本地镜像 `eclipse-temurin:17-jre`、`maven:3.9-eclipse-temurin-17`、`mysql:8.0`；MySQL 缺列（订阅表必须有 `user_id`、`topic_schedules`、早晚时间列）。生产库补列用 Navicat 时不要写 `ADD COLUMN IF NOT EXISTS`（老 MySQL 会语法错误）。
+部署未绿时常见原因：国内拉 GitHub 要用代理包；后端缺本地镜像 `eclipse-temurin:17-jre`、`maven:3.9-eclipse-temurin-17`、`mysql:8.0`。`subscription` 缺 `user_id` / 早晚时间 / `topic_schedules` 时，后端启动会按 information_schema 自动补列（不要在 Navicat 里写 `ADD COLUMN IF NOT EXISTS`）。`topic_sections`、`reports.user_id` 等仍要手工跑对应 V10+ SQL，发布脚本会硬检查。
 
 ## 内容隔离（不要改错）
 
