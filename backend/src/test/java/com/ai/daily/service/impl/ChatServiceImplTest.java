@@ -4,9 +4,12 @@ import com.ai.daily.dto.ChatMessageDTO;
 import com.ai.daily.dto.ChatResponseDTO;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.TopicSection;
+import com.ai.daily.entity.Subscription;
 import com.ai.daily.service.AiClientService;
 import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
+import com.ai.daily.service.SubscriptionPreferences;
+import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.service.TopicSectionService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,17 +47,25 @@ class ChatServiceImplTest {
     private ReportService reportService;
     @Mock
     private AiClientService aiClientService;
+    @Mock
+    private SubscriptionService subscriptionService;
+    @Mock
+    private SubscriptionPreferences subscriptionPreferences;
 
     private ChatServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new ChatServiceImpl(reportQueryService, topicSectionService, reportService, aiClientService);
+        service = new ChatServiceImpl(
+                reportQueryService, topicSectionService, reportService, aiClientService,
+                subscriptionService, subscriptionPreferences);
         lenient().when(aiClientService.chat(anyList(), anyDouble(), anyInt())).thenReturn("综合主题段作答");
         lenient().when(reportQueryService.pageVisible(
                         any(), anyBoolean(), anyBoolean(), any(), nullable(String.class),
                         nullable(LocalDateTime.class), nullable(LocalDateTime.class), nullable(String.class)))
                 .thenReturn(emptyPage());
+        lenient().when(subscriptionService.getOrCreateForUser(any())).thenReturn(new Subscription());
+        lenient().when(subscriptionPreferences.enabledTopics(any())).thenReturn(List.of("AI大模型"));
     }
 
     @Test
@@ -95,7 +106,7 @@ class ChatServiceImplTest {
     @Test
     void marketQuestionSkipsTopicSections() {
         when(reportQueryService.pageVisible(
-                eq(1L), eq(false), eq(true), any(), eq("market_watch_evening"),
+                eq(1L), eq(false), eq(false), any(), eq("market_watch_evening"),
                 any(), nullable(LocalDateTime.class), nullable(String.class)))
                 .thenReturn(pageOf(report(3, "market_watch_evening",
                         "【ETF市场数据简报晚间版】沪深300ETF", "沪深300ETF PE 分位 71%。")));
@@ -105,6 +116,23 @@ class ChatServiceImplTest {
         assertThat(response.getSources()).extracting(ChatResponseDTO.SourceItem::getEdition)
                 .containsExactly("market_watch_evening");
         verify(topicSectionService, never()).listRecent(any(), any(), anyInt());
+    }
+
+    @Test
+    void normalUserDoesNotReadUnsubscribedTopicsOrPublicDigests() {
+        when(subscriptionPreferences.enabledTopics(any())).thenReturn(List.of("区块链"));
+
+        ChatResponseDTO response = service.chat("最近有哪些 AI 大模型更新？", List.of(), 1L);
+
+        verify(topicSectionService, never()).listRecent(any(), any(), anyInt());
+        verify(reportQueryService, never()).pageVisible(
+                any(), anyBoolean(), anyBoolean(), any(), eq("morning"),
+                any(), nullable(LocalDateTime.class), nullable(String.class));
+        verify(reportQueryService, never()).pageVisible(
+                any(), anyBoolean(), anyBoolean(), any(), eq("evening"),
+                any(), nullable(LocalDateTime.class), nullable(String.class));
+        assertThat(response.getAnswer()).contains("没有检索到");
+        assertThat(response.getSources()).isEmpty();
     }
 
     private static Page<Report> emptyPage() {

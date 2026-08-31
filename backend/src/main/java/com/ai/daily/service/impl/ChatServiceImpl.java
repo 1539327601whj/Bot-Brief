@@ -3,7 +3,9 @@ package com.ai.daily.service.impl;
 import com.ai.daily.dto.ChatMessageDTO;
 import com.ai.daily.dto.ChatResponseDTO;
 import com.ai.daily.entity.Report;
+import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.TopicSection;
+import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.AiClientService;
 import com.ai.daily.service.ChatPromptBuilder;
 import com.ai.daily.service.ChatReportRanker;
@@ -14,6 +16,8 @@ import com.ai.daily.service.ReportPersonalizationService;
 import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.ReportWindows;
+import com.ai.daily.service.SubscriptionPreferences;
+import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.service.TopicSectionService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -41,6 +45,8 @@ public class ChatServiceImpl implements ChatService {
     private final TopicSectionService topicSectionService;
     private final ReportService reportService;
     private final AiClientService aiClientService;
+    private final SubscriptionService subscriptionService;
+    private final SubscriptionPreferences subscriptionPreferences;
 
     @Override
     public ChatResponseDTO chat(String question, List<ChatMessageDTO> history, Long userId) {
@@ -79,21 +85,22 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private List<Passage> retrieve(String question, ChatReportRanker.Intent intent, Long userId) {
+        boolean allowPublicDigest = SecurityUtils.canReadPublicDigest();
         List<String> keywords = ReportPersonalizationService.expandTerms(ChatReportRanker.extractKeywords(question));
-        List<String> topics = ReportPersonalizationService.matchingTopics(question);
+        List<String> topics = visibleSectionTopics(question, userId, allowPublicDigest);
         List<Passage> passages = new ArrayList<>();
 
-        if (intent != ChatReportRanker.Intent.MARKET) {
+        if (intent != ChatReportRanker.Intent.MARKET && (allowPublicDigest || !topics.isEmpty())) {
             LocalDate since = LocalDate.now(BEIJING).minusDays(21);
             List<TopicSection> sections = topicSectionService.listRecent(
                     since, topics.isEmpty() ? null : topics, topics.isEmpty() ? 80 : 40);
             for (TopicSection section : ChatSectionRanker.select(sections, keywords, topics, 5)) {
-                passages.add(fromSection(section, keywords, userId));
+                passages.add(fromSection(section, keywords, userId, allowPublicDigest));
             }
         }
 
         List<Long> usedIds = passages.stream().map(Passage::reportId).filter(id -> id != null).toList();
-        List<Report> reports = ChatReportRanker.select(question, loadReports(userId, intent));
+        List<Report> reports = ChatReportRanker.select(question, loadReports(userId, intent, allowPublicDigest));
         for (Report report : reports) {
             if (passages.size() >= MAX_PASSAGES) break;
             if (report.getId() != null && usedIds.contains(report.getId())) continue;
@@ -105,25 +112,27 @@ public class ChatServiceImpl implements ChatService {
         return passages;
     }
 
-    private List<Report> loadReports(Long userId, ChatReportRanker.Intent intent) {
+    private List<Report> loadReports(Long userId, ChatReportRanker.Intent intent, boolean allowPublicDigest) {
         LocalDateTime start = LocalDate.now(BEIJING).minusDays(intent == ChatReportRanker.Intent.MARKET ? 14 : 21)
                 .atStartOfDay();
         Map<Long, Report> unique = new LinkedHashMap<>();
         if (intent != ChatReportRanker.Intent.MARKET) {
-            addReports(unique, pageReports(userId, "morning", start, 20));
-            addReports(unique, pageReports(userId, "evening", start, 20));
-            addReports(unique, pageReports(userId, Report.PERSONAL, start, 15));
+            if (allowPublicDigest) {
+                addReports(unique, pageReports(userId, "morning", start, 20, allowPublicDigest));
+                addReports(unique, pageReports(userId, "evening", start, 20, allowPublicDigest));
+            }
+            addReports(unique, pageReports(userId, Report.PERSONAL, start, 15, allowPublicDigest));
         }
         if (intent != ChatReportRanker.Intent.TECH) {
-            addReports(unique, pageReports(userId, "market_watch_evening", start, 15));
-            addReports(unique, pageReports(userId, "market_watch_morning", start, 5));
+            addReports(unique, pageReports(userId, "market_watch_evening", start, 15, allowPublicDigest));
+            addReports(unique, pageReports(userId, "market_watch_morning", start, 5, allowPublicDigest));
         }
         return new ArrayList<>(unique.values());
     }
 
-    private List<Report> pageReports(Long userId, String edition, LocalDateTime start, int size) {
+    private List<Report> pageReports(Long userId, String edition, LocalDateTime start, int size, boolean allowPublicDigest) {
         IPage<Report> result = reportQueryService.pageVisible(
-                userId, false, true, new Page<>(1, size), edition, start, null, null);
+                userId, false, allowPublicDigest, new Page<>(1, size), edition, start, null, null);
         return result == null || result.getRecords() == null ? List.of() : result.getRecords();
     }
 
@@ -135,7 +144,7 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    private Passage fromSection(TopicSection section, List<String> keywords, Long userId) {
+    private Passage fromSection(TopicSection section, List<String> keywords, Long userId, boolean allowPublicDigest) {
         String body = ChatSnippetExtractor.extract(
                 firstNonBlank(section.getContent(), section.getSummary()), keywords, SNIPPET_CHARS);
         String date = section.getSectionDate() == null ? "" : section.getSectionDate().toString();
@@ -143,7 +152,7 @@ public class ChatServiceImpl implements ChatService {
         String title = firstNonBlank(section.getTitle(), "【" + topic + "】" + date);
         String createdAt = section.getCreatedAt() != null ? section.getCreatedAt().toString() : date;
         return new Passage(
-                resolveReportId(section, userId),
+                resolveReportId(section, userId, allowPublicDigest),
                 title,
                 section.getEdition(),
                 createdAt,
@@ -168,13 +177,46 @@ public class ChatServiceImpl implements ChatService {
         );
     }
 
-    private Long resolveReportId(TopicSection section, Long userId) {
+    private Long resolveReportId(TopicSection section, Long userId, boolean allowPublicDigest) {
         if (section.getSectionDate() == null) return null;
         Report mine = reportService.getByUserEditionDate(userId, Report.PERSONAL, section.getSectionDate());
         if (mine != null) return mine.getId();
+        if (!allowPublicDigest) return null;
         Report published = reportService.getLatestByEditionForDate(
                 ReportWindows.digestStyle(section.getEdition()), section.getSectionDate());
         return published == null ? null : published.getId();
+    }
+
+    private List<String> visibleSectionTopics(String question, Long userId, boolean allowPublicDigest) {
+        List<String> matched = ReportPersonalizationService.matchingTopics(question);
+        if (allowPublicDigest) {
+            return matched;
+        }
+        List<String> subscribed = subscribedTopics(userId);
+        if (subscribed.isEmpty()) return List.of();
+        if (matched.isEmpty()) return subscribed;
+        return matched.stream().filter(topic -> containsIgnoreCase(subscribed, topic)).toList();
+    }
+
+    private List<String> subscribedTopics(Long userId) {
+        if (userId == null) return List.of();
+        try {
+            Subscription subscription = subscriptionService.getOrCreateForUser(userId);
+            List<String> topics = subscriptionPreferences.enabledTopics(subscription);
+            return topics == null ? List.of() : topics.stream()
+                    .filter(topic -> topic != null && !topic.isBlank())
+                    .toList();
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    private static boolean containsIgnoreCase(List<String> topics, String topic) {
+        if (topic == null) return false;
+        for (String item : topics) {
+            if (item != null && item.equalsIgnoreCase(topic)) return true;
+        }
+        return false;
     }
 
     private List<ChatResponseDTO.SourceItem> toSources(List<Passage> passages) {

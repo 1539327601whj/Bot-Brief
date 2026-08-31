@@ -85,9 +85,7 @@ public class PushChannelController {
         try {
             PushChannel channel = pushChannelService.getByIdForUser(id, userId);
             if (channel == null) return Result.error(404, "渠道不存在");
-            Report report = reportService.getLatestForUser(userId, "morning");
-            if (report == null) report = reportService.getLatestForUser(userId, "evening");
-            if (report == null) report = reportService.getLatestByEdition("market_watch_evening");
+            Report report = testReport(userId);
             if (report == null) return Result.error(404, "暂无属于你的简报可推送，请先勾选兴趣并等待生成");
             pushDispatcher.sendOne(channel, report);
             return Result.ok("测试推送已发出，请到目标渠道查看", null);
@@ -96,6 +94,18 @@ public class PushChannelController {
         } catch (Exception e) {
             return Result.error(500, "测试推送失败：" + safeMessage(e));
         }
+    }
+
+    Report testReport(Long userId) {
+        Report personal = reportService.getLatestForUser(userId, Report.PERSONAL);
+        if (personal != null) return personal;
+        if (SecurityUtils.canReadPublicDigest()) {
+            Report morning = reportService.getLatestByEdition("morning");
+            if (morning != null) return morning;
+            Report evening = reportService.getLatestByEdition("evening");
+            if (evening != null) return evening;
+        }
+        return reportService.getLatestByEdition("market_watch_evening");
     }
 
     private String safeMessage(Exception error) {
