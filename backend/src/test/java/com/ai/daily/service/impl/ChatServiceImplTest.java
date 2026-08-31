@@ -131,7 +131,7 @@ class ChatServiceImplTest {
         verify(reportQueryService, never()).pageVisible(
                 any(), anyBoolean(), anyBoolean(), any(), eq("evening"),
                 any(), nullable(LocalDateTime.class), nullable(String.class));
-        assertThat(response.getAnswer()).contains("没有检索到");
+        assertThat(response.getAnswer()).contains("没有检索到").contains("已订阅");
         assertThat(response.getSources()).isEmpty();
     }
 

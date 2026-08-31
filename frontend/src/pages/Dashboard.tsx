@@ -583,7 +583,7 @@ export default function Dashboard() {
           </div>
 
           <div className="overview-section-header">
-            <h2>今日 AI 简报</h2>
+            <h2>{isDemo ? '今日 AI 简报' : '我的简报'}</h2>
             <Link to="/reports" className="section-link">历史简报 →</Link>
           </div>
           <div className={isDemo || slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
