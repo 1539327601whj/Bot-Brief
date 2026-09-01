@@ -354,6 +354,24 @@ class TopicSectionTests(unittest.TestCase):
         prompt = report.build_topic_prompt("新闻", "AI科技", "morning", "只要芯片和航天")
         self.assertIn("只要芯片和航天", prompt)
 
+    def test_attach_sources_uses_candidate_links_not_model_footer(self):
+        items = [
+            {"title": "PostgreSQL 18 发布", "link": "https://www.postgresql.org/about/news/18/", "source": "数据库周报"},
+            {"title": "重复标题", "link": "https://www.postgresql.org/about/news/18/#comments", "source": "其它"},
+            {"title": "无链接", "link": "", "source": "内部"},
+        ]
+        attached = report.attach_sources("## 数据库\n\n**要点：** 有版本发布。\n\n> 数据来源：模型自己写的", items)
+        self.assertIn("### 今日来源", attached)
+        self.assertIn("[数据库周报 · PostgreSQL 18 发布](https://www.postgresql.org/about/news/18/)", attached)
+        self.assertNotIn("模型自己写的", attached)
+        self.assertEqual(attached.count("https://www.postgresql.org/about/news/18"), 1)
+
+    def test_wework_keeps_clickable_source_links(self):
+        text = "## 数据库\n\n正文\n\n### 今日来源\n\n1. [机器之心 · 大模型](https://www.jiqizhixin.com/a)\n"
+        wx = report.convert_to_wework_markdown(text)
+        self.assertIn("[机器之心 · 大模型](https://www.jiqizhixin.com/a)", wx)
+        self.assertIn("今日来源", wx)
+
     def test_intent_can_search_when_pool_has_no_match(self):
         searched = [{"title": "英伟达芯片发布", "summary": "数据中心", "score": 8, "source": "主题检索·中文"}]
         with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:

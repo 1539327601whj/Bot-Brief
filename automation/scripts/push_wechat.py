@@ -47,7 +47,8 @@ def convert_to_wework_markdown(md_text):
             out.append("")
             continue
         # 跳过数据来源/分隔行
-        if stripped.startswith(">") and ("数据来源" in stripped or "下次推送" in stripped):
+        if stripped.startswith(">") and ("下次推送" in stripped or (
+                "数据来源" in stripped and "](" not in stripped)):
             continue
         if stripped == "---":
             out.append("---")

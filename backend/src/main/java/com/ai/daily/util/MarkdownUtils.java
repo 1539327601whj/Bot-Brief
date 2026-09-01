@@ -85,7 +85,9 @@ public final class MarkdownUtils {
         escaped = escaped.replaceAll("__(.+?)__", "<strong>$1</strong>");
         escaped = escaped.replaceAll("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", "<em>$1</em>");
         escaped = escaped.replaceAll("`([^`]+)`", "<code>$1</code>");
-        escaped = escaped.replaceAll("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)", "<a href=\"$2\">$1</a>");
+        escaped = escaped.replaceAll(
+                "\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)",
+                "<a href=\"$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>");
         return escaped;
     }
 

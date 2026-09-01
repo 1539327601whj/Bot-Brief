@@ -14,4 +14,11 @@ class MarkdownUtilsTest {
         assertThat(html).contains("<li>第一条</li>");
         assertThat(html).doesNotContain("<pre>");
     }
+
+    @Test
+    void convertsMarkdownLinksToClickableHtml() {
+        String html = MarkdownUtils.toSimpleHtml("### 今日来源\n\n1. [机器之心 · 大模型发布](https://www.jiqizhixin.com/a)");
+        assertThat(html).contains("<a href=\"https://www.jiqizhixin.com/a\" target=\"_blank\" rel=\"noopener noreferrer\">机器之心 · 大模型发布</a>");
+        assertThat(MarkdownUtils.stripToPlainText("[标题](https://example.com/a)", 0)).isEqualTo("标题");
+    }
 }

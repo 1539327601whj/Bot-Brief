@@ -320,8 +320,9 @@ def convert_to_wework_markdown(md_text):
         if not stripped:
             out.append("")
             continue
-        # 跳过数据来源行
-        if stripped.startswith(">") and ("数据来源" in stripped or "下次推送" in stripped):
+        # 旧版引用脚注仍去掉；「今日来源」里的可点链接要保留
+        if stripped.startswith(">") and ("下次推送" in stripped or (
+                "数据来源" in stripped and "](" not in stripped)):
             continue
         if stripped == "---":
             out.append("---")
@@ -607,6 +608,80 @@ def has_substantive_report_content(content):
     return False
 
 
+def news_link(item):
+    link = str((item or {}).get("link") or "").strip()
+    if link.startswith("https://") or link.startswith("http://"):
+        return link
+    return ""
+
+
+def news_title(item):
+    title = re.sub(r"\s+", " ", str((item or {}).get("title") or "").strip())
+    return title.replace("[", "［").replace("]", "］") or "未命名"
+
+
+def source_items(items, limit=6):
+    seen = set()
+    sources = []
+    for item in items or []:
+        link = news_link(item)
+        if not link:
+            continue
+        key = re.sub(r"/+$", "", link.split("#", 1)[0]).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append({
+            "title": news_title(item),
+            "link": link,
+            "source": str((item or {}).get("source") or "").strip(),
+        })
+        if len(sources) >= limit:
+            break
+    return sources
+
+
+def render_source_section(items, limit=6):
+    sources = source_items(items, limit)
+    if not sources:
+        return ""
+    lines = ["### 今日来源", ""]
+    for index, item in enumerate(sources, 1):
+        label = f"{item['source']} · {item['title']}" if item["source"] else item["title"]
+        lines.append(f"{index}. [{label}]({item['link']})")
+    return "\n".join(lines) + "\n"
+
+
+def strip_generated_source_footer(content):
+    text = content or ""
+    last = None
+    for found in re.finditer(r"(?im)^#{1,6}\s*(今日来源|数据来源)\s*$", text):
+        last = found
+    if last:
+        text = text[:last.start()].rstrip()
+    lines = text.splitlines()
+    while lines:
+        stripped = lines[-1].strip()
+        if not stripped:
+            lines.pop()
+            continue
+        if stripped.startswith(">") and "数据来源" in stripped and "](" not in stripped:
+            lines.pop()
+            continue
+        break
+    return "\n".join(lines).rstrip()
+
+
+def attach_sources(content, items, limit=6):
+    body = strip_generated_source_footer(content)
+    section = render_source_section(items, limit)
+    if not section:
+        return body + ("\n" if body and not body.endswith("\n") else "")
+    if body:
+        return body + "\n\n" + section
+    return section
+
+
 def call_llm_with_retry(prompt, max_retries=3):
     """调用 LLM API，并在空响应或可恢复错误时重试。"""
     from openai import OpenAI
@@ -678,7 +753,7 @@ SYSTEM_PROMPT_MORNING = """你是一位资深 AI 技术架构师与科技媒体�
 
 **对开发者的价值：** 40-70字，说明对应用开发、架构选型或效率工具的具体影响。
 
-最后附上数据来源行。总字数控制在 800 字以内，只输出最终简报。"""
+不要编造链接，也不要写数据来源行。原文地址由系统按候选资讯附加。总字数控制在 800 字以内，只输出最终简报。"""
 
 
 SYSTEM_PROMPT_EVENING = """你是一位资深 AI 技术架构师与科技媒体主编，为资深 Java/AI 开发者写晚间 AI 总结。
@@ -702,7 +777,7 @@ SYSTEM_PROMPT_EVENING = """你是一位资深 AI 技术架构师与科技媒体�
 
 **对开发者的价值：** 40-70字，说明对应用开发、架构选型或效率工具的具体影响。
 
-最后附上数据来源行。总字数控制在 800 字以内，只输出最终简报。"""
+不要编造链接，也不要写数据来源行。原文地址由系统按候选资讯附加。总字数控制在 800 字以内，只输出最终简报。"""
 
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_MORNING  # 默认值，后续会根据 edition 动态选择
@@ -887,7 +962,7 @@ def build_topic_prompt(news_text, topic, edition="morning", intent=None):
 
 **影响：** 40-70字，说明对开发者或从业者的具体影响。
 
-只输出这一段，总字数控制在 280 字以内。
+不要编造链接或来源行。原文地址由系统按候选资讯附加。只输出这一段，总字数控制在 280 字以内。
 
 ---
 
@@ -943,6 +1018,7 @@ def generate_public_ai_digest(news_items, edition, report_date, run_id):
         print("  skip AI digest: no news")
         return False
     edition_suffix = "早间版" if edition == "morning" else "晚间版"
+    selected = select_news_for_prompt(news_items, edition)
     news_text = format_news_for_prompt(news_items, edition)
     prompt = build_prompt(news_text, edition)
     try:
@@ -954,7 +1030,7 @@ def generate_public_ai_digest(news_items, edition, report_date, run_id):
         print("  skip AI digest: empty body")
         return False
     header = f"# 🤖 AI 每日高价值简报 · {report_date}（{edition_suffix}）\n\n---\n\n"
-    full_report = header + body
+    full_report = header + attach_sources(body, selected)
     title = f"【{edition_suffix}】AI 每日简报 {report_date}"
     summary = body[:100] + "..." if len(body) > 100 else body
     return push_to_backend(edition, report_date, title, full_report, summary, run_id)
@@ -1029,6 +1105,7 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id, 
         return False
     if not content.lstrip().startswith("##"):
         content = f"## {topic}\n\n{content.strip()}"
+    content = attach_sources(content, selected)
     title = f"{topic} · {report_date}"
     summary = content[:100] + "..." if len(content) > 100 else content
     if push_topic_section(edition, report_date, topic, title, content, summary, run_id):

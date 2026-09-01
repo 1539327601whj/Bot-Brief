@@ -38,16 +38,23 @@ function renderMarketChanges(node: ReactNode): ReactNode {
 
 export default function MarketMarkdown({ children }: MarketMarkdownProps) {
   return (
-    <ReactMarkdown
-      components={{
-        p: ({ children: content, ...props }) => <p {...props}>{renderMarketChanges(content)}</p>,
-        li: ({ children: content, ...props }) => <li {...props}>{renderMarketChanges(content)}</li>,
-        blockquote: ({ children: content, ...props }) => (
-          <blockquote {...props}>{renderMarketChanges(content)}</blockquote>
-        ),
-      }}
-    >
-      {children}
-    </ReactMarkdown>
+    <div className="market-markdown">
+      <ReactMarkdown
+        components={{
+          p: ({ children: content, ...props }) => <p {...props}>{renderMarketChanges(content)}</p>,
+          li: ({ children: content, ...props }) => <li {...props}>{renderMarketChanges(content)}</li>,
+          blockquote: ({ children: content, ...props }) => (
+            <blockquote {...props}>{renderMarketChanges(content)}</blockquote>
+          ),
+          a: ({ href, children: content, ...props }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+              {renderMarketChanges(content)}
+            </a>
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
   )
 }

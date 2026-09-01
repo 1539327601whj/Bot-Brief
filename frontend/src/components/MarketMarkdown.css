@@ -1,3 +1,14 @@
+.market-markdown a {
+  color: #8b9cff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+
+.market-markdown a:hover {
+  color: #c4cbff;
+}
+
 .market-change {
   display: inline-block;
   font-weight: 700;
