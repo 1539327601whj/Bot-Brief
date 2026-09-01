@@ -142,7 +142,7 @@ export default function History() {
   }
 
   const renderReportCard = (report: Report) => {
-    const editionInfo = getReportEditionInfo(report.edition, report.displayTime)
+    const editionInfo = getReportEditionInfo(report.edition, report.displayTime, report.title)
     return (
       <div key={report.id} className="report-card" onClick={() => navigate(`/report/${report.id}`)}>
         <div className="report-icon">{editionInfo.icon}</div>

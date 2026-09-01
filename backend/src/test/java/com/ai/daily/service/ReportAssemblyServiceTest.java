@@ -40,8 +40,8 @@ class ReportAssemblyServiceTest {
                 eq(7L),
                 eq(date),
                 eq(time),
-                eq("【08:15】我的简报 2026-08-28"),
-                eq("# 🎯 我的简报 08:15 · 2026-08-28\n\n---\n\n## 安全\n\n披露新的鉴权漏洞。\n\n## 数据库\n\nPostgreSQL 发布更新。\n"),
+                eq("【08:15】安全与数据库 2026-08-28"),
+                eq("# 安全与数据库 · 08:15 · 2026-08-28\n\n---\n\n## 安全\n\n披露新的鉴权漏洞。\n\n## 数据库\n\nPostgreSQL 发布更新。\n"),
                 any());
     }
 
@@ -165,9 +165,16 @@ class ReportAssemblyServiceTest {
         assertThat(result).isSameAs(saved);
         verify(reports, never()).getLatestByEditionForDate(any(), any());
         verify(reports).saveUserReport(
-                eq(7L), eq(date), eq(time), eq("【08:00】我的简报 2026-08-31"),
-                eq("# 🎯 我的简报 08:00 · 2026-08-31\n\n---\n\n## AI科技\n\n只要芯片相关。\n"),
+                eq(7L), eq(date), eq(time), eq("【08:00】AI科技日报 2026-08-31"),
+                eq("# AI科技日报 · 08:00 · 2026-08-31\n\n---\n\n## AI科技\n\n只要芯片相关。\n"),
                 any());
+    }
+
+    @Test
+    void topicHeadlineUsesSubscriptionNames() {
+        assertThat(ReportAssemblyService.topicHeadline(List.of("马斯克"))).isEqualTo("马斯克日报");
+        assertThat(ReportAssemblyService.topicHeadline(List.of("安全", "数据库"))).isEqualTo("安全与数据库");
+        assertThat(ReportAssemblyService.topicHeadline(List.of("安全", "数据库", "区块链"))).isEqualTo("安全、数据库等");
     }
 
     private TopicSection section(String topic, String content) {

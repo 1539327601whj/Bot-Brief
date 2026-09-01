@@ -751,7 +751,7 @@ def news_title(item):
     return title.replace("[", "［").replace("]", "］") or "未命名"
 
 
-def source_items(items, limit=6):
+def source_items(items, limit=3):
     seen = set()
     sources = []
     for item in items or []:
@@ -772,7 +772,7 @@ def source_items(items, limit=6):
     return sources
 
 
-def render_source_section(items, limit=6):
+def render_source_section(items, limit=3):
     sources = source_items(items, limit)
     if not sources:
         return ""
@@ -803,7 +803,7 @@ def strip_generated_source_footer(content):
     return "\n".join(lines).rstrip()
 
 
-def attach_sources(content, items, limit=6):
+def attach_sources(content, items, limit=3):
     body = strip_generated_source_footer(content)
     section = render_source_section(items, limit)
     if not section:
@@ -1294,22 +1294,28 @@ def build_topic_prompt(news_text, topic, edition="morning", intent=None, match=N
         )
     else:
         intent_rule = "4. 用户没有额外想法，按该主题的默认范围来写。"
-    return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}简报段落。
+    return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}主题日报，标题用主题名，不要写「我的简报」。
 
 【要求】
 1. 只覆盖与该主题直接相关的资讯，不要写成全站综合简报。
-2. 拒绝水文、公关稿、股价新闻。
-3. 若候选资讯不够相关，宁可少写，不要硬凑。
+2. 拒绝水文、公关稿、纯股价涨跌。
+3. 若候选资讯不够相关，宁可少写条目，不要硬凑假事件。
 {intent_rule}
 
 【输出格式】
-## {topic}
+## {topic}日报
 
-**要点：** 70-90字，说明今天这个主题发生了什么。
+**今日概览：** 40-70字，概括今天这个主题最重要的变化。
 
-**影响：** 40-70字，说明对开发者或从业者的具体影响。
+按候选写 2～3 条（候选只有 1 条就写 1 条），每条：
 
-不要编造链接或来源行。原文地址由系统按候选资讯附加。只输出这一段，总字数控制在 280 字以内。
+### N. 标题（一句话概括事件）
+
+**发生了什么：** 60-90字，只写候选里的事实。
+
+**意味着什么：** 40-70字，说明对关注此主题的人有何影响。
+
+不要编造链接或来源行。原文地址由系统按候选资讯附加。总字数 450-750 字。
 
 ---
 

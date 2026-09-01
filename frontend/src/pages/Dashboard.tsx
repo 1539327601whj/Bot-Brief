@@ -126,9 +126,15 @@ async function latestPublicReport(edition: string): Promise<Report | null> {
   return page?.records?.[0] || null
 }
 
-function ReportMiniCard({ report, edition, emptyHint, displayTime }: { report: Report | null; edition: EditionKey; emptyHint?: string; displayTime?: string }) {
+function ReportMiniCard({ report, edition, emptyHint, displayTime, topics }: {
+  report: Report | null
+  edition: EditionKey
+  emptyHint?: string
+  displayTime?: string
+  topics?: string[]
+}) {
   const [expanded, setExpanded] = useState(false)
-  const info = getReportEditionInfo(edition, report?.displayTime || displayTime)
+  const info = getReportEditionInfo(edition, report?.displayTime || displayTime, report?.title, topics)
   const fresh = isToday(report?.createdAt)
   const reportDate = report ? dayjs(report.createdAt).format('YYYY-MM-DD') : ''
 
@@ -180,7 +186,7 @@ function FocusCard({ report }: { report: Report | null }) {
     )
   }
 
-  const info = getReportEditionInfo(report.edition, report.displayTime)
+  const info = getReportEditionInfo(report.edition, report.displayTime, report.title)
   return (
     <div className="overview-card focus-card">
       <div className="overview-card-header">
@@ -286,7 +292,7 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
       {systemBriefs.length > 0 && (
         <div className="system-push-list">
           {systemBriefs.map(report => {
-            const info = getReportEditionInfo(report.edition, report.displayTime)
+            const info = getReportEditionInfo(report.edition, report.displayTime, report.title)
             return (
               <div key={report.id} className="status-row">
                 <span>{info.shortLabel}</span>
@@ -331,7 +337,7 @@ function RecentReportList({ reports }: { reports: Report[] }) {
     <div className="report-list">
       <div className="list">
         {reports.map(report => {
-          const info = getReportEditionInfo(report.edition, report.displayTime)
+          const info = getReportEditionInfo(report.edition, report.displayTime, report.title)
           return (
             <div key={report.id} className="report-item">
               <div className="item-left">
@@ -552,6 +558,7 @@ export default function Dashboard() {
                     edition="personal"
                     displayTime={time}
                     emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
+                    topics={todayProgress.items.filter(item => item.time === time).map(item => item.topic)}
                   />
                 ))
               )}
@@ -602,6 +609,7 @@ export default function Dashboard() {
                   edition="personal"
                   displayTime={time}
                   emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
+                  topics={todayProgress.items.filter(item => item.time === time).map(item => item.topic)}
                 />
               ))
             )}

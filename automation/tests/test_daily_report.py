@@ -391,6 +391,18 @@ class TopicSectionTests(unittest.TestCase):
         self.assertNotIn("模型自己写的", attached)
         self.assertEqual(attached.count("https://www.postgresql.org/about/news/18"), 1)
 
+    def test_attach_sources_keeps_three_links(self):
+        items = [
+            {"title": f"条目{index}", "link": f"https://example.test/{index}", "source": "源"}
+            for index in range(6)
+        ]
+        attached = report.attach_sources("## 主题\n\n正文", items)
+        self.assertEqual(attached.count("https://example.test/"), 3)
+        prompt = report.build_topic_prompt("新闻", "马斯克", "morning")
+        self.assertIn("今日概览", prompt)
+        self.assertIn("马斯克日报", prompt)
+        self.assertNotIn("280 字", prompt)
+
     def test_wework_keeps_clickable_source_links(self):
         text = "## 数据库\n\n正文\n\n### 今日来源\n\n1. [机器之心 · 大模型](https://www.jiqizhixin.com/a)\n"
         wx = report.convert_to_wework_markdown(text)

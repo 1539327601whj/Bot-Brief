@@ -21,15 +21,30 @@ export function reportIsOnDate(report?: { createdAt?: string; reportDate?: strin
   return dayjs(date).format('YYYY-MM-DD') === day.format('YYYY-MM-DD')
 }
 
-export function getReportEditionInfo(edition: string, displayTime?: string) {
+export function personalEditionName(reportTitle?: string, topics?: string[]) {
+  const fromTitle = (reportTitle || '')
+    .replace(/^【\d{2}:\d{2}】\s*/, '')
+    .replace(/\s+\d{4}-\d{2}-\d{2}\s*$/, '')
+    .replace(/^我的简报\s*/, '')
+    .trim()
+  if (fromTitle) return fromTitle
+  const names = [...new Set((topics || []).map(topic => topic.trim()).filter(Boolean))]
+  if (names.length === 1) return `${names[0]}日报`
+  if (names.length === 2) return `${names[0]}与${names[1]}`
+  if (names.length > 2) return `${names[0]}等`
+  return '订阅日报'
+}
+
+export function getReportEditionInfo(edition: string, displayTime?: string, reportTitle?: string, topics?: string[]) {
   const time = displayTime ? displayTime.slice(0, 5) : ''
   if (edition === 'personal') {
+    const name = personalEditionName(reportTitle, topics)
     return {
       icon: '✨',
-      label: time ? `我的简报 ${time}` : '我的简报',
-      shortLabel: time || '简报',
+      label: time ? `${name} ${time}` : name,
+      shortLabel: name,
       className: 'tag tag-morning',
-      version: '我的简报',
+      version: '订阅日报',
       expectedLabel: time || '--:--',
     }
   }

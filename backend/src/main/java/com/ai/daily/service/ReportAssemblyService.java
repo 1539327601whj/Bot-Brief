@@ -92,15 +92,16 @@ public class ReportAssemblyService {
         boolean onlyDigest = focuses.stream().allMatch(TopicFocus::usePublicDigest);
         String title;
         String content;
+        List<String> topics = focuses.stream().map(TopicFocus::topic).toList();
         if (onlyDigest && sections.size() == 1) {
             TopicSection digest = sections.get(0);
             title = digest.getTitle() != null && !digest.getTitle().isBlank()
                     ? digest.getTitle()
-                    : titleFor(date, minute);
+                    : titleFor(date, minute, topics);
             content = digest.getContent();
         } else {
-            title = titleFor(date, minute);
-            content = render(date, minute, sections);
+            title = titleFor(date, minute, topics);
+            content = render(date, minute, sections, topics);
         }
         return new Assembled(title, content, MarkdownUtils.stripToPlainText(content, 100));
     }
@@ -130,16 +131,32 @@ public class ReportAssemblyService {
         return sections;
     }
 
-    static String titleFor(LocalDate date, LocalTime time) {
-        return "【" + ReportWindows.format(time) + "】我的简报 " + date;
+    static String topicHeadline(List<String> topics) {
+        List<String> names = new ArrayList<>();
+        if (topics != null) {
+            for (String topic : topics) {
+                if (topic == null || topic.isBlank()) continue;
+                String name = topic.trim();
+                if (!names.contains(name)) names.add(name);
+            }
+        }
+        if (names.isEmpty()) return "订阅日报";
+        if (names.size() == 1) return names.get(0) + "日报";
+        if (names.size() == 2) return names.get(0) + "与" + names.get(1);
+        return names.get(0) + "、" + names.get(1) + "等";
+    }
+
+    static String titleFor(LocalDate date, LocalTime time, List<String> topics) {
+        return "【" + ReportWindows.format(time) + "】" + topicHeadline(topics) + " " + date;
     }
 
     private record Assembled(String title, String content, String summary) {
     }
 
-    static String render(LocalDate date, LocalTime time, List<TopicSection> sections) {
+    static String render(LocalDate date, LocalTime time, List<TopicSection> sections, List<String> topics) {
         StringBuilder content = new StringBuilder();
-        content.append("# 🎯 我的简报 ").append(ReportWindows.format(time)).append(" · ").append(date).append("\n\n---\n\n");
+        content.append("# ").append(topicHeadline(topics)).append(" · ")
+                .append(ReportWindows.format(time)).append(" · ").append(date).append("\n\n---\n\n");
         for (int i = 0; i < sections.size(); i++) {
             if (i > 0) content.append("\n\n");
             content.append(sections.get(i).getContent().strip());
