@@ -47,7 +47,7 @@ export function topicOverview(topic: string) {
     if (interestKey(name) === key) return text
   }
   const label = topic.trim() || '这个主题'
-  return `按「${label}」检索近 24 小时相关资讯并写成简报。不填想法时按这个词本身检索。`
+  return `按「${label}」检索近 48 小时公开资讯（含中英文别名），来源包括新闻搜索与科技媒体 RSS。不填想法时按这个词本身检索。`
 }
 
 export function topicIntentHint(topic: string) {

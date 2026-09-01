@@ -278,8 +278,19 @@ class TopicSectionTests(unittest.TestCase):
         self.assertIn("具身智能新突破", titles)
 
     def test_topic_search_urls_include_encoded_query(self):
-        urls = [url for _, url in report.topic_search_urls("具身智能")]
-        self.assertTrue(any("q=%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD" in url for url in urls))
+        named = report.topic_search_urls("具身智能")
+        names = [name for name, _url in named]
+        urls = [url for _, url in named]
+        self.assertTrue(any("%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD" in url for url in urls))
+        self.assertIn("Google中文", names)
+        self.assertIn("Bing新闻", names)
+        self.assertIn("Reddit", names)
+        self.assertIn("Hacker News", names)
+        scan_names = [name for name, _url in report.topic_scan_feeds()]
+        self.assertIn("Electrek", scan_names)
+        self.assertIn("TechCrunch", scan_names)
+        self.assertIn("IT之家", scan_names)
+        self.assertIn("Space.com", scan_names)
 
     @patch.dict(os.environ, {
         "BACKEND_API_URL": "https://backend.test",
@@ -394,6 +405,20 @@ class TopicSectionTests(unittest.TestCase):
         self.assertEqual(selected, searched)
         search.assert_called_once()
 
+    def test_musk_intent_extracts_speech_query_and_aliases(self):
+        terms = report.intent_terms("马斯克最近最火的演讲或者热点")
+        self.assertTrue(any("演讲" in term for term in terms))
+        self.assertNotIn("热点", terms)
+        queries = report.topic_search_queries("马斯克", "马斯克最近最火的演讲或者热点")
+        self.assertEqual(queries[0], "马斯克")
+        self.assertTrue(any("elon musk" == query.lower() for query in queries))
+        self.assertTrue(any("演讲" in query for query in queries))
+        musk = {"title": "Musk previews Tesla robotaxi", "summary": "event", "score": 8}
+        tesla = {"title": "Tesla recalls vehicles", "summary": "safety", "score": 7}
+        self.assertTrue(report.news_mentions_topic(musk, "马斯克"))
+        self.assertTrue(report.news_mentions_topic(tesla, "马斯克"))
+        self.assertFalse(report.news_mentions_topic({"title": "今日财经", "summary": "股市"}, "马斯克"))
+
     def test_huang_aliases_expand_and_match(self):
         terms = [term.lower() for term in report.expand_topic_terms("黄仁勋")]
         self.assertIn("nvidia", terms)
@@ -428,6 +453,29 @@ class TopicSectionTests(unittest.TestCase):
 
     def test_topic_search_queries_stay_single_for_unknown_topic(self):
         self.assertEqual(report.topic_search_queries("具身智能"), ["具身智能"])
+
+    def test_fetch_includes_scan_feed_matches(self):
+        now = datetime(2026, 9, 1, 15, 0, tzinfo=report.BEIJING_TZ)
+
+        def fake_parse(xml, source, max_items=12):
+            if source == "Electrek":
+                return [{
+                    "title": "Tesla launches cheaper Model Y",
+                    "summary": "EV",
+                    "score": 8,
+                    "source": source,
+                    "link": "https://e.test/1",
+                    "published_at": now,
+                }]
+            return []
+
+        with patch.object(report, "topic_search_urls", return_value=[]), \
+             patch.object(report, "topic_scan_feeds", return_value=[("Electrek", "https://electrek.co/feed/")]), \
+             patch.object(report, "fetch_feed", return_value="<rss/>"), \
+             patch.object(report, "parse_rss_items", side_effect=fake_parse), \
+             patch.object(report, "now_beijing", return_value=now):
+            items = report.fetch_topic_search_news("马斯克")
+        self.assertTrue(any("Tesla" in item["title"] for item in items))
 
     def test_fetch_topic_search_news_uses_alias_queries_and_recency(self):
         now = datetime(2026, 9, 1, 15, 0, tzinfo=report.BEIJING_TZ)

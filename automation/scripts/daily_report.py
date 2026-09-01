@@ -405,16 +405,45 @@ SOURCE_WEIGHTS = {
 }
 
 
+RSS_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+}
+
+
 def fetch_feed(feed_url, timeout=10):
-    """抓取单个 RSS Feed"""
+    """抓取单个公开 RSS Feed"""
     try:
-        req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
+        req = Request(feed_url, headers=RSS_HEADERS)
         with urlopen(req, timeout=timeout) as resp:
             charset = resp.headers.get_content_charset() or "utf-8"
             return resp.read().decode(charset, errors="replace")
     except (URLError, HTTPError, Exception) as e:
         print(f"  ⚠️ 抓取失败 {feed_url}: {e}")
         return None
+
+
+def fetch_feeds_parallel(named_urls, timeout=8, max_workers=8):
+    jobs = list(named_urls or [])
+    if not jobs:
+        return []
+    results = [None] * len(jobs)
+    workers = min(max_workers, len(jobs))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(fetch_feed, url, timeout): index
+            for index, (_name, url) in enumerate(jobs)
+        }
+        for future in as_completed(future_map):
+            index = future_map[future]
+            try:
+                results[index] = future.result()
+            except Exception:
+                results[index] = None
+    return [(jobs[index][0], jobs[index][1], results[index]) for index in range(len(jobs))]
 
 
 def parse_entry_datetime(entry):
@@ -914,7 +943,7 @@ TOPIC_KEYWORDS = {
 # 自定义主题的公开别名，只覆盖常见人名/公司，避免把任意词扩得太宽。
 TOPIC_ALIAS_GROUPS = [
     ["黄仁勋", "jensen huang", "nvidia", "英伟达", "nvda"],
-    ["马斯克", "elon musk", "特斯拉", "tesla", "spacex", "xai"],
+    ["马斯克", "elon musk", "musk", "特斯拉", "tesla", "spacex", "xai"],
     ["openai", "chatgpt", "山姆·奥特曼", "sam altman"],
     ["deepseek", "深度求索"],
     ["anthropic", "claude"],
@@ -933,18 +962,30 @@ def normalize_intent(intent):
     return text[:120]
 
 
+INTENT_NOISE = {
+    "只要", "不要", "关注", "例如", "最近", "最火", "最火的", "热点", "相关",
+    "资讯", "新闻", "内容", "方面", "一点", "一些", "一下", "看看", "就行",
+    "就好", "即可", "我想看", "的",
+}
+
+
 def intent_terms(intent):
     text = normalize_intent(intent)
     if not text:
         return []
     cleaned = re.sub(r"^(只要|不要|关注|例如)[:：]?", "", text).strip() or text
-    parts = [part.strip() for part in re.split(r"[，,；;、/|和与及]+", cleaned) if part.strip()]
+    parts = [part.strip() for part in re.split(r"[，,；;、/|]+|或者|和|与|及|或", cleaned) if part.strip()]
     skip = {"只要", "不要", "关注", "例如"}
     terms = []
     for part in parts:
         if part in skip or part.startswith("不要"):
             continue
-        terms.append(part)
+        leftover = part
+        for noise in sorted(INTENT_NOISE, key=len, reverse=True):
+            leftover = leftover.replace(noise, " ")
+        leftover = " ".join(leftover.split()).strip()
+        if leftover and leftover not in skip and leftover not in INTENT_NOISE:
+            terms.append(leftover)
     return terms
 
 
@@ -1014,11 +1055,14 @@ def topic_search_queries(topic, intent=None):
     add(topic_name)
     latin = next((term for term in expand_topic_terms(topic_name) if re.search(r"[A-Za-z]", term)), "")
     add(latin)
-    terms = intent_terms(intent)
-    if topic_name and terms:
-        add(f"{topic_name} {terms[0]}")
-    elif terms:
-        add(terms[0])
+    for term in intent_terms(intent):
+        trimmed = term
+        if topic_name and trimmed.lower().startswith(topic_name.lower()):
+            trimmed = trimmed[len(topic_name):].strip()
+        if not trimmed or trimmed.lower() == topic_name.lower() or len(trimmed) > 16:
+            continue
+        add(f"{topic_name} {trimmed}" if topic_name else trimmed)
+        break
     return queries[:3]
 
 
@@ -1044,13 +1088,41 @@ def is_preset_topic(topic):
     return any(name.lower() == key for name in TOPIC_KEYWORDS)
 
 
+TOPIC_SCAN_FEEDS = [
+    ("The Verge", "https://www.theverge.com/rss/index.xml"),
+    ("Electrek", "https://electrek.co/feed/"),
+    ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
+    ("BBC科技", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
+    ("Space.com", "https://www.space.com/feeds/all"),
+    ("Engadget", "https://www.engadget.com/rss.xml"),
+    ("IT之家", "https://www.ithome.com/rss/"),
+    ("少数派", "https://sspai.com/feed"),
+    ("Solidot", "https://www.solidot.org/index.rss"),
+]
+
+
 def topic_search_urls(topic):
-    query = quote(topic.strip())
+    raw = " ".join((topic or "").split())
+    query = quote(raw)
+    timed = quote(f"{raw} when:7d")
     return [
-        ("主题检索·中文", f"https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
-        ("主题检索·英文", f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"),
+        ("Google中文", f"https://news.google.com/rss/search?q={timed}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+        ("Google英文", f"https://news.google.com/rss/search?q={timed}&hl=en-US&gl=US&ceid=US:en"),
+        ("Bing新闻", f"https://www.bing.com/news/search?q={query}&format=rss"),
         ("Hacker News", f"https://hnrss.org/newest?q={query}&count=20"),
+        ("Reddit", f"https://www.reddit.com/search.rss?q={query}&sort=new&t=week"),
     ]
+
+
+def topic_scan_feeds():
+    seen = set()
+    feeds = []
+    for name, url in list(RSS_FEEDS) + list(TOPIC_SCAN_FEEDS):
+        if url in seen:
+            continue
+        seen.add(url)
+        feeds.append((name, url))
+    return feeds
 
 
 def news_mentions_topic(item, topic, intent=None):
@@ -1062,20 +1134,26 @@ def news_mentions_topic(item, topic, intent=None):
 
 
 def fetch_topic_search_news(topic, limit=8, intent=None):
-    """按主题词和别名检索公开 RSS，只留近两天且真正相关的条目。"""
+    """按主题词和别名检索公开 RSS，并扫描科技媒体源，只留近两天相关条目。"""
     extra = normalize_intent(intent)
-    collected = []
+    jobs = []
     for query in topic_search_queries(topic, extra):
         for source, url in topic_search_urls(query):
-            xml = fetch_feed(url, timeout=8)
-            if not xml:
-                continue
-            try:
-                for item in parse_rss_items(xml, source, max_items=12):
+            jobs.append((source, url, query))
+    for source, url in topic_scan_feeds():
+        jobs.append((source, url, ""))
+    fetched = fetch_feeds_parallel([(name, url) for name, url, _query in jobs], timeout=10)
+    collected = []
+    for (source, _url, query), (_name, _fetched_url, xml) in zip(jobs, fetched):
+        if not xml:
+            continue
+        try:
+            for item in parse_rss_items(xml, source, max_items=12):
+                if query:
                     item["query"] = query
-                    collected.append(item)
-            except Exception as e:
-                print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
+                collected.append(item)
+        except Exception as e:
+            print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
     recent = filter_recent_items(collected)
     filtered = [
         item for item in dedupe_news_items(recent)
