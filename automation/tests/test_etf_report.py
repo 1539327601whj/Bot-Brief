@@ -212,6 +212,17 @@ class PremiumHistoryTests(unittest.TestCase):
         text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening")
         self.assertNotIn("溢价变化", text)
 
+    def test_premium_change_lists_delta_once_per_lookback(self):
+        text = "\n".join(report.format_premium_change_section([
+            complete_snapshot(report.ETF_LIST[1]),
+        ]))
+        self.assertEqual(text.count("当天溢价"), 1)
+        self.assertIn("当天溢价 +0.20%", text)
+        self.assertIn("较一天前（07-24） +1.00%：收窄 0.80 个百分点", text)
+        self.assertIn("较一周前（07-20） +0.80%：收窄 0.60 个百分点", text)
+        self.assertIn("较一月前（06-27） +0.50%：收窄 0.30 个百分点", text)
+        self.assertNotIn("当天溢价 +0.20%｜一天前", text)
+
     @patch.object(report, "now_beijing", return_value=NOW)
     @patch.object(report, "http_get")
     def test_nav_history_reads_two_pages(self, get, _):
@@ -533,9 +544,11 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ETF变化", text)
         self.assertNotIn("两只ETF变化", text)
         self.assertIn("溢价变化", text)
-        self.assertIn("一天前溢价", text)
-        self.assertIn("一周前溢价", text)
-        self.assertIn("一月前溢价", text)
+        self.assertIn("较一天前", text)
+        self.assertIn("较一周前", text)
+        self.assertIn("较一月前", text)
+        self.assertNotIn("当天溢价 +0.20%｜", text)
+        self.assertIn("个百分点", text)
         self.assertIn("### 纳指100ETF", text)
         self.assertIn("### 标普500ETF", text)
 

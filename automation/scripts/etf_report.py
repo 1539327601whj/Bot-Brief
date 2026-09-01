@@ -1479,6 +1479,24 @@ def format_premium_rate(rate: Optional[float]) -> str:
     return "不可确认" if rate is None else f"{rate:+.2f}%"
 
 
+def current_premium_rate(premium: dict[str, Any]) -> Optional[float]:
+    rate = premium.get("premium_rate")
+    if rate is not None:
+        return rate
+    return premium.get("display_rate")
+
+
+def fmt_premium_change(current: Optional[float], baseline: Optional[float]) -> str:
+    if current is None or baseline is None:
+        return "不可确认"
+    diff = current - baseline
+    if abs(diff) < 0.05:
+        return "几乎没变"
+    if diff > 0:
+        return f"扩大 {diff:.2f} 个百分点"
+    return f"收窄 {abs(diff):.2f} 个百分点"
+
+
 def format_premium(premium: dict[str, Any]) -> str:
     rate = premium.get("premium_rate")
     if rate is not None:
@@ -2239,6 +2257,13 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def format_premium_lookback_line(label: str, current: Optional[float], baseline: Optional[float], baseline_date: Any) -> str:
+    return (
+        f"- 较{label}{fmt_baseline_date(baseline_date)} "
+        f"{format_premium_rate(baseline)}：{fmt_premium_change(current, baseline)}"
+    )
+
+
 def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     qdii_snapshots = [snapshot for snapshot in snapshots if etf_is_qdii(snapshot["etf"])]
     if not qdii_snapshots:
@@ -2246,18 +2271,13 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     lines = ["## 溢价变化"]
     for snapshot in qdii_snapshots:
         premium = snapshot["premium"]
-        current = format_premium_rate(
-            premium.get("premium_rate") if premium.get("premium_rate") is not None else premium.get("display_rate")
-        )
+        current = current_premium_rate(premium)
         lines.extend([
             f"### {etf_short_name(snapshot)}",
             f"- 当天溢价 {format_premium(premium)}",
-            f"- 当天溢价 {current}｜一天前溢价{fmt_baseline_date(premium.get('previous_date'))} "
-            f"{format_premium_rate(premium.get('previous_rate'))}",
-            f"- 当天溢价 {current}｜一周前溢价{fmt_baseline_date(premium.get('week_date'))} "
-            f"{format_premium_rate(premium.get('week_rate'))}",
-            f"- 当天溢价 {current}｜一月前溢价{fmt_baseline_date(premium.get('month_date'))} "
-            f"{format_premium_rate(premium.get('month_rate'))}",
+            format_premium_lookback_line("一天前", current, premium.get("previous_rate"), premium.get("previous_date")),
+            format_premium_lookback_line("一周前", current, premium.get("week_rate"), premium.get("week_date")),
+            format_premium_lookback_line("一月前", current, premium.get("month_rate"), premium.get("month_date")),
             f"- 历史溢价按收盘价相对当日净值，只配对同一天；跨境仅供参考；源："
             f"{premium.get('history_source') or '不可确认'}。",
         ])
