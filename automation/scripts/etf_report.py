@@ -1487,15 +1487,23 @@ def current_premium_rate(premium: dict[str, Any]) -> Optional[float]:
     return premium.get("display_rate")
 
 
-def fmt_premium_change(current: Optional[float], baseline: Optional[float]) -> str:
-    if current is None or baseline is None:
+def format_premium_amount(rate: Optional[float]) -> str:
+    if rate is None:
         return "不可确认"
+    if rate < 0:
+        return f"折价 {abs(rate):.2f}%"
+    return f"{rate:.2f}%"
+
+
+def fmt_premium_vs_today(current: Optional[float], baseline: Optional[float]) -> str:
+    if current is None or baseline is None:
+        return ""
     diff = current - baseline
     if abs(diff) < 0.05:
-        return "几乎没变"
+        return "，和当天几乎一样"
     if diff > 0:
-        return f"扩大 {diff:.2f} 个百分点"
-    return f"收窄 {abs(diff):.2f} 个百分点"
+        return f"，当天比那天高 {diff:.2f} 个百分点"
+    return f"，当天比那天低 {abs(diff):.2f} 个百分点"
 
 
 def format_premium(premium: dict[str, Any]) -> str:
@@ -2253,8 +2261,8 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
 
 def format_premium_lookback_line(label: str, current: Optional[float], baseline: Optional[float], baseline_date: Any) -> str:
     return (
-        f"- 较{label}{fmt_baseline_date(baseline_date)} "
-        f"{format_premium_rate(baseline)}：{fmt_premium_change(current, baseline)}"
+        f"- {label}溢价：{format_premium_amount(baseline)}"
+        f"{fmt_baseline_date(baseline_date)}{fmt_premium_vs_today(current, baseline)}"
     )
 
 
