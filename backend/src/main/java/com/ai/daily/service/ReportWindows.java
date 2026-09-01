@@ -45,6 +45,13 @@ public final class ReportWindows {
         return "morning";
     }
 
+    /** 从当前分钟起，再留出抓取+生成+整分推送的缓冲后，最早能准点推送的时刻。 */
+    public static LocalTime earliestOnTime(LocalTime now, int onTimeLeadMinutes) {
+        LocalTime minute = now == null ? LocalTime.MIN : now.withSecond(0).withNano(0);
+        int lead = Math.max(1, onTimeLeadMinutes);
+        return minute.plusMinutes(lead);
+    }
+
     public static LocalTime parse(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("推送时间不能为空");

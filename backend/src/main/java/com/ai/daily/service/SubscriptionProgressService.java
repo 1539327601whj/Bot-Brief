@@ -34,12 +34,17 @@ public class SubscriptionProgressService {
     @Value("${report.generation-lead-minutes:30}")
     private int leadMinutes;
 
+    @Value("${report.on-time-lead-minutes:5}")
+    private int onTimeLeadMinutes;
+
     public SubscriptionTodayStatusDTO todayStatus(Long userId) {
         LocalDate today = LocalDate.now(BEIJING);
         LocalTime now = LocalTime.now(BEIJING).withSecond(0).withNano(0);
         SubscriptionTodayStatusDTO dto = new SubscriptionTodayStatusDTO();
         dto.setDate(today.toString());
         dto.setLeadMinutes(Math.max(0, leadMinutes));
+        dto.setOnTimeLeadMinutes(Math.max(1, onTimeLeadMinutes));
+        dto.setEarliestOnTime(ReportWindows.format(ReportWindows.earliestOnTime(now, onTimeLeadMinutes)));
         dto.setPoller(pollerStatus());
         if (userId == null) return dto;
 
@@ -98,16 +103,17 @@ public class SubscriptionProgressService {
             return row;
         }
 
-        LocalTime startAt = subscribedTopicService.startAt(readyAt);
+        LocalTime startAt = subscribedTopicService.startAt(readyAt, topic);
         if (startAt.isAfter(now)) {
             row.setStatus("upcoming");
-            row.setLabel("未到准备时间");
-            row.setMessage("大约 " + ReportWindows.format(startAt) + " 开始准备，" + row.getTime() + " 展示和推送");
+            row.setLabel("已预约");
+            row.setMessage("现在保存即可，不必等到准备时间。系统大约 "
+                    + ReportWindows.format(startAt) + " 开始生成，" + row.getTime() + " 准时在网页展示并推送");
             return row;
         }
         row.setStatus("preparing");
         row.setLabel("准备中");
-        row.setMessage("正在爬取并生成，目标 " + row.getTime() + " 前写完");
+        row.setMessage("已过准备起点，正在或即将抓取。通常 2–5 分钟写完；" + row.getTime() + " 准点推送，错过整分会在随后补推");
         return row;
     }
 

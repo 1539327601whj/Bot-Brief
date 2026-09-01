@@ -375,6 +375,9 @@ class TopicSectionTests(unittest.TestCase):
         self.assertTrue(report.is_digest_topic("AI科技", ""))
         prompt = report.build_topic_prompt("新闻", "AI科技", "morning", "只要芯片和航天")
         self.assertIn("只要芯片和航天", prompt)
+        fallback = report.build_topic_prompt("新闻", "马斯克", "morning", "只要演讲", "topic")
+        self.assertIn("最接近", fallback)
+        self.assertIn("不要编造", fallback)
 
     def test_attach_sources_uses_candidate_links_not_model_footer(self):
         items = [
@@ -404,6 +407,36 @@ class TopicSectionTests(unittest.TestCase):
             )
         self.assertEqual(selected, searched)
         search.assert_called_once()
+
+    def test_intent_prefers_focus_then_falls_back_to_topic(self):
+        speech = {
+            "title": "Musk keynote on Mars",
+            "summary": "speech at conference",
+            "score": 8,
+            "link": "https://m.test/speech",
+        }
+        tesla = {
+            "title": "Tesla recalls vehicles",
+            "summary": "safety",
+            "score": 7,
+            "link": "https://m.test/tesla",
+        }
+        with patch.object(report, "fetch_topic_search_news", return_value=[speech, tesla]):
+            items, match = report.collect_topic_candidates([], "马斯克", "最近最火的演讲")
+        self.assertEqual(match, "intent")
+        self.assertEqual([item["title"] for item in items], ["Musk keynote on Mars"])
+        with patch.object(report, "fetch_topic_search_news", return_value=[tesla]):
+            items, match = report.collect_topic_candidates([], "马斯克", "最近最火的演讲")
+        self.assertEqual(match, "topic")
+        self.assertEqual([item["title"] for item in items], ["Tesla recalls vehicles"])
+        with patch.object(report, "fetch_topic_search_news", return_value=[]):
+            items, match = report.collect_topic_candidates(
+                [{"title": "今日财经", "summary": "股市", "score": 9}],
+                "马斯克",
+                "最近最火的演讲",
+            )
+        self.assertEqual(items, [])
+        self.assertEqual(match, "none")
 
     def test_musk_intent_extracts_speech_query_and_aliases(self):
         terms = report.intent_terms("马斯克最近最火的演讲或者热点")

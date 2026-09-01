@@ -78,6 +78,7 @@ demo:
 report:
   ingest-token: ${REPORT_INGEST_TOKEN:}
   generation-lead-minutes: ${REPORT_GENERATION_LEAD_MINUTES:30}
+  on-time-lead-minutes: ${REPORT_ON_TIME_LEAD_MINUTES:5}
 
 mail-push:
   from-name: ${MAIL_FROM_NAME:BriefMind}

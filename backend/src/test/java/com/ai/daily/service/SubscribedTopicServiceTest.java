@@ -10,6 +10,7 @@ import com.ai.daily.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -88,8 +89,10 @@ class SubscribedTopicServiceTest {
                 item("区块链", "20:20"), item("安全", "20:20"), item("数据库", "20:20")));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
         when(sections.findId(any(), any(), any())).thenReturn(null);
-        when(statuses.find(any(), any(), eq("区块链"))).thenReturn(status(TopicGenerationStatus.SKIPPED_NO_NEWS));
-        when(statuses.find(any(), any(), eq("安全"))).thenReturn(status(TopicGenerationStatus.FAILED));
+        when(statuses.find(any(), any(), eq("区块链"))).thenReturn(status(
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 8, 29, 19, 50)));
+        when(statuses.find(any(), any(), eq("安全"))).thenReturn(status(
+                TopicGenerationStatus.FAILED, LocalDateTime.of(2026, 8, 29, 19, 50)));
         when(statuses.find(any(), any(), eq("数据库"))).thenReturn(null);
 
         LocalDate date = LocalDate.of(2026, 8, 29);
@@ -177,7 +180,7 @@ class SubscribedTopicServiceTest {
         broken.setCreatedAt(java.time.LocalDateTime.of(2026, 8, 31, 10, 0));
         when(reports.publicReportExists("market_watch_evening", date)).thenReturn(true);
         when(reports.getLatestByEditionForDate("market_watch_evening", date)).thenReturn(broken);
-        when(statuses.find(any(), any(), any())).thenReturn(status(TopicGenerationStatus.READY));
+        when(statuses.find(any(), any(), any())).thenReturn(status(TopicGenerationStatus.READY, null));
 
         assertThat(service.listDueGenerations(date, LocalTime.of(18, 0)))
                 .extracting(DueGenerationDTO::getTopic)
@@ -187,6 +190,30 @@ class SubscribedTopicServiceTest {
         assertThat(service.listDueGenerations(date, LocalTime.of(18, 5)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("纳指标普沪深300ETF");
+    }
+
+    @Test
+    void retriesSkippedCustomTopicOnceNearDisplayTime() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("马斯克", "16:00")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), eq("马斯克"))).thenReturn(status(
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 32)));
+
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 50))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 52)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("马斯克");
     }
 
     private static SubscribedTopicService serviceOf(
@@ -199,9 +226,10 @@ class SubscribedTopicServiceTest {
         return new SubscribedTopicService(subscriptions, preferences, users, sections, statuses, reports, 30);
     }
 
-    private static TopicGenerationStatus status(String value) {
+    private static TopicGenerationStatus status(String value, LocalDateTime updatedAt) {
         TopicGenerationStatus row = new TopicGenerationStatus();
         row.setStatus(value);
+        row.setUpdatedAt(updatedAt);
         return row;
     }
 

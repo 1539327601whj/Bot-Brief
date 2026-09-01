@@ -125,6 +125,8 @@ export const demoSubscription = {
 export const demoTodayStatus = {
   date: '2026-08-29',
   leadMinutes: 30,
+  onTimeLeadMinutes: 5,
+  earliestOnTime: '20:20',
   poller: { healthy: true, lastSeen: '2026-08-29 20:10:00', detail: 'running' },
   items: [
     { topic: 'AI大模型', time: '08:15', status: 'delivered' as const, label: '已生成', message: '网页已可查看，绑定的渠道会按此时刻投递' },

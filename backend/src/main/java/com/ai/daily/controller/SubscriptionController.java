@@ -9,6 +9,7 @@ import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
+import com.ai.daily.service.TopicGenerationStatusService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +19,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +37,7 @@ public class SubscriptionController {
     private final SubscriptionPreferences subscriptionPreferences;
     private final PushChannelService pushChannelService;
     private final com.ai.daily.service.SubscriptionProgressService subscriptionProgressService;
+    private final TopicGenerationStatusService generationStatusService;
 
     @GetMapping("/today-status")
     public Result<com.ai.daily.dto.SubscriptionTodayStatusDTO> todayStatus() {
@@ -84,6 +88,7 @@ public class SubscriptionController {
                     enabled.stream().anyMatch(item -> hourOf(item) >= 12),
                     eveningTime
             );
+            reopenUnreadyTopics(enabled);
             return Result.ok("订阅配置已更新", convertToDTO(updated));
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
@@ -111,6 +116,17 @@ public class SubscriptionController {
                     throw new IllegalArgumentException("同一主题每种推送方式只能绑定一个账号");
                 }
             }
+        }
+    }
+
+    private void reopenUnreadyTopics(List<SubscriptionDTO.TopicScheduleItemDTO> items) {
+        if (generationStatusService == null || items == null || items.isEmpty()) return;
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
+            if (item.getTopic() == null || item.getTopic().isBlank()) continue;
+            LocalTime time = parseTime(item.getTime(), null);
+            if (time == null) continue;
+            generationStatusService.reopenUnready(today, ReportWindows.of(time), item.getTopic());
         }
     }
 

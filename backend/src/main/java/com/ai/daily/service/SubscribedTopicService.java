@@ -69,7 +69,7 @@ public class SubscribedTopicService {
                 if (publicDigestReady(date, item.getTopic(), readyAt)) continue;
             } else {
                 if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
-                if (alreadySettled(date, item.getWindow(), item.getTopic())) continue;
+                if (alreadySettled(date, item.getWindow(), item.getTopic(), readyAt, minute)) continue;
             }
             due.add(item);
         }
@@ -113,13 +113,26 @@ public class SubscribedTopicService {
         return created.isBefore(LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusMinutes(8));
     }
 
-    private boolean alreadySettled(LocalDate date, String window, String topic) {
+    private boolean alreadySettled(
+            LocalDate date, String window, String topic, LocalTime generateAt, LocalTime now) {
         if (generationStatusService == null) return false;
         TopicGenerationStatus recorded = generationStatusService.find(date, window, topic);
         if (recorded == null || recorded.getStatus() == null) return false;
-        return TopicGenerationStatus.SKIPPED_NO_NEWS.equals(recorded.getStatus())
-                || TopicGenerationStatus.FAILED.equals(recorded.getStatus())
-                || TopicGenerationStatus.READY.equals(recorded.getStatus());
+        if (TopicGenerationStatus.READY.equals(recorded.getStatus())) return true;
+        if (!TopicGenerationStatus.SKIPPED_NO_NEWS.equals(recorded.getStatus())
+                && !TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
+            return false;
+        }
+        // 15:30 和 16:00 同属一个 6 小时窗。提前抓空后默认不再刷；到点前再给一次机会。
+        if (generateAt == null) return true;
+        LocalTime retryFrom = generateAt.minusMinutes(Math.min(8, generationLeadMinutes));
+        if (retryFrom.isAfter(generateAt)) {
+            retryFrom = LocalTime.MIN;
+        }
+        if (now != null && now.isBefore(retryFrom)) return true;
+        LocalDateTime updated = recorded.getUpdatedAt();
+        if (updated == null) return false;
+        return !updated.isBefore(LocalDateTime.of(date, retryFrom));
     }
 
     List<DueGenerationDTO> planEarliest(LocalDate date) {

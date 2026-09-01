@@ -33,8 +33,15 @@ export interface TopicProgressItem {
 export interface TodayProgress {
   date?: string
   leadMinutes?: number
+  onTimeLeadMinutes?: number
+  earliestOnTime?: string
   poller?: { healthy: boolean; lastSeen?: string; detail?: string }
   items: TopicProgressItem[]
+}
+
+export function earliestOnTimeLabel(now: { startOf: (unit: 'minute') => { add: (value: number, unit: 'minute') => { format: (fmt: string) => string } } }, leadMinutes = 5) {
+  const lead = Math.max(1, leadMinutes)
+  return now.startOf('minute').add(lead, 'minute').format('HH:mm')
 }
 
 export function progressForSlot(items: TopicProgressItem[], time: string) {

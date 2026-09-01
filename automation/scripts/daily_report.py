@@ -968,6 +968,17 @@ INTENT_NOISE = {
     "就好", "即可", "我想看", "的",
 }
 
+# 「我想看」里的角度词，用来优先检索，不是硬门槛。
+INTENT_FOCUS_ALIASES = {
+    "演讲": ["speech", "keynote", "talk", "interview", "采访", "发言"],
+    "发言": ["speech", "remarks", "采访"],
+    "采访": ["interview"],
+    "发布": ["launch", "release", "unveil", "发布会", "announces"],
+    "发布会": ["launch", "keynote", "event"],
+    "芯片": ["chip", "gpu", "semiconductor"],
+    "航天": ["space", "spacex", "rocket"],
+}
+
 
 def intent_terms(intent):
     text = normalize_intent(intent)
@@ -1039,6 +1050,34 @@ def topic_keywords(topic, intent=None):
     return expand_topic_terms(topic, intent)
 
 
+def intent_focus_terms(topic, intent=None):
+    topic_name = " ".join(str(topic or "").split())
+    focuses = []
+    seen = set()
+
+    def add(term):
+        normalized = " ".join(str(term or "").split())
+        key = normalized.lower()
+        if not normalized or len(normalized) > 20 or key in seen or key == topic_name.lower():
+            return
+        seen.add(key)
+        focuses.append(normalized)
+
+    for term in intent_terms(intent):
+        trimmed = term
+        if topic_name and trimmed.lower().startswith(topic_name.lower()):
+            trimmed = trimmed[len(topic_name):].strip()
+        add(trimmed)
+        for alias in INTENT_FOCUS_ALIASES.get((trimmed or "").lower(), []):
+            add(alias)
+    return focuses
+
+
+def news_matches_intent(item, topic, intent=None):
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    return any(term.lower() in text for term in intent_focus_terms(topic, intent))
+
+
 def topic_search_queries(topic, intent=None):
     topic_name = " ".join(str(topic or "").split())
     queries = []
@@ -1055,14 +1094,11 @@ def topic_search_queries(topic, intent=None):
     add(topic_name)
     latin = next((term for term in expand_topic_terms(topic_name) if re.search(r"[A-Za-z]", term)), "")
     add(latin)
-    for term in intent_terms(intent):
-        trimmed = term
-        if topic_name and trimmed.lower().startswith(topic_name.lower()):
-            trimmed = trimmed[len(topic_name):].strip()
-        if not trimmed or trimmed.lower() == topic_name.lower() or len(trimmed) > 16:
-            continue
-        add(f"{topic_name} {trimmed}" if topic_name else trimmed)
-        break
+    focuses = intent_focus_terms(topic_name, intent)
+    if topic_name and focuses:
+        add(f"{topic_name} {focuses[0]}")
+    elif focuses:
+        add(focuses[0])
     return queries[:3]
 
 
@@ -1162,12 +1198,14 @@ def fetch_topic_search_news(topic, limit=8, intent=None):
     return filtered[:limit]
 
 
-def collect_news_for_topic(news_items, topic, intent=None):
-    selected = select_news_for_topic(news_items, topic, intent=intent)
+def collect_topic_candidates(news_items, topic, intent=None):
+    """先按「我想看」收窄，对不上再退回主题相近资讯。只有主题本身没稿才为空。"""
     extra = normalize_intent(intent)
+    focuses = intent_focus_terms(topic, extra)
+    selected = select_news_for_topic(news_items, topic, intent=extra or None)
     should_search = (not is_preset_topic(topic)) or bool(extra)
     if not should_search:
-        return selected
+        return selected, "topic" if selected else "none"
     label = f"{topic}" + (f"（{extra}）" if extra else "")
     if not selected:
         print(f"  🔍 主题「{label}」在公共资讯池无匹配，改为按词检索")
@@ -1176,9 +1214,31 @@ def collect_news_for_topic(news_items, topic, intent=None):
     searched = fetch_topic_search_news(topic, intent=extra) if extra else fetch_topic_search_news(topic)
     merged = filter_recent_items(dedupe_news_items(list(selected) + list(searched or [])))
     merged = [item for item in merged if news_mentions_topic(item, topic, extra)]
+    on_topic = [item for item in merged if news_mentions_topic(item, topic)]
+    if focuses:
+        focused = [item for item in merged if news_matches_intent(item, topic, extra)]
+        focused_on_topic = [item for item in focused if news_mentions_topic(item, topic)]
+        if focused_on_topic:
+            print(f"  🎯 主题「{topic}」按想法优先，命中 {len(focused_on_topic)} 条")
+            return focused_on_topic[:8], "intent"
+        if focused and not alias_terms_for(topic) and not is_preset_topic(topic):
+            print(f"  🎯 主题「{topic}」按想法检索，命中 {len(focused)} 条")
+            return focused[:8], "intent"
+        if on_topic:
+            print(f"  🔄 主题「{topic}」未命中想法，回退主题相近资讯 {len(on_topic)} 条")
+            return on_topic[:8], "topic"
+        if focused:
+            return focused[:8], "intent"
+    if on_topic:
+        return on_topic[:8], "topic"
     if merged:
-        return merged[:8]
-    return selected
+        return merged[:8], "topic"
+    return selected, "topic" if selected else "none"
+
+
+def collect_news_for_topic(news_items, topic, intent=None):
+    items, _match = collect_topic_candidates(news_items, topic, intent)
+    return items
 
 
 def window_digest_style(window):
@@ -1187,15 +1247,22 @@ def window_digest_style(window):
     return "morning"
 
 
-def format_topic_news_for_prompt(items, topic, edition="morning", intent=None):
+def format_topic_news_for_prompt(items, topic, edition="morning", intent=None, match=None):
     today = now_beijing().strftime("%Y-%m-%d")
     style = window_digest_style(edition)
     edition_focus = "昨日夜间 + 今日早晨" if style == "morning" else "今日全天"
     extra = normalize_intent(intent)
+    if extra and match == "topic":
+        match_line = "匹配方式：未找到该想法的直接资讯，下列是主题相近候选"
+    elif extra:
+        match_line = "匹配方式：已按用户想法筛到相关候选"
+    else:
+        match_line = "匹配方式：按主题默认"
     lines = [
         f"日期：{today}",
         f"主题：{topic}",
         f"用户想法：{extra or '未填写，按主题默认范围'}",
+        match_line,
         f"版本：{edition_focus}",
         f"候选资讯：{len(items)} 条",
         "",
@@ -1210,14 +1277,23 @@ def format_topic_news_for_prompt(items, topic, edition="morning", intent=None):
     return "\n".join(lines)
 
 
-def build_topic_prompt(news_text, topic, edition="morning", intent=None):
+def build_topic_prompt(news_text, topic, edition="morning", intent=None, match=None):
     edition_hint = "晚间" if window_digest_style(edition) == "evening" else "早间"
     extra = normalize_intent(intent)
-    intent_rule = (
-        f"4. 用户希望在这个主题里重点看：{extra}。只写符合这个范围的内容，明确排除用户不想看的方面。"
-        if extra else
-        "4. 用户没有额外想法，按该主题的默认范围来写。"
-    )
+    if extra and match == "topic":
+        intent_rule = (
+            f"4. 用户希望重点看：{extra}。今天候选里没有足够贴这个角度的资讯，"
+            f"请用现有与「{topic}」相关的候选写一版最接近的简报。"
+            "必须基于候选事实，不要编造用户提到但候选没有的演讲、发布或其他事件。"
+            "开头可用一句说明今天没找到该角度的直接资讯。"
+        )
+    elif extra:
+        intent_rule = (
+            f"4. 用户希望重点看：{extra}。优先写贴近这个角度的内容，不必每条都措辞相同；"
+            "明确排除用户不想看的方面。不要编造候选里没有的事件。"
+        )
+    else:
+        intent_rule = "4. 用户没有额外想法，按该主题的默认范围来写。"
     return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}简报段落。
 
 【要求】
@@ -1358,12 +1434,18 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id, 
     if is_digest_topic(topic, extra):
         print("  skip digest topic: use public morning/evening/etf report")
         return False
-    selected = collect_news_for_topic(news_items, topic, extra)
+    selected, match = collect_topic_candidates(news_items, topic, extra)
     if not selected:
         print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
         report_generation_status(edition, report_date, topic, "skipped_no_news", "今天没有抓到与该主题直接相关的资讯", run_id)
         return False
-    prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition, extra), topic, edition, extra)
+    prompt = build_topic_prompt(
+        format_topic_news_for_prompt(selected, topic, edition, extra, match),
+        topic,
+        edition,
+        extra,
+        match,
+    )
     try:
         content = call_llm_with_retry(prompt)
     except Exception as e:
@@ -1376,6 +1458,8 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id, 
         return False
     if not content.lstrip().startswith("##"):
         content = f"## {topic}\n\n{content.strip()}"
+    if match == "topic" and extra:
+        content = content.rstrip() + f"\n\n> 今天没有找到更贴「{extra}」的直接资讯，已按「{topic}」相近内容整理。\n"
     content = attach_sources(content, selected)
     title = f"{topic} · {report_date}"
     summary = content[:100] + "..." if len(content) > 100 else content

@@ -54,6 +54,13 @@ public class TopicGenerationStatusService {
         statusMapper.updateById(existing);
     }
 
+    public void reopenUnready(LocalDate date, String window, String topic) {
+        TopicGenerationStatus existing = find(date, window, topic);
+        if (existing == null || existing.getId() == null) return;
+        if (TopicGenerationStatus.READY.equals(existing.getStatus())) return;
+        statusMapper.deleteById(existing.getId());
+    }
+
     public TopicGenerationStatus find(LocalDate date, String window, String topic) {
         if (date == null || window == null || topic == null) return null;
         try {

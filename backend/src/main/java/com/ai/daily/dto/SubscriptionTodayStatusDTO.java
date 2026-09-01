@@ -10,6 +10,8 @@ public class SubscriptionTodayStatusDTO {
 
     private String date;
     private int leadMinutes;
+    private int onTimeLeadMinutes;
+    private String earliestOnTime;
     private PollerStatusDTO poller;
     private List<ItemStatusDTO> items = new ArrayList<>();
 

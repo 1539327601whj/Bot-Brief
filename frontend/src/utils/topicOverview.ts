@@ -47,7 +47,7 @@ export function topicOverview(topic: string) {
     if (interestKey(name) === key) return text
   }
   const label = topic.trim() || '这个主题'
-  return `按「${label}」检索近 48 小时公开资讯（含中英文别名），来源包括新闻搜索与科技媒体 RSS。不填想法时按这个词本身检索。`
+  return `按「${label}」检索近 48 小时公开资讯（含中英文别名）。写了「我想看」会优先按这个角度找；当天没有这个角度时，会用主题相近资讯写一版，不会编造。`
 }
 
 export function topicIntentHint(topic: string) {
@@ -58,5 +58,5 @@ export function topicIntentHint(topic: string) {
     if (interestKey(name) === key) return text
   }
   const label = topic.trim() || '这个主题'
-  return `例如：只要「${label}」的产品发布和人物言论，不要股价涨跌。不填则按这个词检索。`
+  return `例如：只要「${label}」的产品发布和人物言论，不要股价涨跌。优先按这句话检索；没有这个角度就写主题相近内容。`
 }

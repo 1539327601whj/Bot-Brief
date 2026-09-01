@@ -10,7 +10,7 @@ import { MAX_INTENT_LENGTH, normalizeIntent, topicIntentHint, topicOverview } fr
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { earliestOnTimeLabel, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Subscription.css'
 
 interface PublicReportPreview {
@@ -451,7 +451,7 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。每个主题可写「我想看」，用来收窄范围；不填就按系统默认生成。' : '勾选兴趣，再选星期、时刻，并可写「我想看」。不填想法时按系统默认检索；同一主题在同一 6 小时时段只生成一次。'}</p>
+        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。每个主题可写「我想看」，优先按这个角度检索；当天没有这个角度时，会用主题相近内容写一版，不会编造。不填就按系统默认生成。' : '勾选兴趣，再选星期、时刻，并可写「我想看」。想法优先，找不到就写主题相近内容；同一主题在同一 6 小时时段只生成一次。'}</p>
       </div>
 
       {isAdmin && (
@@ -561,7 +561,11 @@ export default function Subscription() {
         <div className="section-title-row">
           <div>
             <h3>推送时间</h3>
-            <p className="section-sub">每个主题选星期和时刻，并可写「我想看」。不填则按上面的默认概述生成；没绑渠道就只在网页看。</p>
+            <p className="section-sub">
+              每个主题选星期和时刻，并可写「我想看」。现在保存即可，不用提前半小时勾选。
+              准点推送请选 {todayStatus.earliestOnTime || earliestOnTimeLabel(dayjs.tz(), todayStatus.onTimeLeadMinutes || 5)} 及以后；
+              更近的时刻也会生成，可能晚 1–2 分钟补推到企业微信。没绑渠道就只在网页看。
+            </p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>
         </div>
@@ -678,7 +682,7 @@ export default function Subscription() {
                         placeholder={topicIntentHint(topic)}
                         onChange={event => updateTopicIntent(topic, event.target.value)}
                       />
-                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 不填则按这个主题的默认范围生成</small>
+                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 优先按这句话找；没有这个角度就写主题相近内容</small>
                     </label>
                   </div>
                 </div>
@@ -708,7 +712,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑渠道。不写「我想看」时按原文生成；写了想法后按你的范围检索。自定义兴趣如「黄仁勋」同样可以写想法。</p>
+      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑渠道。不写「我想看」时按原文生成；写了想法后优先按这个角度检索，找不到再退回主题本身。自定义兴趣如「黄仁勋」同样可以写想法。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
       </section>
