@@ -117,6 +117,9 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
     public ShopAiReportDTO generateAiReport(Long userId, Long storeId) {
         ShopStore store = requireStore(userId, storeId);
         ShopOverviewDTO overview = getOverview(userId, store.getId(), 7);
+        if (overview.getEffectiveDays() == null || overview.getEffectiveDays() <= 0) {
+            throw new IllegalArgumentException("没有可分析的销售日，无法生成经营日报");
+        }
         LocalDate analysisDate = overview.getAnalysisDate();
         String title = analysisDate + " 店铺经营日报";
         String content = buildReportContent(title, overview);

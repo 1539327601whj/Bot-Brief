@@ -18,8 +18,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ShopAnalyticsServiceImplTest {
@@ -28,6 +31,7 @@ class ShopAnalyticsServiceImplTest {
     private ShopSalesDailyMapper sales;
     private ShopProductMapper products;
     private ShopProductSalesDailyMapper productSales;
+    private ShopAiReportMapper reports;
     private ShopAnalyticsServiceImpl service;
 
     @BeforeEach
@@ -36,13 +40,14 @@ class ShopAnalyticsServiceImplTest {
         sales = mock(ShopSalesDailyMapper.class);
         products = mock(ShopProductMapper.class);
         productSales = mock(ShopProductSalesDailyMapper.class);
+        reports = mock(ShopAiReportMapper.class);
         service = new ShopAnalyticsServiceImpl(
                 stores,
                 products,
                 sales,
                 productSales,
                 mock(ShopCustomerSummaryMapper.class),
-                mock(ShopAiReportMapper.class),
+                reports,
                 new ObjectMapper());
         ShopStore store = new ShopStore();
         store.setId(3L);
@@ -81,5 +86,17 @@ class ShopAnalyticsServiceImplTest {
         assertThat(overview.getEffectiveDays()).isZero();
         assertThat(overview.getToday().getOrderCount()).isZero();
         assertThat(overview.getToday().getSalesAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void generateAiReportWithoutSalesDoesNotWriteAFakeDaily() {
+        when(sales.selectOne(any())).thenReturn(null);
+        when(sales.selectList(any())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.generateAiReport(7L, 3L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("没有可分析的销售日");
+        verify(reports, never()).insert(any());
+        verify(reports, never()).updateById(any());
     }
 }
