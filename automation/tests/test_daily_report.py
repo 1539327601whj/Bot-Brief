@@ -1,7 +1,9 @@
 import importlib.util
 import os
+import re
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, mock_open, patch
@@ -259,12 +261,21 @@ class TopicSectionTests(unittest.TestCase):
         self.assertEqual(selected, searched)
         search.assert_called_once_with("具身智能")
 
-    def test_custom_topic_uses_pool_and_skips_search_when_matched(self):
-        pool_item = {"title": "具身智能融资", "summary": "机器人公司", "score": 9}
-        with patch.object(report, "fetch_topic_search_news") as search:
+    def test_custom_topic_merges_pool_and_search(self):
+        pool_item = {"title": "具身智能融资", "summary": "机器人公司", "score": 9, "link": "https://a.test/1"}
+        searched = [{
+            "title": "具身智能新突破",
+            "summary": "机器人落地",
+            "score": 8,
+            "source": "主题检索·中文",
+            "link": "https://b.test/2",
+        }]
+        with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:
             selected = report.collect_news_for_topic([pool_item], "具身智能")
-        self.assertEqual(selected, [pool_item])
-        search.assert_not_called()
+        search.assert_called_once_with("具身智能")
+        titles = [item["title"] for item in selected]
+        self.assertIn("具身智能融资", titles)
+        self.assertIn("具身智能新突破", titles)
 
     def test_topic_search_urls_include_encoded_query(self):
         urls = [url for _, url in report.topic_search_urls("具身智能")]
@@ -382,6 +393,80 @@ class TopicSectionTests(unittest.TestCase):
             )
         self.assertEqual(selected, searched)
         search.assert_called_once()
+
+    def test_huang_aliases_expand_and_match(self):
+        terms = [term.lower() for term in report.expand_topic_terms("黄仁勋")]
+        self.assertIn("nvidia", terms)
+        self.assertIn("jensen huang", terms)
+        queries = report.topic_search_queries("黄仁勋", "只要芯片")
+        self.assertEqual(queries[0], "黄仁勋")
+        self.assertTrue(any(re.search(r"[A-Za-z]", query) for query in queries))
+        self.assertTrue(any("芯片" in query for query in queries))
+        nvidia = {"title": "NVIDIA unveils new GPU", "summary": "data center", "score": 8}
+        self.assertTrue(report.news_mentions_topic(nvidia, "黄仁勋"))
+        self.assertFalse(report.news_mentions_topic({"title": "今日财经", "summary": "股市"}, "黄仁勋"))
+
+    def test_filter_recent_items_drops_week_old_news(self):
+        now = datetime(2026, 9, 1, 15, 0, tzinfo=report.BEIJING_TZ)
+        fresh = {"title": "新", "published": "2026-09-01 08:00", "score": 9}
+        mid = {"title": "三天前", "published": "2026-08-29 08:00", "score": 8}
+        stale = {"title": "十天前", "published": "2026-08-20 08:00", "score": 7}
+        undated = {"title": "无日期", "score": 6}
+        kept = report.filter_recent_items([fresh, mid, stale, undated], now=now, min_keep=1)
+        self.assertEqual([item["title"] for item in kept], ["新", "无日期"])
+        sparse = report.filter_recent_items([mid, stale], now=now, min_keep=3)
+        self.assertEqual([item["title"] for item in sparse], ["三天前"])
+
+    def test_dedupe_news_items_by_canonical_link(self):
+        items = [
+            {"title": "A 版本", "link": "https://example.com/a?utm_source=x", "score": 5},
+            {"title": "A 另一标题", "link": "https://example.com/a#comments", "score": 9},
+            {"title": "B", "link": "https://example.com/b", "score": 3},
+        ]
+        deduped = report.dedupe_news_items(items)
+        self.assertEqual([item["title"] for item in deduped], ["A 另一标题", "B"])
+
+    def test_topic_search_queries_stay_single_for_unknown_topic(self):
+        self.assertEqual(report.topic_search_queries("具身智能"), ["具身智能"])
+
+    def test_fetch_topic_search_news_uses_alias_queries_and_recency(self):
+        now = datetime(2026, 9, 1, 15, 0, tzinfo=report.BEIJING_TZ)
+        seen_queries = []
+
+        def fake_urls(query):
+            seen_queries.append(query)
+            return [(f"源-{query}", f"https://example.test/{query}")]
+
+        def fake_parse(xml, source, max_items=12):
+            if "nvidia" in source.lower() or "jensen" in source.lower():
+                return [{
+                    "title": "NVIDIA ships new chip",
+                    "summary": "GPU",
+                    "score": 8,
+                    "source": source,
+                    "link": "https://n.test/1",
+                    "published": "2026-09-01 10:00",
+                    "published_at": now,
+                }]
+            return [{
+                "title": "旧闻黄仁勋",
+                "summary": "过期",
+                "score": 9,
+                "source": source,
+                "link": "https://n.test/old",
+                "published": "2026-08-20 10:00",
+                "published_at": datetime(2026, 8, 20, 10, 0, tzinfo=report.BEIJING_TZ),
+            }]
+
+        with patch.object(report, "topic_search_urls", side_effect=fake_urls), \
+             patch.object(report, "fetch_feed", return_value="<rss/>"), \
+             patch.object(report, "parse_rss_items", side_effect=fake_parse), \
+             patch.object(report, "now_beijing", return_value=now):
+            items = report.fetch_topic_search_news("黄仁勋")
+        self.assertTrue(any(query.lower() != "黄仁勋" for query in seen_queries))
+        titles = [item["title"] for item in items]
+        self.assertIn("NVIDIA ships new chip", titles)
+        self.assertNotIn("旧闻黄仁勋", titles)
 
 
 if __name__ == "__main__":

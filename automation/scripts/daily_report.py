@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from email.utils import parsedate_to_datetime
 import feedparser
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
@@ -416,6 +417,81 @@ def fetch_feed(feed_url, timeout=10):
         return None
 
 
+def parse_entry_datetime(entry):
+    for key in ("published_parsed", "updated_parsed"):
+        parsed = entry.get(key) if hasattr(entry, "get") else getattr(entry, key, None)
+        if parsed:
+            try:
+                return datetime(*parsed[:6], tzinfo=timezone.utc).astimezone(BEIJING_TZ)
+            except (TypeError, ValueError, OverflowError):
+                pass
+    for key in ("published", "updated"):
+        text = entry.get(key) if hasattr(entry, "get") else getattr(entry, key, None)
+        parsed = parse_published_text(text)
+        if parsed:
+            return parsed
+    return None
+
+
+def parse_published_text(text):
+    raw = " ".join(str(text or "").split())
+    if not raw:
+        return None
+    try:
+        parsed = parsedate_to_datetime(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=BEIJING_TZ)
+        return parsed.astimezone(BEIJING_TZ)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    iso = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=BEIJING_TZ)
+        return parsed.astimezone(BEIJING_TZ)
+    except ValueError:
+        pass
+    for fmt, size in (("%Y-%m-%d %H:%M", 16), ("%Y-%m-%d", 10)):
+        try:
+            parsed = datetime.strptime(raw[:size], fmt)
+            return parsed.replace(tzinfo=BEIJING_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def item_published_at(item):
+    value = (item or {}).get("published_at")
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=BEIJING_TZ)
+        return value.astimezone(BEIJING_TZ)
+    return parse_published_text((item or {}).get("published") or "")
+
+
+def filter_recent_items(items, now=None, fresh_hours=48, stale_hours=168, min_keep=3):
+    """日报优先近 48 小时；不够时放宽到 7 天。超过 7 天的旧闻在有候选时丢掉。"""
+    now = now or now_beijing()
+    dated_fresh = []
+    dated_mid = []
+    undated = []
+    for item in items or []:
+        published = item_published_at(item)
+        if published is None:
+            undated.append(item)
+            continue
+        age_hours = (now - published).total_seconds() / 3600
+        if age_hours <= fresh_hours:
+            dated_fresh.append(item)
+        elif age_hours <= stale_hours:
+            dated_mid.append(item)
+    if len(dated_fresh) >= min_keep:
+        return dated_fresh + undated
+    kept = dated_fresh + dated_mid + undated
+    return kept
+
+
 def parse_rss_items(xml, source, max_items=20):
     items = []
     feed = feedparser.parse(xml)
@@ -423,7 +499,10 @@ def parse_rss_items(xml, source, max_items=20):
         title = (entry.get("title") or "").strip()
         summary = entry.get("summary", "") or entry.get("description", "")
         link = entry.get("link", "")
-        published = entry.get("published", "")[:16] if entry.get("published") else ""
+        published_at = parse_entry_datetime(entry)
+        published = published_at.strftime("%Y-%m-%d %H:%M") if published_at else (
+            entry.get("published", "")[:16] if entry.get("published") else ""
+        )
         summary = re.sub(r"<[^>]+>", "", summary)
         summary = re.sub(r"\s+", " ", summary).strip()[:180]
         if not title:
@@ -434,6 +513,7 @@ def parse_rss_items(xml, source, max_items=20):
             "summary": summary,
             "link": link,
             "published": published,
+            "published_at": published_at,
             "score": score_news_item(source, title, summary),
         })
     return items
@@ -442,6 +522,19 @@ def parse_rss_items(xml, source, max_items=20):
 def normalize_title(title):
     title = re.sub(r"[\W_]+", "", title.lower())
     return title[:40]
+
+
+def canonical_link(link):
+    raw = (link or "").strip()
+    if not raw:
+        return ""
+    raw = raw.split("#", 1)[0]
+    raw = re.sub(r"/+$", "", raw)
+    if "?" in raw:
+        base, query = raw.split("?", 1)
+        kept = [part for part in query.split("&") if part and not part.lower().startswith("utm_")]
+        raw = base + (("?" + "&".join(kept)) if kept else "")
+    return raw.lower()
 
 
 def score_news_item(source, title, summary):
@@ -461,13 +554,22 @@ def is_domestic_item(item):
 
 
 def dedupe_news_items(items):
-    seen = set()
+    seen_titles = set()
+    seen_links = set()
     deduped = []
-    for item in sorted(items, key=lambda x: x["score"], reverse=True):
-        key = normalize_title(item["title"])
-        if not key or key in seen:
+    for item in sorted(items, key=lambda x: x.get("score", 0), reverse=True):
+        title_key = normalize_title(item.get("title") or "")
+        link_key = canonical_link(item.get("link") or "")
+        if title_key and title_key in seen_titles:
             continue
-        seen.add(key)
+        if link_key and link_key in seen_links:
+            continue
+        if not title_key and not link_key:
+            continue
+        if title_key:
+            seen_titles.add(title_key)
+        if link_key:
+            seen_links.add(link_key)
         deduped.append(item)
     return deduped
 
@@ -627,7 +729,7 @@ def source_items(items, limit=6):
         link = news_link(item)
         if not link:
             continue
-        key = re.sub(r"/+$", "", link.split("#", 1)[0]).lower()
+        key = canonical_link(link)
         if key in seen:
             continue
         seen.add(key)
@@ -809,6 +911,22 @@ TOPIC_KEYWORDS = {
     "区块链": ["区块链", "web3", "智能合约", "加密货币"],
 }
 
+# 自定义主题的公开别名，只覆盖常见人名/公司，避免把任意词扩得太宽。
+TOPIC_ALIAS_GROUPS = [
+    ["黄仁勋", "jensen huang", "nvidia", "英伟达", "nvda"],
+    ["马斯克", "elon musk", "特斯拉", "tesla", "spacex", "xai"],
+    ["openai", "chatgpt", "山姆·奥特曼", "sam altman"],
+    ["deepseek", "深度求索"],
+    ["anthropic", "claude"],
+    ["谷歌", "google", "gemini", "deepmind"],
+    ["微软", "microsoft", "msft"],
+    ["苹果", "apple", "aapl"],
+    ["meta", "llama", "扎克伯格", "zuckerberg"],
+]
+
+TOPIC_FRESH_HOURS = 48
+TOPIC_STALE_HOURS = 168
+
 
 def normalize_intent(intent):
     text = " ".join(str(intent or "").split())
@@ -830,12 +948,78 @@ def intent_terms(intent):
     return terms
 
 
-def topic_keywords(topic, intent=None):
-    keys = list(TOPIC_KEYWORDS.get(topic, [topic]))
+def alias_terms_for(term):
+    key = " ".join(str(term or "").split()).lower()
+    if not key:
+        return []
+    matched = []
+    seen = set()
+    for group in TOPIC_ALIAS_GROUPS:
+        if any((alias or "").strip().lower() == key for alias in group):
+            for alias in group:
+                normalized = " ".join(str(alias or "").split())
+                alias_key = normalized.lower()
+                if not normalized or alias_key in seen:
+                    continue
+                seen.add(alias_key)
+                matched.append(normalized)
+    return matched
+
+
+def expand_topic_terms(topic, intent=None):
+    terms = []
+    seen = set()
+
+    def add(term):
+        normalized = " ".join(str(term or "").split())
+        key = normalized.lower()
+        if not normalized or key in seen:
+            return
+        seen.add(key)
+        terms.append(normalized)
+
+    add(topic)
+    for alias in alias_terms_for(topic):
+        add(alias)
     for term in intent_terms(intent):
-        if term not in keys:
-            keys.append(term)
-    return keys
+        add(term)
+        for alias in alias_terms_for(term):
+            add(alias)
+    return terms
+
+
+def topic_keywords(topic, intent=None):
+    if is_preset_topic(topic):
+        keys = list(TOPIC_KEYWORDS.get(topic, [topic]))
+        for term in intent_terms(intent):
+            if term not in keys:
+                keys.append(term)
+        return keys
+    return expand_topic_terms(topic, intent)
+
+
+def topic_search_queries(topic, intent=None):
+    topic_name = " ".join(str(topic or "").split())
+    queries = []
+    seen = set()
+
+    def add(query):
+        normalized = " ".join(str(query or "").split())
+        key = normalized.lower()
+        if not normalized or key in seen:
+            return
+        seen.add(key)
+        queries.append(normalized)
+
+    add(topic_name)
+    latin = next((term for term in expand_topic_terms(topic_name) if re.search(r"[A-Za-z]", term)), "")
+    add(latin)
+    terms = intent_terms(intent)
+    if topic_name and terms:
+        add(f"{topic_name} {terms[0]}")
+    elif terms:
+        add(terms[0])
+    return queries[:3]
 
 
 def topic_match_score(item, topic, intent=None):
@@ -877,37 +1061,46 @@ def news_mentions_topic(item, topic, intent=None):
     return topic_match_score(item, topic, intent) >= 1
 
 
-def fetch_topic_search_news(topic, limit=5, intent=None):
-    """按自定义词单独检索，只保留标题或摘要真正提到该词的条目。"""
-    query = topic
+def fetch_topic_search_news(topic, limit=8, intent=None):
+    """按主题词和别名检索公开 RSS，只留近两天且真正相关的条目。"""
     extra = normalize_intent(intent)
-    if extra:
-        query = f"{topic} {extra}"
     collected = []
-    for source, url in topic_search_urls(query):
-        xml = fetch_feed(url, timeout=8)
-        if not xml:
-            continue
-        try:
-            collected.extend(parse_rss_items(xml, source, max_items=12))
-        except Exception as e:
-            print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
-    filtered = [item for item in dedupe_news_items(collected) if news_mentions_topic(item, topic, extra)]
+    for query in topic_search_queries(topic, extra):
+        for source, url in topic_search_urls(query):
+            xml = fetch_feed(url, timeout=8)
+            if not xml:
+                continue
+            try:
+                for item in parse_rss_items(xml, source, max_items=12):
+                    item["query"] = query
+                    collected.append(item)
+            except Exception as e:
+                print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
+    recent = filter_recent_items(collected)
+    filtered = [
+        item for item in dedupe_news_items(recent)
+        if news_mentions_topic(item, topic, extra)
+    ]
     return filtered[:limit]
 
 
 def collect_news_for_topic(news_items, topic, intent=None):
     selected = select_news_for_topic(news_items, topic, intent=intent)
-    if selected:
-        return selected
     extra = normalize_intent(intent)
-    if is_preset_topic(topic) and not extra:
-        return []
+    should_search = (not is_preset_topic(topic)) or bool(extra)
+    if not should_search:
+        return selected
     label = f"{topic}" + (f"（{extra}）" if extra else "")
-    print(f"  🔍 主题「{label}」在公共资讯池无匹配，改为按词检索")
-    if extra:
-        return fetch_topic_search_news(topic, intent=extra)
-    return fetch_topic_search_news(topic)
+    if not selected:
+        print(f"  🔍 主题「{label}」在公共资讯池无匹配，改为按词检索")
+    else:
+        print(f"  🔍 主题「{label}」合并公开检索，补近两天资讯")
+    searched = fetch_topic_search_news(topic, intent=extra) if extra else fetch_topic_search_news(topic)
+    merged = filter_recent_items(dedupe_news_items(list(selected) + list(searched or [])))
+    merged = [item for item in merged if news_mentions_topic(item, topic, extra)]
+    if merged:
+        return merged[:8]
+    return selected
 
 
 def window_digest_style(window):
