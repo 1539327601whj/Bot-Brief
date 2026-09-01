@@ -23,7 +23,8 @@
 }
 
 .report-article {
-  background: white;
+  background: #fff;
+  color: #1a1f2b;
   border-radius: 12px;
   padding: 36px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
@@ -32,30 +33,80 @@
 .article-header {
   margin-bottom: 28px;
   padding-bottom: 20px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #e6e8ee;
 }
 
 .meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
 }
 
 .time {
-  color: #999;
+  color: #5b6472;
   font-size: 13px;
 }
 
 .article-header h1 {
+  margin: 0;
+  color: #141820;
   font-size: 24px;
   font-weight: 700;
   line-height: 1.4;
 }
 
+.report-article .tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.report-article .tag-morning {
+  background: #fff6dd;
+  color: #8a5a00;
+  border-color: #f0d48a;
+}
+
+.report-article .tag-evening {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-color: #d8b4fe;
+}
+
+.report-article .tag-etf {
+  background: #e8f8f0;
+  color: #0f7a4a;
+  border-color: #9de0c0;
+}
+
+.report-article .tag-etf-evening {
+  background: #eef0ff;
+  color: #3d4db8;
+  border-color: #c5ccff;
+}
+
+.report-article .tag-other {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
 .article-content {
   line-height: 1.9;
-  color: #444;
+  color: #2f3542;
+}
+
+.article-content h1 {
+  margin: 0 0 16px;
+  color: #141820;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .article-content h2 {
@@ -127,7 +178,7 @@
 .article-footer {
   margin-top: 32px;
   padding-top: 16px;
-  border-top: 1px solid #eee;
-  color: #999;
+  border-top: 1px solid #e6e8ee;
+  color: #5b6472;
   font-size: 13px;
 }
