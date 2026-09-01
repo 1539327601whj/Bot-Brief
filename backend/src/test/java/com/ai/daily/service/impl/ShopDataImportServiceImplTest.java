@@ -1,7 +1,9 @@
 package com.ai.daily.service.impl;
 
+import com.ai.daily.dto.ShopImportConfirmDTO;
 import com.ai.daily.dto.ShopImportPreviewDTO;
 import com.ai.daily.entity.ShopProduct;
+import com.ai.daily.entity.ShopSalesDaily;
 import com.ai.daily.entity.ShopStore;
 import com.ai.daily.mapper.ShopProductMapper;
 import com.ai.daily.mapper.ShopProductSalesDailyMapper;
@@ -19,20 +21,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ShopDataImportServiceImplTest {
 
     private ShopStoreService stores;
     private ShopProductMapper products;
+    private ShopSalesDailyMapper sales;
     private ShopDataImportServiceImpl service;
 
     @BeforeEach
     void setUp() {
         stores = mock(ShopStoreService.class);
         products = mock(ShopProductMapper.class);
+        sales = mock(ShopSalesDailyMapper.class);
         service = new ShopDataImportServiceImpl(
-                stores, products, mock(ShopSalesDailyMapper.class), mock(ShopProductSalesDailyMapper.class));
+                stores, products, sales, mock(ShopProductSalesDailyMapper.class));
         ShopStore store = new ShopStore();
         store.setId(3L);
         store.setUserId(7L);
@@ -93,6 +99,45 @@ class ShopDataImportServiceImplTest {
                         + tomorrow + ",10748.00,86,80,320.00\n"));
         assertThat(preview.getValidRows()).isZero();
         assertThat(preview.getErrors()).extracting("message").contains("不能导入未来日期");
+    }
+
+    @Test
+    void confirmWritesProductWhenPreviewHashMatches() {
+        when(products.selectOne(any())).thenReturn(null);
+        MockMultipartFile file = csv(
+                "external_product_id,product_name,category,price,stock\nSKU-001,京东示例,女装,99.00,100\n");
+        ShopImportPreviewDTO preview = service.preview(7L, 3L, "PRODUCT", file);
+
+        ShopImportConfirmDTO confirmed = service.confirm(7L, 3L, "PRODUCT", preview.getFileHash(), file);
+
+        assertThat(confirmed.getType()).isEqualTo("PRODUCT");
+        assertThat(confirmed.getImportedRows()).isEqualTo(1);
+        verify(products).insert(any(ShopProduct.class));
+    }
+
+    @Test
+    void confirmWritesStoreDailyForPastDate() {
+        when(sales.selectOne(any())).thenReturn(null);
+        MockMultipartFile file = csv(
+                "stat_date,sales_amount,order_count,buyer_count,refund_amount\n"
+                        + LocalDate.now().minusDays(1) + ",10748.00,86,80,320.00\n");
+        ShopImportPreviewDTO preview = service.preview(7L, 3L, "STORE_DAILY", file);
+
+        ShopImportConfirmDTO confirmed = service.confirm(7L, 3L, "STORE_DAILY", preview.getFileHash(), file);
+
+        assertThat(confirmed.getImportedRows()).isEqualTo(1);
+        verify(sales).insert(any(ShopSalesDaily.class));
+    }
+
+    @Test
+    void confirmRejectsUnknownStore() {
+        when(stores.getForUser(7L, 99L)).thenReturn(null);
+        MockMultipartFile file = csv(
+                "external_product_id,product_name,category,price,stock\nSKU-001,京东示例,女装,99.00,100\n");
+        assertThatThrownBy(() -> service.confirm(7L, 99L, "PRODUCT", "any", file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("店铺不存在");
+        verify(products, never()).insert(any());
     }
 
     @Test
