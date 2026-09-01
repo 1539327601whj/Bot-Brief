@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
 import api from '../utils/api'
 import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
@@ -17,8 +17,17 @@ interface Report {
   reportDate?: string
 }
 
+function editionTone(className: string) {
+  if (className.includes('tag-etf-evening')) return 'etf-evening'
+  if (className.includes('tag-etf')) return 'etf'
+  if (className.includes('tag-evening')) return 'evening'
+  if (className.includes('tag-morning')) return 'morning'
+  return 'other'
+}
+
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [report, setReport] = useState<Report | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -29,21 +38,50 @@ export default function ReportDetail() {
       .finally(() => setLoading(false))
   }, [id])
 
-  if (loading) return <div className="loading">加载中...</div>
-  if (!report) return <div className="loading">简报不存在</div>
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/')
+  }
+
+  if (loading) {
+    return (
+      <div className="detail-page">
+        <div className="detail-state">正在打开简报…</div>
+      </div>
+    )
+  }
+
+  if (!report) {
+    return (
+      <div className="detail-page">
+        <div className="detail-state">
+          <strong>简报不存在或已失效</strong>
+          <span>可能已被删除，或当前账号看不到这份内容。</span>
+          <Link to="/">回到首页</Link>
+        </div>
+      </div>
+    )
+  }
 
   const editionInfo = getReportEditionInfo(report.edition, report.displayTime, report.title)
-  const editionLabel = `${editionInfo.icon} ${editionInfo.label}`
-  const editionClass = editionInfo.className
+  const tone = editionTone(editionInfo.className)
 
   return (
     <div className="detail-page">
-      <Link to="/" className="back-btn">← 返回列表</Link>
+      <div className="detail-toolbar">
+        <button type="button" className="detail-back" onClick={goBack}>← 返回</button>
+        <nav className="detail-crumbs">
+          <Link to="/">首页概览</Link>
+          <span>/</span>
+          <Link to="/reports">历史简报</Link>
+        </nav>
+      </div>
 
-      <article className="report-article">
+      <article className={`report-article tone-${tone}`}>
         <header className="article-header">
           <div className="meta">
-            <span className={editionClass}>{editionLabel}</span>
+            <span className={editionInfo.className}>{editionInfo.icon} {editionInfo.label}</span>
+            <span className="detail-version">{editionInfo.version}</span>
             <span className="time">{reportSlotStamp(report, 'YYYY-MM-DD HH:mm')}</span>
           </div>
           <h1>{report.title}</h1>
@@ -52,12 +90,6 @@ export default function ReportDetail() {
         <div className="article-content">
           <MarketMarkdown>{report.content}</MarketMarkdown>
         </div>
-
-        {report.runId && (
-          <footer className="article-footer">
-            <span>来源：GitHub Actions Run #{report.runId}</span>
-          </footer>
-        )}
       </article>
     </div>
   )

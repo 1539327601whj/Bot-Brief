@@ -211,6 +211,11 @@ class SubscribedTopicServiceTest {
         assertThat(service.listDueGenerations(date, LocalTime.of(18, 5)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("纳指标普沪深300ETF");
+
+        broken.setContent("当天溢价 +0.20%\n<!-- ETF_DATA_REFRESH:IOPV -->");
+        assertThat(service.listDueGenerations(date, LocalTime.of(18, 10)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("纳指标普沪深300ETF");
     }
 
     @Test

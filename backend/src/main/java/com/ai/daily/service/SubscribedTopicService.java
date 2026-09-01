@@ -108,7 +108,8 @@ public class SubscribedTopicService {
         if (!content.contains("IOPV不可用")
                 && !content.contains("IOPV未与行情同步")
                 && !content.contains("HTTPSConnectionPool")
-                && !content.contains("Max retries exceeded")) {
+                && !content.contains("Max retries exceeded")
+                && !content.contains("ETF_DATA_REFRESH")) {
             return false;
         }
         LocalDateTime created = existing.getCreatedAt();

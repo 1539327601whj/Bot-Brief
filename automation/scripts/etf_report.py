@@ -133,6 +133,7 @@ _HTTP_SESSION: Optional[requests.Session] = None
 _JSON_UNSET = object()
 
 DISCLAIMER = "数据说明：本报告汇总公开市场数据，仅用于核对数据、市场状态与风险；不同估值口径不可直接横向比较，不构成投资建议或买卖依据。"
+ETF_REFRESH_MARKER = "<!-- ETF_DATA_REFRESH:IOPV -->"
 
 
 def now_beijing() -> datetime:
@@ -1500,13 +1501,15 @@ def fmt_premium_change(current: Optional[float], baseline: Optional[float]) -> s
 def format_premium(premium: dict[str, Any]) -> str:
     rate = premium.get("premium_rate")
     if rate is not None:
-        note = "，跨境IOPV仅供参考" if premium.get("reference_only") else ""
-        return f"{rate:+.2f}%（{premium['level']}{note}）"
+        level = premium.get("level")
+        if level and "IOPV" not in str(level) and level != "不可确认":
+            return f"{rate:+.2f}%（{level}）"
+        return f"{rate:+.2f}%"
     display = premium.get("display_rate")
     if display is not None:
-        note = "，收盘相对净值，跨境仅供参考" if premium.get("reference_only") else "，收盘相对净值"
-        return f"{display:+.2f}%{fmt_baseline_date(premium.get('display_date'))}（{premium_level(display)}{note}）"
-    return premium.get("level") or "不可确认"
+        level = premium_level(display)
+        return f"{display:+.2f}%{fmt_baseline_date(premium.get('display_date'))}（{level}）"
+    return "不可确认"
 
 
 def format_premium_with_lookbacks(premium: dict[str, Any], etf: dict[str, Any]) -> str:
@@ -2201,7 +2204,6 @@ def format_conclusion_line(snapshot: dict[str, Any], memo: Any) -> str:
 def format_lead_conclusion(snapshots: list[dict[str, Any]], memos: list[Any]) -> list[str]:
     lines = ["## 先看结论"]
     lines.extend(format_conclusion_line(snapshot, memo) for snapshot, memo in zip(snapshots, memos))
-    lines.append("- 各指数分位口径不同，只分别与自身历史比较，不横向比较高低。")
     return lines
 
 
@@ -2215,15 +2217,13 @@ def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         lines.extend([
             f"### {etf_short_name(snapshot)}",
             f"- {price_label}（截至 {quote.get('data_time') or '不可确认'}）{current_price}｜该交易日 "
-            f"{fmt_change_pct(quote.get('pct_change'))}；行情源：{quote.get('source') or '不可确认'}。",
+            f"{fmt_change_pct(quote.get('pct_change'))}",
             f"- 行情价 {current_price}｜上一交易日收盘{fmt_baseline_date(context.get('previous_date'))} "
             f"{fmt_price(context.get('previous_close'))}",
             f"- 行情价 {current_price}｜一周前价{fmt_baseline_date(context.get('week_baseline_date'))} "
             f"{fmt_price(context.get('week_baseline'))}｜近一周 {fmt_change_pct(context.get('week_pct_change'))}",
             f"- 行情价 {current_price}｜一月前价{fmt_baseline_date(context.get('month_baseline_date'))} "
             f"{fmt_price(context.get('month_baseline'))}｜近一月 {fmt_change_pct(context.get('month_pct_change'))}",
-            f"- 历史源：{context.get('source') or '不可确认'}；"
-            f"{data_status_label(context.get('data_status'))}；截至 {context.get('as_of') or '不可确认'}。",
         ])
     return lines
 
@@ -2231,11 +2231,9 @@ def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
 def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     lines = ["## PE分位变化"]
     for snapshot in snapshots:
-        premium = snapshot["premium"]
         valuation = snapshot["valuation"]
         pe_context = build_pe_context(snapshot)
         current = fmt_pe_percentile(pe_context["current"])
-        method = valuation.get("percentile_method") or valuation.get("percentileMethod")
         lines.extend([
             f"### {etf_short_name(snapshot)}（{valuation.get('valuation_level') or '估值状态不可确认'}）",
             f"- PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}｜当前PE分位 {current}｜估值日期 "
@@ -2249,10 +2247,6 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
             f"- 当前PE分位 {current}｜一月前分位{fmt_baseline_date(pe_context['month_baseline_date'])} "
             f"{fmt_pe_percentile(pe_context['month_baseline'])}｜近一月 "
             f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
-            f"- 溢价：{format_premium_with_lookbacks(premium, snapshot['etf'])}；估值源："
-            f"{valuation.get('source') or '不可确认'}；"
-            f"{data_status_label(valuation.get('data_status'))}；口径："
-            f"{percentile_method_label(method)}。",
         ])
     return lines
 
@@ -2278,22 +2272,20 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
             format_premium_lookback_line("一天前", current, premium.get("previous_rate"), premium.get("previous_date")),
             format_premium_lookback_line("一周前", current, premium.get("week_rate"), premium.get("week_date")),
             format_premium_lookback_line("一月前", current, premium.get("month_rate"), premium.get("month_date")),
-            f"- 历史溢价按收盘价相对当日净值，只配对同一天；跨境仅供参考；源："
-            f"{premium.get('history_source') or '不可确认'}。",
         ])
     return lines
 
 
-def format_data_issue_section(snapshots: list[dict[str, Any]]) -> list[str]:
-    issues = [
-        f"{etf_short_name(snapshot)}：{issue}"
-        for snapshot in snapshots
-        for issue in snapshot_data_issues(snapshot)
-        if not issue.startswith("溢折价：IOPV日期与行情日期不一致")
-    ]
-    if not issues:
-        return []
-    return ["## 数据异常", *(f"- {issue}。" for issue in issues)]
+def report_needs_iopv_refresh(snapshots: list[dict[str, Any]]) -> bool:
+    for snapshot in snapshots:
+        premium = snapshot.get("premium") or {}
+        if premium.get("error"):
+            return True
+        if premium.get("data_status") in ("provider_error", "stale_source", "unavailable"):
+            return True
+        if "IOPV" in str(premium.get("level") or ""):
+            return True
+    return False
 
 
 def format_a_share_section(stock_observations: Optional[AShareObservationResult]) -> list[str]:
@@ -2339,11 +2331,11 @@ def build_programmatic_report(
     ]
     if premium_section:
         lines.extend(["", *premium_section])
-    issues = format_data_issue_section(snapshots)
-    if issues:
-        lines.extend(["", *issues])
     lines.extend(["", *format_a_share_section(stock_observations)])
-    return sanitize_report("\n".join(lines))
+    body = "\n".join(lines)
+    if report_needs_iopv_refresh(snapshots):
+        body += f"\n\n{ETF_REFRESH_MARKER}"
+    return sanitize_report(body)
 
 
 def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
@@ -2387,6 +2379,7 @@ def colorize_wework_changes(text: str) -> str:
 
 
 def convert_to_wework_markdown(md_text: str) -> str:
+    md_text = re.sub(r"<!--.*?-->", "", md_text, flags=re.S)
     out = []
     for line in md_text.split("\n"):
         stripped = line.strip()

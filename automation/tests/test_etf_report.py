@@ -205,7 +205,8 @@ class PremiumHistoryTests(unittest.TestCase):
         })
         self.assertIn("+11.21%", text)
         self.assertIn("08-27", text)
-        self.assertIn("收盘相对净值", text)
+        self.assertNotIn("收盘相对净值", text)
+        self.assertNotIn("跨境仅供参考", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_csi300_report_omits_premium_history_section(self, _):
@@ -463,14 +464,16 @@ class ReportTests(unittest.TestCase):
             "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
             "按计划买", "行情价 4.100 元", "该交易日",
             "PE(TTM) 12.50", "PE分位 45%", "本次观测",
-            "中证 PE(TTM) 滚动10年分位",
-            "估值测试源", "2026-07-27", "外部数据已校验",
+            "2026-07-27",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
             self.assertIn(required, text)
         for forbidden in (
             "加仓", "减仓", "正常定投", "今日动作", "观察线",
             "定额配置官", "规则动作", "数据降级",
+            "行情源", "历史源", "估值源", "外部数据已校验",
+            "各指数分位口径", "数据异常",
+            "中证 PE(TTM) 滚动10年分位", "估值测试源",
         ):
             self.assertNotIn(forbidden, text)
         summary = report.build_summary([complete_snapshot()])
@@ -484,12 +487,13 @@ class ReportTests(unittest.TestCase):
             "ETF 行情日报", "先看结论", "按计划买",
             "ETF变化", "PE分位变化",
             "行情价 4.100 元", "PE(TTM) 12.50", "PE分位 45%",
-            "一天前", "一周前", "一月前",
+            "一周前", "一月前",
         ):
             self.assertIn(required, text)
         for forbidden in (
             "定额配置官", "规则动作", "数据降级", "A股观察候选",
             "加仓", "减仓", "正常定投", "今日动作",
+            "行情源", "估值源", "数据异常",
         ):
             self.assertNotIn(forbidden, text)
         wx = report.convert_to_wework_markdown(text)
@@ -497,7 +501,7 @@ class ReportTests(unittest.TestCase):
         self.assertLessEqual(len(wx.encode("utf-8")), 3800)
         self.assertIn("ETF变化", wx)
         self.assertIn("PE分位变化", wx)
-        self.assertIn("一天前", wx)
+        self.assertIn("一周前", wx)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_conclusion_uses_allocation_action(self, _):
@@ -551,6 +555,13 @@ class ReportTests(unittest.TestCase):
         self.assertIn("个百分点", text)
         self.assertIn("### 纳指100ETF", text)
         self.assertIn("### 标普500ETF", text)
+        for forbidden in (
+            "行情源", "历史源", "估值源", "外部数据已校验", "写入缓存",
+            "各指数分位口径", "数据异常", "跨境仅供参考", "HTTPSConnectionPool",
+        ):
+            self.assertNotIn(forbidden, text)
+        wx = report.convert_to_wework_markdown(text)
+        self.assertNotIn("ETF_DATA_REFRESH", wx)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_allocation_memo_degrades_when_pe_is_missing(self, _):
@@ -698,8 +709,11 @@ class ReportTests(unittest.TestCase):
             "error": "溢价源失败",
         })
         text = report.build_programmatic_report([snapshot], "market_watch_evening")
-        self.assertIn("溢折价：溢价源失败", text)
+        self.assertNotIn("溢折价：溢价源失败", text)
+        self.assertNotIn("数据异常", text)
+        self.assertIn(report.ETF_REFRESH_MARKER, text)
         self.assertNotIn("本次未发现缺失字段", text)
+        self.assertNotIn("ETF_DATA_REFRESH", report.convert_to_wework_markdown(text))
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_large_valuation_change_is_labeled_as_possible_revision(self, _):
@@ -711,7 +725,8 @@ class ReportTests(unittest.TestCase):
             "percentileMethod": ETF["percentile_method"],
         }]
         text = report.build_programmatic_report([snapshot], "market_watch_evening")
-        self.assertIn("可能包含数据源成分、盈利或历史样本修订", text)
+        self.assertNotIn("可能包含数据源成分、盈利或历史样本修订", text)
+        self.assertNotIn("数据异常", text)
 
     def test_weekend_skip_allows_dry_run_and_force_run(self):
         saturday = NOW + timedelta(days=5)
