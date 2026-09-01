@@ -115,6 +115,12 @@ const digestBadge = (topic: string) => {
   return ''
 }
 const isPreset = (topic: string) => FIELD_OPTIONS.some(option => interestKey(option) === interestKey(topic))
+const topicKind = (topic: string) => {
+  if (isAiTechDigest(topic)) return 'digest-ai'
+  if (isEtfDigest(topic)) return 'digest-etf'
+  if (!isPreset(topic)) return 'custom'
+  return 'preset'
+}
 const interestLength = (value: string) => Array.from(value).length
 
 const flattenItems = (source: any): TopicScheduleItem[] => {
@@ -518,7 +524,7 @@ export default function Subscription() {
         </div>
         <div className="topic-schedule-list">
           {topics.map(topic => (
-            <div key={topic} className={topicEnabled(topic) ? 'topic-schedule-row active' : 'topic-schedule-row'}>
+            <div key={topic} className={`topic-schedule-row kind-${topicKind(topic)}${topicEnabled(topic) ? ' active' : ''}`}>
               <label className="topic-check">
                 <input
                   type="checkbox"
@@ -568,27 +574,18 @@ export default function Subscription() {
                 .map((item, index) => ({ item, index }))
                 .filter(({ item }) => item.enabled && interestKey(item.topic) === interestKey(topic))
               return (
-                <div key={topic} className="schedule-topic">
-                  <div className="topic-intent-card">
+                <div key={topic} className={`schedule-topic kind-${topicKind(topic)}`}>
+                  <div className="schedule-topic-head">
+                    <div className="schedule-topic-title">
+                      <strong>{topic}</strong>
+                      {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
+                      {!isPreset(topic) && <small>自定义</small>}
+                    </div>
                     <p className="topic-overview">{topicOverview(topic)}</p>
-                    <label className="topic-intent">
-                      <span>我想看</span>
-                      <textarea
-                        value={slots[0]?.item.intent || ''}
-                        maxLength={MAX_INTENT_LENGTH}
-                        disabled={isDemo}
-                        placeholder={topicIntentHint(topic)}
-                        onChange={event => updateTopicIntent(topic, event.target.value)}
-                      />
-                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 不填则按系统默认生成</small>
-                    </label>
                   </div>
                   {slots.map(({ item, index }, slotIndex) => (
                     <div key={`${topic}-${index}`} className="schedule-row">
                       <div className="schedule-name">
-                        <strong>{topic}</strong>
-                        {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
-                        {!isPreset(topic) && <small>自定义</small>}
                         <div className="weekday-range">
                           <select
                             value={item.weekdayFrom}
@@ -671,6 +668,19 @@ export default function Subscription() {
                       )}
                     </div>
                   ))}
+                  <div className="topic-intent-card">
+                    <label className="topic-intent">
+                      <span>我想看 · {topic}</span>
+                      <textarea
+                        value={slots[0]?.item.intent || ''}
+                        maxLength={MAX_INTENT_LENGTH}
+                        disabled={isDemo}
+                        placeholder={topicIntentHint(topic)}
+                        onChange={event => updateTopicIntent(topic, event.target.value)}
+                      />
+                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 不填则按这个主题的默认范围生成</small>
+                    </label>
+                  </div>
                 </div>
               )
             })}

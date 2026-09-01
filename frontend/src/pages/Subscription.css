@@ -722,6 +722,25 @@ a.ghost-link {
   background: rgba(0, 212, 170, 0.06);
 }
 
+.topic-schedule-row.kind-digest-ai.active {
+  border-color: rgba(0, 212, 170, 0.4);
+}
+
+.topic-schedule-row.kind-digest-etf.active {
+  border-color: rgba(245, 196, 81, 0.4);
+  background: rgba(245, 196, 81, 0.06);
+}
+
+.topic-schedule-row.kind-preset.active {
+  border-color: rgba(139, 156, 255, 0.4);
+  background: rgba(139, 156, 255, 0.06);
+}
+
+.topic-schedule-row.kind-custom.active {
+  border-color: rgba(94, 234, 212, 0.4);
+  background: rgba(94, 234, 212, 0.06);
+}
+
 .topic-check {
   display: flex;
   align-items: center;
@@ -822,22 +841,92 @@ a.ghost-link {
   font-size: 14px;
 }
 
-.schedule-list,
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .schedule-topic {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left-width: 3px;
+  border-radius: 16px;
+  background: rgba(13, 17, 27, 0.55);
+}
+
+.schedule-topic.kind-digest-ai {
+  border-left-color: #00d4aa;
+  background: rgba(0, 212, 170, 0.04);
+}
+
+.schedule-topic.kind-digest-etf {
+  border-left-color: #f5c451;
+  background: rgba(245, 196, 81, 0.04);
+}
+
+.schedule-topic.kind-preset {
+  border-left-color: #8b9cff;
+  background: rgba(139, 156, 255, 0.045);
+}
+
+.schedule-topic.kind-custom {
+  border-left-color: #5eead4;
+  background: rgba(94, 234, 212, 0.04);
+}
+
+.schedule-topic-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-topic-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-topic-title strong {
+  color: #f4f7fb;
+  font-size: 16px;
+}
+
+.schedule-topic-title small {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(124, 77, 255, 0.16);
+  color: #a98bff;
+  font-size: 10px;
+}
+
+.schedule-topic.kind-digest-ai .schedule-topic-title small {
+  background: rgba(0, 212, 170, 0.16);
+  color: #00d4aa;
+}
+
+.schedule-topic.kind-digest-etf .schedule-topic-title small {
+  background: rgba(245, 196, 81, 0.16);
+  color: #f5c451;
+}
+
+.schedule-topic .topic-intent-card {
+  margin-top: 2px;
 }
 
 .schedule-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 140px auto auto;
+  grid-template-columns: minmax(180px, 1.2fr) 140px auto auto;
   align-items: center;
   gap: 12px 16px;
   padding: 14px 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  background: rgba(10, 14, 26, 0.55);
+  background: rgba(10, 14, 26, 0.45);
 }
 
 .schedule-name {
