@@ -28,6 +28,14 @@ public final class ReportWindows {
         return ALL.contains(value);
     }
 
+    /** 该生成窗的结束时刻（含）：下一段开始前的最后一分钟。 */
+    public static LocalTime windowEnd(String window) {
+        if (W00_06.equals(window)) return LocalTime.of(5, 59);
+        if (W06_12.equals(window)) return LocalTime.of(11, 59);
+        if (W12_18.equals(window)) return LocalTime.of(17, 59);
+        return LocalTime.of(23, 59);
+    }
+
     public static LocalTime publicDisplayTime(String edition) {
         if ("morning".equals(edition)) return LocalTime.of(8, 0);
         if ("evening".equals(edition)) return LocalTime.of(20, 0);

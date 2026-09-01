@@ -93,13 +93,15 @@ public class SubscriptionProgressService {
         if (recorded != null && TopicGenerationStatus.SKIPPED_NO_NEWS.equals(recorded.getStatus())) {
             row.setStatus("skipped");
             row.setLabel("无匹配资讯");
-            row.setMessage(recorded.getMessage() != null ? recorded.getMessage() : "今天没有抓到与该主题直接相关的资讯，已跳过");
+            row.setMessage(retryableFailureMessage(recorded.getMessage(),
+                    "还没抓到匹配资讯，隔几分钟会再试，成功后网页和渠道会补上"));
             return row;
         }
         if (recorded != null && TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
             row.setStatus("failed");
             row.setLabel("生成失败");
-            row.setMessage(recorded.getMessage() != null ? recorded.getMessage() : "生成失败，本时间段不再重试，下一个时间段会再试");
+            row.setMessage(retryableFailureMessage(recorded.getMessage(),
+                    "生成失败，隔几分钟会再试，成功后网页和渠道会补上"));
             return row;
         }
 
@@ -115,6 +117,12 @@ public class SubscriptionProgressService {
         row.setLabel("准备中");
         row.setMessage("已过准备起点，正在或即将抓取。通常 2–5 分钟写完；" + row.getTime() + " 准点推送，错过整分会在随后补推");
         return row;
+    }
+
+    private static String retryableFailureMessage(String recorded, String fallback) {
+        if (recorded == null || recorded.isBlank()) return fallback;
+        if (recorded.contains("再试") || recorded.contains("重试")) return recorded;
+        return recorded + "。隔几分钟会再试，成功后网页和渠道会补上";
     }
 
     private SubscriptionTodayStatusDTO.PollerStatusDTO pollerStatus() {

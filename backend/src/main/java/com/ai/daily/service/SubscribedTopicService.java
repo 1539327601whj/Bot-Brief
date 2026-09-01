@@ -25,6 +25,9 @@ import java.util.stream.Collectors;
 @Service
 public class SubscribedTopicService {
 
+    static final int FAILURE_RETRY_MINUTES = 8;
+    private static final int PUSH_CATCH_UP_HOURS = 3;
+
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
     private final UserMapper userMapper;
@@ -113,6 +116,10 @@ public class SubscribedTopicService {
         return created.isBefore(LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusMinutes(8));
     }
 
+    /**
+     * 同一窗里只有成功写成才跳过。无匹配或失败会隔几分钟再试，
+     * 直到写出，或过了展示时刻后的补推窗口。
+     */
     private boolean alreadySettled(
             LocalDate date, String window, String topic, LocalTime generateAt, LocalTime now) {
         if (generationStatusService == null) return false;
@@ -123,16 +130,22 @@ public class SubscribedTopicService {
                 && !TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
             return false;
         }
-        // 15:30 和 16:00 同属一个 6 小时窗。提前抓空后默认不再刷；到点前再给一次机会。
-        if (generateAt == null) return true;
-        LocalTime retryFrom = generateAt.minusMinutes(Math.min(8, generationLeadMinutes));
-        if (retryFrom.isAfter(generateAt)) {
-            retryFrom = LocalTime.MIN;
-        }
-        if (now != null && now.isBefore(retryFrom)) return true;
+        if (now != null && pastRetryDeadline(date, window, generateAt, now)) return true;
         LocalDateTime updated = recorded.getUpdatedAt();
-        if (updated == null) return false;
-        return !updated.isBefore(LocalDateTime.of(date, retryFrom));
+        if (updated == null || now == null || date == null) return false;
+        return updated.plusMinutes(FAILURE_RETRY_MINUTES).isAfter(LocalDateTime.of(date, now));
+    }
+
+    private static boolean pastRetryDeadline(
+            LocalDate date, String window, LocalTime generateAt, LocalTime now) {
+        if (date == null || now == null) return false;
+        LocalDateTime current = LocalDateTime.of(date, now);
+        LocalDateTime deadline = LocalDateTime.of(date, ReportWindows.windowEnd(window));
+        if (generateAt != null) {
+            LocalDateTime catchUpEnd = LocalDateTime.of(date, generateAt).plusHours(PUSH_CATCH_UP_HOURS);
+            if (catchUpEnd.isAfter(deadline)) deadline = catchUpEnd;
+        }
+        return !current.isBefore(deadline);
     }
 
     List<DueGenerationDTO> planEarliest(LocalDate date) {

@@ -75,7 +75,7 @@ class SubscribedTopicServiceTest {
     }
 
     @Test
-    void doesNotRequeueSkippedOrFailedTopicsInTheSameWindow() {
+    void doesNotRequeueRecentlyFailedTopicsUntilCooldown() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
@@ -90,15 +90,36 @@ class SubscribedTopicServiceTest {
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
         when(sections.findId(any(), any(), any())).thenReturn(null);
         when(statuses.find(any(), any(), eq("区块链"))).thenReturn(status(
-                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 8, 29, 19, 50)));
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 8, 29, 19, 55)));
         when(statuses.find(any(), any(), eq("安全"))).thenReturn(status(
-                TopicGenerationStatus.FAILED, LocalDateTime.of(2026, 8, 29, 19, 50)));
+                TopicGenerationStatus.FAILED, LocalDateTime.of(2026, 8, 29, 19, 56)));
         when(statuses.find(any(), any(), eq("数据库"))).thenReturn(null);
 
         LocalDate date = LocalDate.of(2026, 8, 29);
         assertThat(service.listDueGenerations(date, LocalTime.of(20, 0)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("数据库");
+    }
+
+    @Test
+    void readySectionIsNotRegeneratedInTheSameWindow() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("马斯克", "16:00")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), eq("马斯克"))).thenReturn(88L);
+        when(statuses.find(any(), any(), eq("马斯克"))).thenReturn(status(
+                TopicGenerationStatus.READY, LocalDateTime.of(2026, 9, 1, 15, 32)));
+
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        assertThat(service.listDueGenerations(date, LocalTime.of(16, 0))).isEmpty();
     }
 
     @Test
@@ -193,7 +214,7 @@ class SubscribedTopicServiceTest {
     }
 
     @Test
-    void retriesSkippedCustomTopicOnceNearDisplayTime() {
+    void retriesSkippedCustomTopicAfterCooldownUntilReady() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         UserMapper users = mock(UserMapper.class);
@@ -210,10 +231,41 @@ class SubscribedTopicServiceTest {
                 TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 32)));
 
         LocalDate date = LocalDate.of(2026, 9, 1);
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 50))).isEmpty();
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 52)))
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 39))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 40)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("马斯克");
+
+        when(statuses.find(any(), any(), eq("马斯克"))).thenReturn(status(
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 40)));
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 47))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 48)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("马斯克");
+    }
+
+    @Test
+    void stopsRetryingFailedTopicAfterCatchUpWindow() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, mock(ReportService.class));
+
+        Subscription alice = subscription(1L);
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(item("马斯克", "15:30")));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), eq("马斯克"))).thenReturn(status(
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 32)));
+
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        assertThat(service.listDueGenerations(date, LocalTime.of(18, 29)))
+                .extracting(DueGenerationDTO::getTopic)
+                .containsExactly("马斯克");
+        assertThat(service.listDueGenerations(date, LocalTime.of(18, 30))).isEmpty();
     }
 
     private static SubscribedTopicService serviceOf(
