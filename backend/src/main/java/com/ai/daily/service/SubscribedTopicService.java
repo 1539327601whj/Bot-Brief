@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 @Service
 public class SubscribedTopicService {
 
-    static final int FAILURE_RETRY_MINUTES = 8;
+    static final int FAILURE_RETRY_MINUTES = 2;
     private static final int PUSH_CATCH_UP_HOURS = 3;
 
     private final SubscriptionService subscriptionService;
@@ -117,8 +117,8 @@ public class SubscribedTopicService {
     }
 
     /**
-     * 同一窗里只有成功写成才跳过。无匹配或失败会隔几分钟再试，
-     * 直到写出，或过了展示时刻后的补推窗口。
+     * 同一窗里只有成功写成才跳过。无匹配或失败隔 2 分钟再试，
+     * 写出后下一分钟就会拼网页并推送；3 小时只是补推最晚时限，不是干等。
      */
     private boolean alreadySettled(
             LocalDate date, String window, String topic, LocalTime generateAt, LocalTime now) {

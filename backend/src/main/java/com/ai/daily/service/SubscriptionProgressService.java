@@ -94,14 +94,14 @@ public class SubscriptionProgressService {
             row.setStatus("skipped");
             row.setLabel("无匹配资讯");
             row.setMessage(retryableFailureMessage(recorded.getMessage(),
-                    "还没抓到匹配资讯，隔几分钟会再试，成功后网页和渠道会补上"));
+                    "还没抓到匹配资讯，约 2 分钟后再抓；写成后下一分钟会补网页和推送"));
             return row;
         }
         if (recorded != null && TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
             row.setStatus("failed");
             row.setLabel("生成失败");
             row.setMessage(retryableFailureMessage(recorded.getMessage(),
-                    "生成失败，隔几分钟会再试，成功后网页和渠道会补上"));
+                    "生成失败，约 2 分钟后再试；写成后下一分钟会补网页和推送"));
             return row;
         }
 
@@ -122,7 +122,7 @@ public class SubscriptionProgressService {
     private static String retryableFailureMessage(String recorded, String fallback) {
         if (recorded == null || recorded.isBlank()) return fallback;
         if (recorded.contains("再试") || recorded.contains("重试")) return recorded;
-        return recorded + "。隔几分钟会再试，成功后网页和渠道会补上";
+        return recorded + "。约 2 分钟后再试，写成后下一分钟会补网页和推送";
     }
 
     private SubscriptionTodayStatusDTO.PollerStatusDTO pollerStatus() {

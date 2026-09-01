@@ -79,24 +79,6 @@ A_SHARE_EASTMONEY_HOSTS = (
     "https://82.push2.eastmoney.com/api/qt/clist/get",
     "https://push2.eastmoney.com/api/qt/clist/get",
 )
-EASTMONEY_STOCK_GET_HOSTS = (
-    "https://push2delay.eastmoney.com/api/qt/stock/get",
-    "https://82.push2.eastmoney.com/api/qt/stock/get",
-    "https://push2.eastmoney.com/api/qt/stock/get",
-)
-EASTMONEY_ULIST_HOSTS = (
-    "https://push2delay.eastmoney.com/api/qt/ulist.np/get",
-    "https://82.push2.eastmoney.com/api/qt/ulist.np/get",
-    "https://push2.eastmoney.com/api/qt/ulist.np/get",
-)
-EASTMONEY_STOCK_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://quote.eastmoney.com/",
-    "Accept": "application/json, text/plain, */*",
-}
 A_SHARE_EASTMONEY_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -280,127 +262,17 @@ def fmt_price(value: Optional[float]) -> str:
     return "不可确认" if value is None else f"{value:.3f} 元"
 
 
-def fetch_eastmoney_stock(etf: dict[str, str], fields: str, timeout: tuple[int, int] | int = (4, 8)) -> dict[str, Any]:
-    last_error: Optional[Exception] = None
-    for url in EASTMONEY_STOCK_GET_HOSTS:
-        try:
-            resp = http_get(
-                url,
-                params={"secid": etf["eastmoney_secid"], "fields": fields},
-                timeout=timeout,
-                headers=EASTMONEY_STOCK_HEADERS,
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data") or {}
-            if not data:
-                raise RuntimeError("东方财富未返回行情数据")
-            return data
-        except Exception as error:
-            last_error = error
-    raise RuntimeError(summarize_eastmoney_error(last_error) if last_error else "东方财富行情不可用")
-
-
-def normalize_eastmoney_price(value: Any) -> Optional[float]:
-    number = to_optional_float(value)
-    if number is None or number <= 0:
-        return None
-    if number > 100:
-        number = number / 1000.0
-    if number <= 0 or number > 100:
-        return None
-    return number
-
-
-def eastmoney_iopv_usable(data: dict[str, Any]) -> bool:
-    if not data:
-        return False
-    try:
-        timestamp = int(data.get("f124") or 0)
-    except (TypeError, ValueError):
-        return False
-    return timestamp > 0 and normalize_eastmoney_price(data.get("f441")) is not None
-
-
-def fetch_eastmoney_ulist(etf: dict[str, str], fields: str, timeout: tuple[int, int] | int = (4, 8)) -> dict[str, Any]:
-    last_error: Optional[Exception] = None
-    for url in EASTMONEY_ULIST_HOSTS:
-        try:
-            resp = http_get(
-                url,
-                params={"secids": etf["eastmoney_secid"], "fields": fields},
-                timeout=timeout,
-                headers=EASTMONEY_STOCK_HEADERS,
-            )
-            resp.raise_for_status()
-            rows = ((resp.json() or {}).get("data") or {}).get("diff") or []
-            if not rows or not isinstance(rows[0], dict):
-                raise RuntimeError("东方财富未返回列表行情")
-            row = dict(rows[0])
-            code = str(row.get("f12") or row.get("f57") or "")
-            if code != etf["code"]:
-                raise RuntimeError("东方财富ETF溢价数据代码不匹配")
-            row.setdefault("f57", code)
-            return row
-        except Exception as error:
-            last_error = error
-    raise RuntimeError(summarize_eastmoney_error(last_error) if last_error else "东方财富列表行情不可用")
-
-
-def parse_etf_iopv(etf: dict[str, str], quote: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
-    if str(data.get("f57") or data.get("f12") or "") != etf["code"]:
-        raise RuntimeError("东方财富ETF溢价数据代码不匹配")
-    if not eastmoney_iopv_usable(data):
-        raise RuntimeError("东方财富ETF实时IOPV字段无效")
-    ts = data.get("f124")
-    premium_datetime = datetime.fromtimestamp(int(ts), BEIJING_TZ)
-    premium_date = premium_datetime.date()
-    data_time = premium_datetime.strftime("%Y-%m-%d %H:%M:%S")
-    quote_date = parse_iso_date(quote.get("data_time"))
-    if quote_date is None or premium_date != quote_date:
-        return {
-            "premium_rate": None,
-            "level": "IOPV未与行情同步",
-            "estimated_nav": None,
-            "data_time": data_time,
-            "source": "东方财富ETF实时IOPV",
-            "reference_only": etf_is_qdii(etf),
-            "data_status": "stale_source",
-            "error": "IOPV日期与行情日期不一致",
-        }
-    estimated_nav = normalize_eastmoney_price(data.get("f441"))
-    latest_price = normalize_eastmoney_price(data.get("f2")) or to_optional_float(quote.get("latest_price"))
-    premium_rate = pct_return(latest_price, estimated_nav)
-    if premium_rate is None:
-        raise RuntimeError("东方财富ETF溢价响应缺少有效IOPV和价格")
-    return {
-        "premium_rate": premium_rate,
-        "level": premium_level(premium_rate),
-        "estimated_nav": estimated_nav,
-        "data_time": data_time,
-        "source": "东方财富ETF实时IOPV",
-        "reference_only": etf_is_qdii(etf),
-        "data_status": "available",
-        "error": None,
-    }
-
-
-def summarize_eastmoney_error(error: Any) -> str:
-    text = str(error or "").strip()
-    if re.search(r"\b(502|Bad Gateway)\b", text, re.I):
-        return "东方财富行情源网关繁忙（502）"
-    if re.search(r"RemoteDisconnected|Connection aborted|Max retries exceeded|ProtocolError", text, re.I):
-        return "东方财富行情源连接中断"
-    if re.search(r"\b(429|503|504)\b", text):
-        return "东方财富行情源暂时不可用"
-    cleaned = re.sub(r"https?://\S+", "", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" :;,.。")
-    if len(cleaned) > 60:
-        cleaned = cleaned[:57] + "..."
-    return cleaned or "东方财富行情源暂不可用"
-
-
 def fetch_quote_from_eastmoney(etf: dict[str, str]) -> dict[str, Any]:
-    data = fetch_eastmoney_stock(etf, "f43,f44,f45,f46,f47,f48,f57,f58,f60,f86,f169,f170", timeout=12)
+    url = "https://push2.eastmoney.com/api/qt/stock/get"
+    params = {
+        "secid": etf["eastmoney_secid"],
+        "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f86,f169,f170",
+    }
+    resp = http_get(url, params=params, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    data = resp.json().get("data") or {}
+    if not data:
+        raise RuntimeError("东方财富未返回行情数据")
 
     ts = data.get("f86")
     data_time = None
@@ -919,33 +791,80 @@ def premium_level(premium_rate: Optional[float]) -> str:
 
 
 def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, Any]:
-    last_error: Optional[Exception] = None
-    stale: Optional[dict[str, Any]] = None
-    loaders = (
-        lambda: fetch_eastmoney_stock(etf, "f2,f57,f58,f124,f402,f441", timeout=(4, 8)),
-        lambda: fetch_eastmoney_ulist(etf, "f2,f12,f14,f124,f402,f441", timeout=(4, 8)),
-    )
-    for loader in loaders:
+    try:
+        resp = http_get(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            params={
+                "secid": etf["eastmoney_secid"],
+                "fields": "f2,f57,f58,f124,f402,f441",
+            },
+            timeout=(4, 8),
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data") or {}
+        if str(data.get("f57") or "") != etf["code"]:
+            raise RuntimeError("东方财富ETF溢价数据代码不匹配")
+        ts = data.get("f124")
+        data_time = "不可确认"
+        premium_date = None
+        if ts:
+            premium_datetime = datetime.fromtimestamp(int(ts), BEIJING_TZ)
+            premium_date = premium_datetime.date()
+            data_time = premium_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        quote_date = parse_iso_date(quote.get("data_time"))
+        if premium_date is None or quote_date is None or premium_date != quote_date:
+            return {
+                "premium_rate": None,
+                "level": "IOPV未与行情同步",
+                "estimated_nav": None,
+                "data_time": data_time,
+                "source": "东方财富ETF实时IOPV",
+                "reference_only": etf_is_qdii(etf),
+                "data_status": "stale_source",
+                "error": "IOPV日期与行情日期不一致",
+            }
+        estimated_nav = to_optional_float(data.get("f441"))
+        listed_rate = None
         try:
-            parsed = parse_etf_iopv(etf, quote, loader())
-            if parsed.get("premium_rate") is not None:
-                return parsed
-            stale = parsed
-        except Exception as error:
-            last_error = error
-    if stale is not None:
-        return stale
-    print(f"  ⚠️ {etf['name']} 溢价率抓取失败: {last_error}")
-    return {
-        "premium_rate": None,
-        "level": "不可确认",
-        "estimated_nav": None,
-        "data_time": "不可确认",
-        "source": "东方财富ETF实时IOPV",
-        "reference_only": etf_is_qdii(etf),
-        "data_status": "provider_error",
-        "error": f"东方财富ETF实时IOPV不可用: {summarize_eastmoney_error(last_error)}",
-    }
+            raw_listed_rate = data.get("f402")
+            listed_rate = float(raw_listed_rate) if raw_listed_rate not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            listed_rate = None
+        latest_price = to_optional_float(data.get("f2")) or to_optional_float(quote.get("latest_price"))
+        calculated_rate = pct_return(latest_price, estimated_nav)
+        premium_rate = calculated_rate if calculated_rate is not None else (
+            -listed_rate if listed_rate is not None else None
+        )
+        if listed_rate is not None and calculated_rate is not None and abs(listed_rate + calculated_rate) > 0.2:
+            print(
+                f"  ⚠️ {etf['name']} 折价率字段与IOPV计算差异 "
+                f"{abs(listed_rate + calculated_rate):.2f} 个百分点"
+            )
+        if premium_rate is None:
+            raise RuntimeError("东方财富ETF溢价响应缺少有效IOPV和折价率")
+        return {
+            "premium_rate": premium_rate,
+            "level": premium_level(premium_rate),
+            "estimated_nav": estimated_nav,
+            "data_time": data_time,
+            "source": "东方财富ETF实时IOPV",
+            "reference_only": etf_is_qdii(etf),
+            "data_status": "available",
+            "error": None,
+        }
+    except Exception as e:
+        print(f"  ⚠️ {etf['name']} 溢价率抓取失败: {e}")
+        return {
+            "premium_rate": None,
+            "level": "不可确认",
+            "estimated_nav": None,
+            "data_time": "不可确认",
+            "source": "东方财富ETF实时IOPV",
+            "reference_only": etf_is_qdii(etf),
+            "data_status": "provider_error",
+            "error": f"东方财富ETF实时IOPV不可用: {e}",
+        }
 
 
 def empty_premium_history_fields() -> dict[str, Any]:
@@ -1589,38 +1508,6 @@ def format_premium_with_lookbacks(premium: dict[str, Any], etf: dict[str, Any]) 
 def valuation_trade_date(valuation: dict[str, Any]) -> Optional[str]:
     updated_at = str(valuation.get("updated_at") or "")
     return updated_at if parse_iso_date(updated_at) is not None else None
-
-
-def previous_weekday(day: date) -> date:
-    weekday = day.weekday()
-    if weekday == 0:
-        return day - timedelta(days=3)
-    if weekday == 6:
-        return day - timedelta(days=2)
-    if weekday == 5:
-        return day - timedelta(days=1)
-    return day - timedelta(days=1)
-
-
-def last_completed_trading_day(today: Optional[date] = None, now: Optional[datetime] = None) -> date:
-    """最近已收盘的交易日。只给日期时按当天已收盘计；带时钟则 15:00 前回退上一交易日。"""
-    clock = now or (None if today is not None else now_beijing())
-    current = today or (clock.date() if clock is not None else now_beijing().date())
-    if current.weekday() >= 5:
-        return previous_weekday(current)
-    if clock is not None and clock.date() == current and (clock.hour, clock.minute) < (15, 0):
-        return previous_weekday(current)
-    return current
-
-
-def valuation_asof_note(valuation: dict[str, Any]) -> str:
-    published = parse_iso_date(valuation_trade_date(valuation))
-    if published is None:
-        return ""
-    latest_session = last_completed_trading_day()
-    if published >= latest_session:
-        return ""
-    return f"（上一个已公布交易日；{latest_session.isoformat()} 的 PE 尚未发布）"
 
 
 def history_field(item: dict[str, Any], camel: str, snake: str) -> Any:
@@ -2333,9 +2220,8 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         method = valuation.get("percentile_method") or valuation.get("percentileMethod")
         lines.extend([
             f"### {etf_short_name(snapshot)}（{valuation.get('valuation_level') or '估值状态不可确认'}）",
-            f"- PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}｜当前PE分位 {current}｜最新发布日 "
-            f"{valuation_trade_date(valuation) or '不可确认'}"
-            f"{valuation_asof_note(valuation)}",
+            f"- PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}｜当前PE分位 {current}｜估值日期 "
+            f"{valuation_trade_date(valuation) or '不可确认'}",
             f"- 当前PE分位 {current}｜上一观测分位{fmt_baseline_date(pe_context['previous_date'])} "
             f"{fmt_pe_percentile(pe_context['previous'])}｜本次观测 "
             f"{fmt_pe_change(pe_context['current'], pe_context['previous'])}",
@@ -2360,19 +2246,17 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     lines = ["## 溢价变化"]
     for snapshot in qdii_snapshots:
         premium = snapshot["premium"]
-        live_rate = premium.get("premium_rate")
-        current = format_premium_rate(live_rate if live_rate is not None else premium.get("display_rate"))
-        current_label = "当天溢价" if live_rate is not None else (
-            f"最近收盘溢价{fmt_baseline_date(premium.get('display_date'))}"
+        current = format_premium_rate(
+            premium.get("premium_rate") if premium.get("premium_rate") is not None else premium.get("display_rate")
         )
         lines.extend([
             f"### {etf_short_name(snapshot)}",
-            f"- {current_label} {format_premium(premium)}",
-            f"- {current_label} {current}｜一天前溢价{fmt_baseline_date(premium.get('previous_date'))} "
+            f"- 当天溢价 {format_premium(premium)}",
+            f"- 当天溢价 {current}｜一天前溢价{fmt_baseline_date(premium.get('previous_date'))} "
             f"{format_premium_rate(premium.get('previous_rate'))}",
-            f"- {current_label} {current}｜一周前溢价{fmt_baseline_date(premium.get('week_date'))} "
+            f"- 当天溢价 {current}｜一周前溢价{fmt_baseline_date(premium.get('week_date'))} "
             f"{format_premium_rate(premium.get('week_rate'))}",
-            f"- {current_label} {current}｜一月前溢价{fmt_baseline_date(premium.get('month_date'))} "
+            f"- 当天溢价 {current}｜一月前溢价{fmt_baseline_date(premium.get('month_date'))} "
             f"{format_premium_rate(premium.get('month_rate'))}",
             f"- 历史溢价按收盘价相对当日净值，只配对同一天；跨境仅供参考；源："
             f"{premium.get('history_source') or '不可确认'}。",
@@ -2699,55 +2583,6 @@ def should_skip_weekend_report(current_time: datetime, dry_run: bool) -> bool:
     return current_time.weekday() >= 5 and not dry_run and not env_enabled("ETF_FORCE_RUN")
 
 
-def generate_and_ingest() -> bool:
-    """给订阅 poller 调用：按原来的 ETF 规则生成并入库，不直推企业微信。"""
-    current_time = now_beijing()
-    today = current_time.strftime("%Y-%m-%d")
-    edition = detect_edition()
-    label = edition_label(edition)
-    report_file = f"ETF市场数据简报_{today}（{label}）.md"
-    backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
-    if should_skip_weekend_report(current_time, False):
-        print("weekend skip ETF digest")
-        return False
-    if not backend_configured:
-        print("ETF digest needs BACKEND_API_URL and REPORT_INGEST_TOKEN")
-        return False
-
-    print("fetch ETF snapshots")
-    snapshots = []
-    for etf in ETF_LIST:
-        try:
-            snapshots.append(build_snapshot(etf))
-        except Exception as e:
-            print(f"  {etf['name']} unavailable: {e}")
-            snapshots.append(unavailable_snapshot(etf, str(e)))
-
-    print("sync valuation history")
-    for snapshot in snapshots:
-        if push_valuation_history(snapshot):
-            snapshot["pe_history"] = merge_pe_history(
-                snapshot.get("pe_history", []),
-                fetch_valuation_history(snapshot["etf"]),
-            )
-
-    stock_observations = build_a_share_observations()
-    report = build_programmatic_report(snapshots, edition, stock_observations)
-    try:
-        with open(report_file, "w", encoding="utf-8") as f:
-            f.write(report)
-    except OSError as e:
-        print(f"ETF file save failed: {e}")
-
-    run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF / 标普500ETF {today}"
-    if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
-        print("ETF backend ingest failed")
-        return False
-    print("ETF digest ingested")
-    return True
-
-
 def main() -> None:
     current_time = now_beijing()
     today = current_time.strftime("%Y-%m-%d")
@@ -2760,7 +2595,6 @@ def main() -> None:
     print(f"{'=' * 50}\n")
 
     webhook_url = os.environ.get("ETF_WECHAT_WEBHOOK", "")
-    backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
     dry_run = env_enabled("ETF_DRY_RUN")
     sync_only = env_enabled("ETF_SYNC_ONLY")
     if sync_only:
@@ -2772,15 +2606,9 @@ def main() -> None:
     if should_skip_weekend_report(current_time, dry_run):
         print("ℹ️ 周末无交易，默认跳过 ETF 日报抓取与推送")
         return
-    if not backend_configured and not webhook_url and not dry_run:
-        print("❌ 缺少 ETF_WECHAT_WEBHOOK，且未配置后端入库")
+    if not webhook_url and not dry_run:
+        print("❌ 缺少 ETF_WECHAT_WEBHOOK 环境变量")
         sys.exit(1)
-
-    if backend_configured and not dry_run and not sync_only:
-        if not generate_and_ingest():
-            sys.exit(1)
-        print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
-        return
 
     print("📡 正在抓取 ETF 行情...")
     snapshots = []
@@ -2820,8 +2648,11 @@ def main() -> None:
         print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
         print(wx_content)
     else:
+        if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
+            print("❌ ETF 报告同步到后端失败，本次不继续推送")
+            sys.exit(1)
         if not push_to_wechat(wx_content, webhook_url):
-            print("❌ ETF 企业微信推送失败")
+            print("❌ ETF 企业微信推送失败，报告已入库")
             sys.exit(1)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")

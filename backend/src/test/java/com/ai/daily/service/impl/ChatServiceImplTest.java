@@ -4,24 +4,17 @@ import com.ai.daily.dto.ChatMessageDTO;
 import com.ai.daily.dto.ChatResponseDTO;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.TopicSection;
-import com.ai.daily.entity.Subscription;
 import com.ai.daily.service.AiClientService;
 import com.ai.daily.service.ReportQueryService;
 import com.ai.daily.service.ReportService;
-import com.ai.daily.service.SubscriptionPreferences;
-import com.ai.daily.service.SubscriptionService;
-import com.ai.daily.security.UserPrincipal;
 import com.ai.daily.service.TopicSectionService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -51,30 +44,17 @@ class ChatServiceImplTest {
     private ReportService reportService;
     @Mock
     private AiClientService aiClientService;
-    @Mock
-    private SubscriptionService subscriptionService;
-    @Mock
-    private SubscriptionPreferences subscriptionPreferences;
 
     private ChatServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new ChatServiceImpl(
-                reportQueryService, topicSectionService, reportService, aiClientService,
-                subscriptionService, subscriptionPreferences);
+        service = new ChatServiceImpl(reportQueryService, topicSectionService, reportService, aiClientService);
         lenient().when(aiClientService.chat(anyList(), anyDouble(), anyInt())).thenReturn("综合主题段作答");
         lenient().when(reportQueryService.pageVisible(
                         any(), anyBoolean(), anyBoolean(), any(), nullable(String.class),
                         nullable(LocalDateTime.class), nullable(LocalDateTime.class), nullable(String.class)))
                 .thenReturn(emptyPage());
-        lenient().when(subscriptionService.getOrCreateForUser(any())).thenReturn(new Subscription());
-        lenient().when(subscriptionPreferences.enabledTopics(any())).thenReturn(List.of("AI大模型"));
-    }
-
-    @AfterEach
-    void tearDown() {
-        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -113,24 +93,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void marketQuestionSkipsTopicSectionsAndPublicMarketForNormalUser() {
-        ChatResponseDTO response = service.chat("沪深300ETF 今天估值怎么看", List.of(), 1L);
-
-        verify(topicSectionService, never()).listRecent(any(), any(), anyInt());
-        verify(reportQueryService, never()).pageVisible(
-                any(), anyBoolean(), anyBoolean(), any(), eq("market_watch_evening"),
-                any(), nullable(LocalDateTime.class), nullable(String.class));
-        verify(reportQueryService, never()).pageVisible(
-                any(), anyBoolean(), anyBoolean(), any(), eq("market_watch_morning"),
-                any(), nullable(LocalDateTime.class), nullable(String.class));
-        assertThat(response.getSources()).isEmpty();
-        assertThat(response.getAnswer()).contains("没有检索到").contains("已订阅");
-        assertThat(response.getAnswer()).doesNotContain("市场观察");
-    }
-
-    @Test
-    void marketQuestionUsesPublicMarketWatchForAdmin() {
-        authenticate(1L, "ADMIN", "PAID");
+    void marketQuestionSkipsTopicSections() {
         when(reportQueryService.pageVisible(
                 eq(1L), eq(false), eq(true), any(), eq("market_watch_evening"),
                 any(), nullable(LocalDateTime.class), nullable(String.class)))
@@ -142,29 +105,6 @@ class ChatServiceImplTest {
         assertThat(response.getSources()).extracting(ChatResponseDTO.SourceItem::getEdition)
                 .containsExactly("market_watch_evening");
         verify(topicSectionService, never()).listRecent(any(), any(), anyInt());
-    }
-
-    @Test
-    void normalUserDoesNotReadUnsubscribedTopicsOrPublicDigests() {
-        when(subscriptionPreferences.enabledTopics(any())).thenReturn(List.of("区块链"));
-
-        ChatResponseDTO response = service.chat("最近有哪些 AI 大模型更新？", List.of(), 1L);
-
-        verify(topicSectionService, never()).listRecent(any(), any(), anyInt());
-        verify(reportQueryService, never()).pageVisible(
-                any(), anyBoolean(), anyBoolean(), any(), eq("morning"),
-                any(), nullable(LocalDateTime.class), nullable(String.class));
-        verify(reportQueryService, never()).pageVisible(
-                any(), anyBoolean(), anyBoolean(), any(), eq("evening"),
-                any(), nullable(LocalDateTime.class), nullable(String.class));
-        assertThat(response.getAnswer()).contains("没有检索到").contains("已订阅");
-        assertThat(response.getSources()).isEmpty();
-    }
-
-    private static void authenticate(long userId, String role, String accountType) {
-        UserPrincipal principal = new UserPrincipal(userId, "user@example.com", role, accountType, "hash", true);
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
     private static Page<Report> emptyPage() {

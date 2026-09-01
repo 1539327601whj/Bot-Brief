@@ -29,7 +29,6 @@ const SUGGESTIONS = [
 export default function Chat() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
-  const canSeePublicDigest = isDemo || user?.role === 'ADMIN'
   const navigate = useNavigate()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -103,7 +102,7 @@ export default function Chat() {
           <span className="ai-icon">💬</span>
           <span>AI 对话</span>
         </div>
-        <div className="header-subtitle">{canSeePublicDigest ? '按主题检索科技日报与市场观察，再据此回答' : '按你勾选的主题检索，再据此回答'}</div>
+        <div className="header-subtitle">按主题检索科技日报与市场观察，再据此回答</div>
       </header>
 
       {/* 消息区域 */}
@@ -112,9 +111,9 @@ export default function Chat() {
           <div className="welcome">
             <div className="welcome-icon">🤖</div>
             <h2>你好！我是 AI 小助手</h2>
-            <p>{canSeePublicDigest ? '先定位对应主题的科技日报或行情简报，再据此回答。也可以接着追问。' : '先从你勾选的主题简报里找依据，再据此回答。也可以接着追问。'}</p>
+            <p>先定位对应主题的科技日报或行情简报，再据此回答。也可以接着追问。</p>
             <div className="suggestions">
-              {(canSeePublicDigest ? SUGGESTIONS : SUGGESTIONS.filter(s => !s.includes('ETF'))).map((s, i) => (
+              {SUGGESTIONS.map((s, i) => (
                 <button
                   key={i}
                   className="suggestion-btn"

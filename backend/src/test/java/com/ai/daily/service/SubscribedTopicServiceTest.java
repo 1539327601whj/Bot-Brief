@@ -90,9 +90,9 @@ class SubscribedTopicServiceTest {
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
         when(sections.findId(any(), any(), any())).thenReturn(null);
         when(statuses.find(any(), any(), eq("区块链"))).thenReturn(status(
-                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 8, 29, 19, 55)));
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 8, 29, 19, 59)));
         when(statuses.find(any(), any(), eq("安全"))).thenReturn(status(
-                TopicGenerationStatus.FAILED, LocalDateTime.of(2026, 8, 29, 19, 56)));
+                TopicGenerationStatus.FAILED, LocalDateTime.of(2026, 8, 29, 19, 59)));
         when(statuses.find(any(), any(), eq("数据库"))).thenReturn(null);
 
         LocalDate date = LocalDate.of(2026, 8, 29);
@@ -231,15 +231,15 @@ class SubscribedTopicServiceTest {
                 TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 32)));
 
         LocalDate date = LocalDate.of(2026, 9, 1);
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 39))).isEmpty();
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 40)))
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 33))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 34)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("马斯克");
 
         when(statuses.find(any(), any(), eq("马斯克"))).thenReturn(status(
-                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 40)));
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 47))).isEmpty();
-        assertThat(service.listDueGenerations(date, LocalTime.of(15, 48)))
+                TopicGenerationStatus.SKIPPED_NO_NEWS, LocalDateTime.of(2026, 9, 1, 15, 34)));
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 35))).isEmpty();
+        assertThat(service.listDueGenerations(date, LocalTime.of(15, 36)))
                 .extracting(DueGenerationDTO::getTopic)
                 .containsExactly("马斯克");
     }
