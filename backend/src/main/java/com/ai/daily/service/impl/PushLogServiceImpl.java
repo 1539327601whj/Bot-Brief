@@ -38,6 +38,18 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
 
     @Override
     public Long claimScheduled(Long userId, Long reportId, Long channelId, String channelType, String dispatchKey) {
+        if (dispatchKey == null || dispatchKey.isBlank()) return null;
+        PushLog existing = getOne(new LambdaQueryWrapper<PushLog>()
+                .eq(PushLog::getDispatchKey, dispatchKey)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            if (!canRetry(existing)) return null;
+            existing.setReportId(reportId);
+            existing.setStatus("sending");
+            existing.setErrorMessage(null);
+            existing.setPushedAt(LocalDateTime.now(BEIJING));
+            return updateById(existing) ? existing.getId() : null;
+        }
         PushLog log = newLog(userId, reportId, channelId, channelType);
         log.setStatus("sending");
         log.setDispatchKey(dispatchKey);
@@ -46,6 +58,14 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
         } catch (DuplicateKeyException e) {
             return null;
         }
+    }
+
+    private static boolean canRetry(PushLog existing) {
+        if (existing == null || "success".equals(existing.getStatus())) return false;
+        if ("failed".equals(existing.getStatus())) return true;
+        LocalDateTime pushedAt = existing.getPushedAt();
+        return pushedAt == null
+                || pushedAt.isBefore(LocalDateTime.now(BEIJING).minusMinutes(2));
     }
 
     @Override

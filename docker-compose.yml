@@ -9,6 +9,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      TZ: Asia/Shanghai
       SERVER_PORT: "8081"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DB_HOST: ${DB_HOST}

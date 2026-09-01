@@ -45,7 +45,8 @@ public class SecurityConfig {
                                 "/api/auth/login", "/api/auth/register", "/api/auth/demo").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/api/reports/ingest", "/api/reports/sections/ingest",
-                                "/api/reports/poller-heartbeat", "/api/reports/generation-status",
+                                "/api/reports/poller-heartbeat", "/api/reports/dispatch-due",
+                                "/api/reports/generation-status",
                                 "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/reports/subscribed-topics", "/api/reports/due-generations").permitAll()
