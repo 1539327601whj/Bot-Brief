@@ -17,7 +17,6 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -66,7 +65,7 @@ public class SubscribedTopicService {
         for (DueGenerationDTO item : planEarliest(date)) {
             LocalTime readyAt = ReportWindows.parse(item.getGenerateAt());
             if (startAt(readyAt, item.getTopic()).isAfter(minute)) continue;
-            if (DigestTopics.isDigest(item.getTopic())) {
+            if (TopicIntents.usePublicDigest(item.getTopic(), item.getIntent())) {
                 if (publicDigestReady(date, item.getTopic(), readyAt)) continue;
             } else {
                 if (topicSectionMapper.findId(date, item.getWindow(), item.getTopic()) != null) continue;
@@ -131,10 +130,18 @@ public class SubscribedTopicService {
                 if (item.getTopic() == null || item.getTopic().isBlank()) continue;
                 LocalTime time = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
                 String window = ReportWindows.of(time);
-                String key = window + "|" + item.getTopic().toLowerCase(Locale.ROOT);
+                String intent = TopicIntents.clip(item.getIntent());
+                String key = TopicIntents.planKey(window, item.getTopic(), intent);
                 DueGenerationDTO existing = earliest.get(key);
-                if (existing == null || time.isBefore(ReportWindows.parse(existing.getGenerateAt()))) {
-                    earliest.put(key, new DueGenerationDTO(window, item.getTopic(), ReportWindows.format(time)));
+                if (existing == null) {
+                    earliest.put(key, new DueGenerationDTO(window, item.getTopic(), ReportWindows.format(time), intent));
+                    continue;
+                }
+                if (!TopicIntents.usePublicDigest(item.getTopic(), intent)) {
+                    existing.setIntent(TopicIntents.merge(existing.getIntent(), intent));
+                }
+                if (time.isBefore(ReportWindows.parse(existing.getGenerateAt()))) {
+                    existing.setGenerateAt(ReportWindows.format(time));
                 }
             }
         }

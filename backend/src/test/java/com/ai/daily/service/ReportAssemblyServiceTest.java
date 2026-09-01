@@ -143,6 +143,33 @@ class ReportAssemblyServiceTest {
         verify(sections, never()).findFor(any(), any(), any());
     }
 
+    @Test
+    void techDigestWithIntentUsesTopicSectionInsteadOfPublicReport() {
+        TopicSectionService sections = mock(TopicSectionService.class);
+        ReportService reports = mock(ReportService.class);
+        ReportAssemblyService service = new ReportAssemblyService(sections, reports);
+        LocalDate date = LocalDate.of(2026, 8, 31);
+        LocalTime time = LocalTime.of(8, 0);
+        TopicSection focused = section("AI科技", "## AI科技\n\n只要芯片相关。");
+        when(sections.findFor(date, ReportWindows.W06_12, List.of("AI科技"))).thenReturn(List.of(focused));
+        when(reports.getByUserEditionDateAndTime(7L, Report.PERSONAL, date, time)).thenReturn(null);
+        Report saved = new Report();
+        saved.setId(21L);
+        when(reports.saveUserReport(eq(7L), eq(date), eq(time), any(), any(), any())).thenReturn(saved);
+
+        var item = new com.ai.daily.dto.SubscriptionDTO.TopicScheduleItemDTO();
+        item.setTopic("AI科技");
+        item.setIntent("只要芯片和航天");
+        Report result = service.assembleAndPersistItems(7L, date, time, List.of(item));
+
+        assertThat(result).isSameAs(saved);
+        verify(reports, never()).getLatestByEditionForDate(any(), any());
+        verify(reports).saveUserReport(
+                eq(7L), eq(date), eq(time), eq("【08:00】我的简报 2026-08-31"),
+                eq("# 🎯 我的简报 08:00 · 2026-08-31\n\n---\n\n## AI科技\n\n只要芯片相关。\n"),
+                any());
+    }
+
     private TopicSection section(String topic, String content) {
         TopicSection section = new TopicSection();
         section.setTopicKey(topic);

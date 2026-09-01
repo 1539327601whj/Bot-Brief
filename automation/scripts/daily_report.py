@@ -198,7 +198,12 @@ def fetch_due_generations(report_date=None):
                     window = str(item.get("window") or "").strip()
                     generate_at = str(item.get("generateAt") or "").strip()
                     if topic and window:
-                        due.append({"window": window, "topic": topic, "generateAt": generate_at})
+                        due.append({
+                            "window": window,
+                            "topic": topic,
+                            "generateAt": generate_at,
+                            "intent": normalize_intent(item.get("intent")),
+                        })
                 return due
         print(f"  ⚠️ 获取到期主题失败: HTTP {resp.status_code}")
     except req.RequestException as e:
@@ -730,19 +735,43 @@ TOPIC_KEYWORDS = {
 }
 
 
-def topic_keywords(topic):
-    return TOPIC_KEYWORDS.get(topic, [topic])
+def normalize_intent(intent):
+    text = " ".join(str(intent or "").split())
+    return text[:120]
 
 
-def topic_match_score(item, topic):
+def intent_terms(intent):
+    text = normalize_intent(intent)
+    if not text:
+        return []
+    cleaned = re.sub(r"^(只要|不要|关注|例如)[:：]?", "", text).strip() or text
+    parts = [part.strip() for part in re.split(r"[，,；;、/|和与及]+", cleaned) if part.strip()]
+    skip = {"只要", "不要", "关注", "例如"}
+    terms = []
+    for part in parts:
+        if part in skip or part.startswith("不要"):
+            continue
+        terms.append(part)
+    return terms
+
+
+def topic_keywords(topic, intent=None):
+    keys = list(TOPIC_KEYWORDS.get(topic, [topic]))
+    for term in intent_terms(intent):
+        if term not in keys:
+            keys.append(term)
+    return keys
+
+
+def topic_match_score(item, topic, intent=None):
     text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    return sum(1 for keyword in topic_keywords(topic) if keyword.lower() in text)
+    return sum(1 for keyword in topic_keywords(topic, intent) if keyword.lower() in text)
 
 
-def select_news_for_topic(items, topic, limit=8):
+def select_news_for_topic(items, topic, limit=8, intent=None):
     scored = []
     for item in items:
-        hits = topic_match_score(item, topic)
+        hits = topic_match_score(item, topic, intent)
         if hits > 0:
             scored.append((hits, item.get("score", 0), item))
     scored.sort(key=lambda row: (-row[0], -row[1]))
@@ -765,18 +794,22 @@ def topic_search_urls(topic):
     ]
 
 
-def news_mentions_topic(item, topic):
+def news_mentions_topic(item, topic, intent=None):
     text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
     token = (topic or "").strip().lower()
     if token and token in text:
         return True
-    return topic_match_score(item, topic) >= 1
+    return topic_match_score(item, topic, intent) >= 1
 
 
-def fetch_topic_search_news(topic, limit=5):
+def fetch_topic_search_news(topic, limit=5, intent=None):
     """按自定义词单独检索，只保留标题或摘要真正提到该词的条目。"""
+    query = topic
+    extra = normalize_intent(intent)
+    if extra:
+        query = f"{topic} {extra}"
     collected = []
-    for source, url in topic_search_urls(topic):
+    for source, url in topic_search_urls(query):
         xml = fetch_feed(url, timeout=8)
         if not xml:
             continue
@@ -784,17 +817,21 @@ def fetch_topic_search_news(topic, limit=5):
             collected.extend(parse_rss_items(xml, source, max_items=12))
         except Exception as e:
             print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
-    filtered = [item for item in dedupe_news_items(collected) if news_mentions_topic(item, topic)]
+    filtered = [item for item in dedupe_news_items(collected) if news_mentions_topic(item, topic, extra)]
     return filtered[:limit]
 
 
-def collect_news_for_topic(news_items, topic):
-    selected = select_news_for_topic(news_items, topic)
+def collect_news_for_topic(news_items, topic, intent=None):
+    selected = select_news_for_topic(news_items, topic, intent=intent)
     if selected:
         return selected
-    if is_preset_topic(topic):
+    extra = normalize_intent(intent)
+    if is_preset_topic(topic) and not extra:
         return []
-    print(f"  🔍 自定义主题「{topic}」在公共资讯池无匹配，改为按词检索")
+    label = f"{topic}" + (f"（{extra}）" if extra else "")
+    print(f"  🔍 主题「{label}」在公共资讯池无匹配，改为按词检索")
+    if extra:
+        return fetch_topic_search_news(topic, intent=extra)
     return fetch_topic_search_news(topic)
 
 
@@ -804,13 +841,15 @@ def window_digest_style(window):
     return "morning"
 
 
-def format_topic_news_for_prompt(items, topic, edition="morning"):
+def format_topic_news_for_prompt(items, topic, edition="morning", intent=None):
     today = now_beijing().strftime("%Y-%m-%d")
     style = window_digest_style(edition)
     edition_focus = "昨日夜间 + 今日早晨" if style == "morning" else "今日全天"
+    extra = normalize_intent(intent)
     lines = [
         f"日期：{today}",
         f"主题：{topic}",
+        f"用户想法：{extra or '未填写，按主题默认范围'}",
         f"版本：{edition_focus}",
         f"候选资讯：{len(items)} 条",
         "",
@@ -825,14 +864,21 @@ def format_topic_news_for_prompt(items, topic, edition="morning"):
     return "\n".join(lines)
 
 
-def build_topic_prompt(news_text, topic, edition="morning"):
+def build_topic_prompt(news_text, topic, edition="morning", intent=None):
     edition_hint = "晚间" if window_digest_style(edition) == "evening" else "早间"
+    extra = normalize_intent(intent)
+    intent_rule = (
+        f"4. 用户希望在这个主题里重点看：{extra}。只写符合这个范围的内容，明确排除用户不想看的方面。"
+        if extra else
+        "4. 用户没有额外想法，按该主题的默认范围来写。"
+    )
     return f"""你是资深科技编辑，只写与「{topic}」相关的{edition_hint}简报段落。
 
 【要求】
 1. 只覆盖与该主题直接相关的资讯，不要写成全站综合简报。
 2. 拒绝水文、公关稿、股价新闻。
 3. 若候选资讯不够相关，宁可少写，不要硬凑。
+{intent_rule}
 
 【输出格式】
 ## {topic}
@@ -858,11 +904,11 @@ def generate_due_topic_sections(news_items, report_date, run_id, due=None):
         return 0
     grouped = {}
     for item in due:
-        grouped.setdefault(item["window"], []).append(item["topic"])
+        grouped.setdefault(item["window"], []).append(item)
     saved = 0
-    for window, topics in grouped.items():
-        print(f"🧩 {window} 将为 {len(topics)} 个到期主题生成段落")
-        saved += generate_topic_sections(news_items, window, topics, report_date, run_id)
+    for window, jobs in grouped.items():
+        print(f"🧩 {window} 将为 {len(jobs)} 个到期主题生成段落")
+        saved += generate_topic_sections(news_items, window, jobs, report_date, run_id)
     return saved
 
 
@@ -874,7 +920,9 @@ def generation_concurrency():
         return 4
 
 
-def is_digest_topic(topic):
+def is_digest_topic(topic, intent=None):
+    if normalize_intent(intent):
+        return False
     name = (topic or "").strip().lower().replace(" ", "")
     return name in {"ai科技", "科技", "纳指标普沪深300etf", "etf", "市场观察"}
 
@@ -919,6 +967,8 @@ def generate_due_digest_reports(due, news_items, report_date, run_id):
     for item in due or []:
         topic = item.get("topic")
         window = item.get("window")
+        if normalize_intent(item.get("intent")):
+            continue
         if is_ai_digest_topic(topic):
             edition = window_digest_style(window)
             key = f"ai|{edition}"
@@ -955,17 +1005,18 @@ def generate_due_digest_reports(due, news_items, report_date, run_id):
     return saved
 
 
-def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
+def generate_one_topic_section(news_items, edition, topic, report_date, run_id, intent=None):
     """生成并入库单个主题。失败返回 False，不影响其他主题。"""
-    if is_digest_topic(topic):
+    extra = normalize_intent(intent)
+    if is_digest_topic(topic, extra):
         print("  skip digest topic: use public morning/evening/etf report")
         return False
-    selected = collect_news_for_topic(news_items, topic)
+    selected = collect_news_for_topic(news_items, topic, extra)
     if not selected:
         print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
         report_generation_status(edition, report_date, topic, "skipped_no_news", "今天没有抓到与该主题直接相关的资讯", run_id)
         return False
-    prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition), topic, edition)
+    prompt = build_topic_prompt(format_topic_news_for_prompt(selected, topic, edition, extra), topic, edition, extra)
     try:
         content = call_llm_with_retry(prompt)
     except Exception as e:
@@ -988,26 +1039,33 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id):
 
 def generate_topic_sections(news_items, edition, topics, report_date, run_id):
     """只为有人勾选的主题生成段落；多个主题并行，单个失败不影响其余主题。"""
-    unique_topics = []
+    unique_jobs = []
     seen = set()
-    for topic in topics:
-        if not topic or topic in seen:
+    for entry in topics:
+        if isinstance(entry, dict):
+            topic = str(entry.get("topic") or "").strip()
+            intent = normalize_intent(entry.get("intent"))
+        else:
+            topic = str(entry or "").strip()
+            intent = ""
+        key = (topic, intent)
+        if not topic or key in seen:
             continue
-        seen.add(topic)
-        unique_topics.append(topic)
-    if not unique_topics:
+        seen.add(key)
+        unique_jobs.append((topic, intent))
+    if not unique_jobs:
         return 0
-    workers = min(generation_concurrency(), len(unique_topics))
+    workers = min(generation_concurrency(), len(unique_jobs))
     if workers == 1:
         return sum(
-            1 for topic in unique_topics
-            if generate_one_topic_section(news_items, edition, topic, report_date, run_id)
+            1 for topic, intent in unique_jobs
+            if generate_one_topic_section(news_items, edition, topic, report_date, run_id, intent)
         )
     saved = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [
-            pool.submit(generate_one_topic_section, news_items, edition, topic, report_date, run_id)
-            for topic in unique_topics
+            pool.submit(generate_one_topic_section, news_items, edition, topic, report_date, run_id, intent)
+            for topic, intent in unique_jobs
         ]
         for future in as_completed(futures):
             try:
@@ -1075,8 +1133,8 @@ def main():
         if not due:
             print("🧩 当前没有到期的订阅主题，跳过爬取和生成")
         else:
-            digest_due = [item for item in due if is_digest_topic(item.get("topic"))]
-            topic_due = [item for item in due if not is_digest_topic(item.get("topic"))]
+            digest_due = [item for item in due if is_digest_topic(item.get("topic"), item.get("intent"))]
+            topic_due = [item for item in due if not is_digest_topic(item.get("topic"), item.get("intent"))]
             run_id = os.environ.get("GITHUB_RUN_ID", "local")
             news_items = []
             if topic_due or any(is_ai_digest_topic(item.get("topic")) for item in digest_due):

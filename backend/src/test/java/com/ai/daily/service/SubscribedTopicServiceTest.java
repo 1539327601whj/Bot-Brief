@@ -129,6 +129,30 @@ class SubscribedTopicServiceTest {
     }
 
     @Test
+    void digestWithIntentIsDueAsPersonalizedSection() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        UserMapper users = mock(UserMapper.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        ReportService reports = mock(ReportService.class);
+        SubscribedTopicService service = serviceOf(subscriptions, preferences, users, sections, statuses, reports);
+
+        Subscription alice = subscription(1L);
+        var focused = item("AI科技", "08:00");
+        focused.setIntent("只要芯片和航天");
+        when(subscriptions.listEnabled()).thenReturn(List.of(alice));
+        when(preferences.enabledTopicItemsOn(eq(alice), any())).thenReturn(List.of(focused));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L, User.ACCOUNT_NORMAL)));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(reports.publicReportExists(any(), any())).thenReturn(true);
+
+        List<DueGenerationDTO> due = service.listDueGenerations(LocalDate.of(2026, 8, 31), LocalTime.of(8, 0));
+        assertThat(due).extracting(DueGenerationDTO::getTopic).containsExactly("AI科技");
+        assertThat(due).extracting(DueGenerationDTO::getIntent).containsExactly("只要芯片和航天");
+    }
+
+    @Test
     void etfStartsCloserToDisplayTimeAndCanRefreshBrokenReport() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);

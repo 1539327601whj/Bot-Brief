@@ -238,10 +238,9 @@ public class ReportQueryService {
                 continue;
             }
             if (time.isAfter(now)) continue;
-            List<String> topics = subscriptionPreferences.enabledTopicItemsAt(subscription, time, today).stream()
-                    .map(SubscriptionDTO.TopicScheduleItemDTO::getTopic)
-                    .toList();
-            reportAssemblyService.assembleForWebIfReady(userId, today, time, topics);
+            List<SubscriptionDTO.TopicScheduleItemDTO> slotItems =
+                    subscriptionPreferences.enabledTopicItemsAt(subscription, time, today);
+            reportAssemblyService.assembleForWebIfReadyItems(userId, today, time, slotItems);
         }
     }
 

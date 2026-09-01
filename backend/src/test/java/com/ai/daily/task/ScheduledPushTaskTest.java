@@ -54,10 +54,10 @@ class ScheduledPushTaskTest {
         when(channels.listEnabledByUser(2L)).thenReturn(List.of(channel(12L)));
         Report databaseReport = report("数据库内容");
         Report mobileReport = report("移动端内容");
-        when(assembly.assembleAndPersist(1L, date, now, List.of("数据库"))).thenReturn(databaseReport);
-        when(assembly.assembleAndPersist(2L, date, now, List.of("移动端"))).thenReturn(mobileReport);
-        when(assembly.assembleEphemeral(10L, date, now, List.of("数据库"))).thenReturn(databaseReport);
-        when(assembly.assembleEphemeral(10L, date, now, List.of("移动端"))).thenReturn(mobileReport);
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(databaseReport);
+        when(assembly.assembleAndPersistItems(eq(2L), eq(date), eq(now), any())).thenReturn(mobileReport);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(databaseReport);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(mobileReport);
         when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
                 .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
 
@@ -89,9 +89,12 @@ class ScheduledPushTaskTest {
         when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(
                 topic("数据库", List.of(11L)), topic("移动端", List.of(12L))));
-        when(assembly.assembleAndPersist(1L, date, now, List.of("数据库", "移动端"))).thenReturn(persisted);
-        when(assembly.assembleEphemeral(10L, date, now, List.of("数据库"))).thenReturn(databaseReport);
-        when(assembly.assembleEphemeral(10L, date, now, List.of("移动端"))).thenReturn(mobileReport);
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenAnswer(invocation -> {
+            List<SubscriptionDTO.TopicScheduleItemDTO> channelItems = invocation.getArgument(3);
+            String topic = channelItems.get(0).getTopic();
+            return "数据库".equals(topic) ? databaseReport : mobileReport;
+        });
         when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
                 .thenReturn(new PushDispatcher.DispatchResult(2, 2, 0));
 
@@ -123,7 +126,7 @@ class ScheduledPushTaskTest {
 
         task.dispatchDue(LocalTime.of(20, 15), LocalDate.of(2026, 7, 24));
 
-        verify(assembly, never()).assembleAndPersist(any(), any(), any(), any());
+        verify(assembly, never()).assembleAndPersistItems(any(), any(), any(), any());
         verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
     }
 
@@ -144,7 +147,7 @@ class ScheduledPushTaskTest {
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("数据库", List.of())));
-        when(assembly.assembleAndPersist(1L, date, now, List.of("数据库"))).thenReturn(report("网页简报"));
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(report("网页简报"));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
 
         task.dispatchDue(now, date);

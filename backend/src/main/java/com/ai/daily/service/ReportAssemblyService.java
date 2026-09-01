@@ -1,5 +1,6 @@
 package com.ai.daily.service;
 
+import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.TopicSection;
 import com.ai.daily.util.MarkdownUtils;
@@ -19,22 +20,42 @@ public class ReportAssemblyService {
     private final ReportService reportService;
 
     public Report assembleAndPersist(Long userId, LocalDate date, LocalTime displayTime, List<String> topics) {
+        return assembleAndPersistFocuses(userId, date, displayTime, TopicFocus.fromTopics(topics));
+    }
+
+    public Report assembleAndPersistItems(
+            Long userId, LocalDate date, LocalTime displayTime, List<SubscriptionDTO.TopicScheduleItemDTO> items) {
+        return assembleAndPersistFocuses(userId, date, displayTime, TopicFocus.fromItems(items));
+    }
+
+    public Report assembleAndPersistFocuses(
+            Long userId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
         if (userId == null || date == null || displayTime == null) return null;
-        if (topics == null || topics.isEmpty()) return null;
+        if (focuses == null || focuses.isEmpty()) return null;
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
 
-        Assembled assembled = assemble(date, minute, topics);
+        Assembled assembled = assemble(date, minute, focuses);
         if (assembled == null) return null;
         return reportService.saveUserReport(
                 userId, date, minute, assembled.title(), assembled.content(), assembled.summary());
     }
 
     public Report assembleEphemeral(Long reportId, LocalDate date, LocalTime displayTime, List<String> topics) {
-        if (date == null || displayTime == null || topics == null || topics.isEmpty()) return null;
+        return assembleEphemeralFocuses(reportId, date, displayTime, TopicFocus.fromTopics(topics));
+    }
+
+    public Report assembleEphemeralItems(
+            Long reportId, LocalDate date, LocalTime displayTime, List<SubscriptionDTO.TopicScheduleItemDTO> items) {
+        return assembleEphemeralFocuses(reportId, date, displayTime, TopicFocus.fromItems(items));
+    }
+
+    public Report assembleEphemeralFocuses(
+            Long reportId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
+        if (date == null || displayTime == null || focuses == null || focuses.isEmpty()) return null;
         LocalTime minute = displayTime.withSecond(0).withNano(0);
-        Assembled assembled = assemble(date, minute, topics);
+        Assembled assembled = assemble(date, minute, focuses);
         if (assembled == null) return null;
         Report report = new Report();
         report.setId(reportId);
@@ -48,17 +69,27 @@ public class ReportAssemblyService {
     }
 
     public Report assembleForWebIfReady(Long userId, LocalDate date, LocalTime displayTime, List<String> topics) {
+        return assembleForWebIfReadyFocuses(userId, date, displayTime, TopicFocus.fromTopics(topics));
+    }
+
+    public Report assembleForWebIfReadyItems(
+            Long userId, LocalDate date, LocalTime displayTime, List<SubscriptionDTO.TopicScheduleItemDTO> items) {
+        return assembleForWebIfReadyFocuses(userId, date, displayTime, TopicFocus.fromItems(items));
+    }
+
+    public Report assembleForWebIfReadyFocuses(
+            Long userId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
         if (userId == null || date == null || displayTime == null) return null;
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
-        return assembleAndPersist(userId, date, minute, topics);
+        return assembleAndPersistFocuses(userId, date, minute, focuses);
     }
 
-    private Assembled assemble(LocalDate date, LocalTime minute, List<String> topics) {
-        List<TopicSection> sections = resolveSections(date, minute, topics);
+    private Assembled assemble(LocalDate date, LocalTime minute, List<TopicFocus> focuses) {
+        List<TopicSection> sections = resolveSections(date, minute, focuses);
         if (sections.isEmpty()) return null;
-        boolean onlyDigest = topics.stream().allMatch(DigestTopics::isDigest);
+        boolean onlyDigest = focuses.stream().allMatch(TopicFocus::usePublicDigest);
         String title;
         String content;
         if (onlyDigest && sections.size() == 1) {
@@ -74,16 +105,20 @@ public class ReportAssemblyService {
         return new Assembled(title, content, MarkdownUtils.stripToPlainText(content, 100));
     }
 
-    private List<TopicSection> resolveSections(LocalDate date, LocalTime minute, List<String> topics) {
+    private List<TopicSection> resolveSections(LocalDate date, LocalTime minute, List<TopicFocus> focuses) {
         List<TopicSection> sections = new ArrayList<>();
-        List<String> regular = topics.stream().filter(topic -> !DigestTopics.isDigest(topic)).toList();
-        for (String topic : topics) {
-            String edition = DigestTopics.publicEditionFor(topic, minute);
+        List<String> regular = focuses.stream()
+                .filter(focus -> !focus.usePublicDigest())
+                .map(TopicFocus::topic)
+                .toList();
+        for (TopicFocus focus : focuses) {
+            if (!focus.usePublicDigest()) continue;
+            String edition = DigestTopics.publicEditionFor(focus.topic(), minute);
             if (edition == null) continue;
             Report digest = reportService.getLatestByEditionForDate(edition, date);
             if (digest != null && digest.getContent() != null && !digest.getContent().isBlank()) {
                 TopicSection section = new TopicSection();
-                section.setTopicKey(topic);
+                section.setTopicKey(focus.topic());
                 section.setTitle(digest.getTitle());
                 section.setContent(digest.getContent());
                 sections.add(section);

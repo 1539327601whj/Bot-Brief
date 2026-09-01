@@ -110,10 +110,10 @@ export const demoSubscription = {
   morningEnabled: true, morningTime: '08:15', eveningEnabled: true, eveningTime: '20:15',
   topicSchedules: {
     items: [
-      { topic: 'AI大模型', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401] },
-      { topic: 'Web开发', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [402] },
-      { topic: '移动端', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401] },
-      { topic: '具身智能', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [402] },
+      { topic: 'AI大模型', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401], intent: '只要模型发布和接口变化' },
+      { topic: 'Web开发', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [402], intent: '' },
+      { topic: '移动端', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401], intent: '' },
+      { topic: '具身智能', enabled: true, time: '08:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [402], intent: '' },
       { topic: 'AI大模型', enabled: true, time: '20:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [402] },
       { topic: '安全', enabled: true, time: '20:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401] },
       { topic: '数据分析', enabled: true, time: '20:15', weekdayFrom: 1, weekdayTo: 5, channelIds: [401] },

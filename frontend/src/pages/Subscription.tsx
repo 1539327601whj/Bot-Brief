@@ -6,6 +6,7 @@ import dayjs from '../utils/dayjs'
 import api, { TOKEN_KEY } from '../utils/api'
 import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
+import { MAX_INTENT_LENGTH, normalizeIntent, topicIntentHint, topicOverview } from '../utils/topicOverview'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
@@ -38,6 +39,7 @@ interface TopicScheduleItem {
   weekdayFrom: number
   weekdayTo: number
   channelIds: number[]
+  intent: string
 }
 
 interface SubscriptionData {
@@ -136,6 +138,7 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
       ...weekdaysOf(row, 1, 7),
       channelIds: (Array.isArray(row?.channelIds) ? row.channelIds : [])
         .filter((id: unknown): id is number => Number.isInteger(id) && Number(id) > 0),
+      intent: normalizeIntent(row?.intent),
     })
   })
   return items
@@ -293,16 +296,16 @@ export default function Subscription() {
       if (isAiTechDigest(topic)) {
         updateItems([
           ...items,
-          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [] },
-          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [] },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [], intent: '' },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [], intent: '' },
         ])
         return
       }
       if (isEtfDigest(topic)) {
-        updateItems([...items, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds: [] }])
+        updateItems([...items, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds: [], intent: '' }])
         return
       }
-      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
+      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [], intent: '' }])
       return
     }
     updateItems(items.map(item => interestKey(item.topic) === interestKey(topic) ? { ...item, enabled } : item))
@@ -310,6 +313,11 @@ export default function Subscription() {
 
   const updateSlot = (index: number, patch: Partial<TopicScheduleItem>) => {
     updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+  }
+
+  const updateTopicIntent = (topic: string, intent: string) => {
+    const next = Array.from(intent).slice(0, MAX_INTENT_LENGTH).join('')
+    updateItems(items.map(item => interestKey(item.topic) === interestKey(topic) ? { ...item, intent: next } : item))
   }
 
   const changeSlotTime = (index: number, time: string) => {
@@ -335,7 +343,15 @@ export default function Subscription() {
       return
     }
     setMessage('')
-    updateItems([...items, { topic, enabled: true, time: WINDOW_DEFAULTS[nextWindow], weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
+    updateItems([...items, {
+      topic,
+      enabled: true,
+      time: WINDOW_DEFAULTS[nextWindow],
+      weekdayFrom: DEFAULT_WEEKDAY_FROM,
+      weekdayTo: DEFAULT_WEEKDAY_TO,
+      channelIds: [],
+      intent: topicItems(topic)[0]?.intent || '',
+    }])
   }
 
   const removeSlot = (index: number) => {
@@ -370,7 +386,7 @@ export default function Subscription() {
       } else if (isEtfDigest(topic)) {
         toggleTopic(ETF_DIGEST, true)
       } else {
-        updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [] }])
+        updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [], intent: '' }])
       }
     } else {
       toggleTopic(topic, true)
@@ -429,7 +445,7 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。服务器会按原来的原文生成，不再依赖腾讯云 SCF。' : '勾选兴趣，再选星期几到几和时刻。同一主题在同一 6 小时时段只生成一次，你的简报按自己选的时刻展示和推送。'}</p>
+        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。每个主题可写「我想看」，用来收窄范围；不填就按系统默认生成。' : '勾选兴趣，再选星期、时刻，并可写「我想看」。不填想法时按系统默认检索；同一主题在同一 6 小时时段只生成一次。'}</p>
       </div>
 
       {isAdmin && (
@@ -514,6 +530,7 @@ export default function Subscription() {
                 {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
                 {!isPreset(topic) && <small>自定义</small>}
               </label>
+              {topicEnabled(topic) && <p className="topic-overview">{topicOverview(topic)}</p>}
               {!isPreset(topic) && (
                 <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeCustomInterest(topic)}>删除</button>
               )}
@@ -526,7 +543,7 @@ export default function Subscription() {
             value={customInput}
             maxLength={MAX_INTEREST_LENGTH * 2}
             disabled={isDemo}
-            placeholder="添加自定义兴趣，如：足球"
+            placeholder="添加自定义兴趣，如：黄仁勋"
             onChange={event => setCustomInput(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCustomInterest() } }}
           />
@@ -538,7 +555,7 @@ export default function Subscription() {
         <div className="section-title-row">
           <div>
             <h3>推送时间</h3>
-            <p className="section-sub">每个主题选星期几到几，再定时刻。到点后网页和渠道同时更新；没绑渠道就只在网页看。</p>
+            <p className="section-sub">每个主题选星期和时刻，并可写「我想看」。不填则按上面的默认概述生成；没绑渠道就只在网页看。</p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>
         </div>
@@ -552,6 +569,20 @@ export default function Subscription() {
                 .filter(({ item }) => item.enabled && interestKey(item.topic) === interestKey(topic))
               return (
                 <div key={topic} className="schedule-topic">
+                  <div className="topic-intent-card">
+                    <p className="topic-overview">{topicOverview(topic)}</p>
+                    <label className="topic-intent">
+                      <span>我想看</span>
+                      <textarea
+                        value={slots[0]?.item.intent || ''}
+                        maxLength={MAX_INTENT_LENGTH}
+                        disabled={isDemo}
+                        placeholder={topicIntentHint(topic)}
+                        onChange={event => updateTopicIntent(topic, event.target.value)}
+                      />
+                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 不填则按系统默认生成</small>
+                    </label>
+                  </div>
                   {slots.map(({ item, index }, slotIndex) => (
                     <div key={`${topic}-${index}`} className="schedule-row">
                       <div className="schedule-name">
@@ -667,7 +698,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">要收科技日报和 ETF，请在这里勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑企业微信或邮箱。服务器会按原来的早晚报 / ETF 原文生成，不再走腾讯云 SCF。其他兴趣仍按关键词爬取短段落。</p>
+      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑渠道。不写「我想看」时按原文生成；写了想法后按你的范围检索。自定义兴趣如「黄仁勋」同样可以写想法。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
       </section>

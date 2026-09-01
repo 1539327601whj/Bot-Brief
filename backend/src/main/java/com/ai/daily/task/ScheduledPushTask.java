@@ -98,22 +98,21 @@ public class ScheduledPushTask {
                 log.info("[{}] user={} 该时刻没有主题，跳过", slot, subscription.getUserId());
                 return;
             }
-            List<String> allTopics = items.stream().map(SubscriptionDTO.TopicScheduleItemDTO::getTopic).toList();
-            Report persisted = reportAssemblyService.assembleAndPersist(
-                    subscription.getUserId(), date, displayTime, allTopics);
+            Report persisted = reportAssemblyService.assembleAndPersistItems(
+                    subscription.getUserId(), date, displayTime, items);
             if (persisted == null) {
-                log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", slot, subscription.getUserId(), allTopics.size());
+                log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", slot, subscription.getUserId(), items.size());
                 return;
             }
 
             List<PushChannel> channels = pushChannelService.listEnabledByUser(subscription.getUserId());
-            Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
+            Map<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> interestsByChannel = new java.util.LinkedHashMap<>();
             for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
                 if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
                 item.getChannelIds().forEach(channelId -> {
                     if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
                         interestsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>())
-                                .add(item.getTopic());
+                                .add(item);
                     }
                 });
             }
@@ -122,8 +121,8 @@ public class ScheduledPushTask {
                 return;
             }
             Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
-            for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
-                Report personalized = reportAssemblyService.assembleEphemeral(
+            for (Map.Entry<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> entry : interestsByChannel.entrySet()) {
+                Report personalized = reportAssemblyService.assembleEphemeralItems(
                         persisted.getId(), date, displayTime, entry.getValue());
                 if (personalized != null) {
                     reportsByChannel.put(entry.getKey(), personalized);

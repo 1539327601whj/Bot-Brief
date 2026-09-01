@@ -645,16 +645,76 @@ a.ghost-link {
 }
 
 .topic-schedule-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 14px;
+  gap: 8px 14px;
   min-height: 52px;
   padding: 12px 14px;
   border: 1px solid rgba(48, 54, 61, 0.8);
   border-radius: 12px;
   background: rgba(10, 14, 26, 0.5);
   transition: all 0.2s ease;
+}
+
+.topic-schedule-row .topic-overview {
+  grid-column: 1 / -1;
+}
+
+.topic-overview {
+  margin: 0;
+  width: 100%;
+  color: #8b949e;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.topic-intent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(10, 14, 26, 0.55);
+}
+
+.topic-intent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topic-intent span {
+  color: #e6edf3;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.topic-intent textarea {
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: #0d111b;
+  color: #f4f7fb;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.topic-intent textarea:focus {
+  outline: none;
+  border-color: rgba(0, 212, 170, 0.65);
+}
+
+.topic-intent textarea:disabled {
+  opacity: 0.45;
+}
+
+.topic-intent small {
+  color: #8b949e;
+  font-size: 12px;
 }
 
 .topic-schedule-row.active {

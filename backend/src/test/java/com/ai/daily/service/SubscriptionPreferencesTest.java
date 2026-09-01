@@ -59,6 +59,26 @@ class SubscriptionPreferencesTest {
     }
 
     @Test
+    void preservesTopicIntentAndRejectsOverlongIntent() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO item = item("AI科技", true, "08:00");
+        item.setIntent("  只要芯片和航天  ");
+        schedules.setItems(List.of(item));
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+
+        assertThat(normalized.schedules().getItems().get(0).getIntent()).isEqualTo("只要芯片和航天");
+        assertThat(normalized.schedulesJson()).contains("只要芯片和航天");
+
+        item.setIntent("长".repeat(121));
+        assertThatThrownBy(() -> preferences.normalize(dto))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("120");
+    }
+
+    @Test
     void emptyChannelAssignmentsMeanWebOnly() {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();

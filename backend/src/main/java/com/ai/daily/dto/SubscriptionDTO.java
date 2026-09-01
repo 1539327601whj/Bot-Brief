@@ -54,5 +54,7 @@ public class SubscriptionDTO {
         private Integer weekdayFrom;
         private Integer weekdayTo;
         private List<Long> channelIds;
+        /** 用户对这个主题想看的范围；空着走系统默认 */
+        private String intent;
     }
 }

@@ -36,6 +36,7 @@ interface TopicScheduleItem {
   weekdayFrom?: number
   weekdayTo?: number
   channelIds?: number[]
+  intent?: string
 }
 
 interface Subscription {
@@ -255,7 +256,10 @@ function SubscriptionCard({ subscription, progress }: { subscription: Subscripti
         </div>
       </div>
       <div className="preference-tags">
-        {fields.length > 0 ? fields.map(field => <span key={field} className="preference-tag">{field}</span>) : <span className="overview-muted">暂未设置关注领域</span>}
+        {fields.length > 0 ? fields.map(field => {
+          const intent = items.find(item => item.topic === field)?.intent
+          return <span key={field} className="preference-tag" title={intent || undefined}>{intent ? `${field} · ${intent}` : field}</span>
+        }) : <span className="overview-muted">暂未设置关注领域</span>}
       </div>
       {progress.length > 0 && (
         <div className="topic-progress-list">

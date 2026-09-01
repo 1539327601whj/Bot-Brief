@@ -35,6 +35,7 @@ public class SubscriptionPreferences {
     }
 
     public NormalizedPreferences normalize(SubscriptionDTO dto) {
+        validateRawIntents(dto.getTopicSchedules());
         SubscriptionDTO.TopicSchedulesDTO schedules = dto.getTopicSchedules() == null
                 ? schedulesFromFields(dto.getPreferenceFields())
                 : normalizeSchedules(dto.getTopicSchedules(), dto);
@@ -234,6 +235,7 @@ public class SubscriptionPreferences {
                 normalized.setTime(ReportWindows.format(time));
                 applyWeekdays(normalized, item);
                 normalized.setChannelIds(normalizeChannelIds(item.getChannelIds()));
+                normalized.setIntent(TopicIntents.clip(item.getIntent()));
                 unique.put(key, normalized);
             } else if (!existing.getTime().equals(ReportWindows.format(time))) {
                 throw new IllegalArgumentException("同一主题在同一时间段只能订阅一次");
@@ -241,6 +243,9 @@ public class SubscriptionPreferences {
                 if (Boolean.TRUE.equals(item.getEnabled())) existing.setEnabled(true);
                 if (item.getChannelIds() != null) existing.setChannelIds(normalizeChannelIds(item.getChannelIds()));
                 applyWeekdays(existing, item);
+                if (!TopicIntents.isBlank(item.getIntent())) {
+                    existing.setIntent(TopicIntents.clip(item.getIntent()));
+                }
             }
         }
         return new ArrayList<>(unique.values());
@@ -266,6 +271,7 @@ public class SubscriptionPreferences {
             item.setWeekdayFrom(SubscriptionWeekdays.DEFAULT_FROM);
             item.setWeekdayTo(SubscriptionWeekdays.DEFAULT_TO);
             item.setChannelIds(List.of());
+            item.setIntent("");
             items.add(item);
         }
         schedules.setItems(items);
@@ -310,6 +316,17 @@ public class SubscriptionPreferences {
         if (unique.size() > MAX_INTERESTS) throw new IllegalArgumentException("兴趣总数不能超过 " + MAX_INTERESTS + " 个");
     }
 
+    private void validateRawIntents(SubscriptionDTO.TopicSchedulesDTO source) {
+        if (source == null) return;
+        List<SubscriptionDTO.TopicScheduleItemDTO> raw = new ArrayList<>();
+        if (source.getItems() != null) raw.addAll(source.getItems());
+        if (source.getMorning() != null) raw.addAll(source.getMorning());
+        if (source.getEvening() != null) raw.addAll(source.getEvening());
+        for (SubscriptionDTO.TopicScheduleItemDTO item : raw) {
+            if (item != null) TopicIntents.normalize(item.getIntent());
+        }
+    }
+
     private void validateOneTopicPerWindow(SubscriptionDTO.TopicSchedulesDTO schedules) {
         Set<String> seen = new LinkedHashSet<>();
         for (SubscriptionDTO.TopicScheduleItemDTO item : itemsOf(schedules)) {
@@ -334,6 +351,7 @@ public class SubscriptionPreferences {
         copy.setWeekdayFrom(item.getWeekdayFrom());
         copy.setWeekdayTo(item.getWeekdayTo());
         copy.setChannelIds(item.getChannelIds());
+        copy.setIntent(TopicIntents.clip(item.getIntent()));
         return copy;
     }
 

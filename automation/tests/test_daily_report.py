@@ -337,13 +337,33 @@ class TopicSectionTests(unittest.TestCase):
         }
         get.return_value = response
         self.assertEqual(report.fetch_due_generations("2026-08-29"), [
-            {"window": "w06_12", "topic": "AI大模型", "generateAt": "08:00"},
+            {"window": "w06_12", "topic": "AI大模型", "generateAt": "08:00", "intent": ""},
         ])
         self.assertIn("due-generations", get.call_args.args[0])
 
     def test_window_digest_style(self):
         self.assertEqual(report.window_digest_style("w06_12"), "morning")
         self.assertEqual(report.window_digest_style("w18_24"), "evening")
+
+    def test_intent_narrows_keywords_and_prompt(self):
+        self.assertEqual(report.normalize_intent("  只要芯片和航天  "), "只要芯片和航天")
+        self.assertIn("芯片", report.topic_keywords("AI科技", "只要芯片和航天"))
+        self.assertIn("航天", report.topic_keywords("AI科技", "只要芯片和航天"))
+        self.assertFalse(report.is_digest_topic("AI科技", "只要芯片"))
+        self.assertTrue(report.is_digest_topic("AI科技", ""))
+        prompt = report.build_topic_prompt("新闻", "AI科技", "morning", "只要芯片和航天")
+        self.assertIn("只要芯片和航天", prompt)
+
+    def test_intent_can_search_when_pool_has_no_match(self):
+        searched = [{"title": "英伟达芯片发布", "summary": "数据中心", "score": 8, "source": "主题检索·中文"}]
+        with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:
+            selected = report.collect_news_for_topic(
+                [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
+                "AI科技",
+                "只要芯片",
+            )
+        self.assertEqual(selected, searched)
+        search.assert_called_once()
 
 
 if __name__ == "__main__":

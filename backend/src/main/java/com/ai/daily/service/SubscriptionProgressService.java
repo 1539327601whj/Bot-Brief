@@ -64,7 +64,9 @@ public class SubscriptionProgressService {
         row.setWindow(window);
 
         Report assembled = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, today, readyAt);
-        String digestEdition = DigestTopics.publicEditionFor(topic, readyAt);
+        String digestEdition = TopicIntents.usePublicDigest(topic, item.getIntent())
+                ? DigestTopics.publicEditionFor(topic, readyAt)
+                : null;
         boolean hasSection = topicSectionMapper.findId(today, window, topic) != null
                 || (digestEdition != null && reportService.publicReportExists(digestEdition, today));
         TopicGenerationStatus recorded = generationStatusService.find(today, window, topic);
