@@ -64,6 +64,19 @@ public class ScheduledPushTask {
         dispatchDue(now, date, TICK_CATCH_UP_WINDOW);
     }
 
+    public void catchUpUser(Subscription subscription, LocalDate date, LocalTime displayTime) {
+        if (subscription == null || date == null || displayTime == null) return;
+        LocalTime now = LocalTime.now(ZONE).withSecond(0).withNano(0);
+        if (displayTime.withSecond(0).withNano(0).isAfter(now)) return;
+        User user = userMapper.selectById(subscription.getUserId());
+        if (user == null
+                || !Boolean.TRUE.equals(user.getEnabled())
+                || User.ACCOUNT_DEMO.equals(user.getAccountType())) {
+            return;
+        }
+        dispatchAt(subscription, date, displayTime);
+    }
+
     void dispatchDue(LocalTime now, LocalDate date, Duration maxLateness) {
         List<Subscription> due = subscriptionService.findDueThrough(now, date, maxLateness);
         if (due.isEmpty()) return;
@@ -99,31 +112,30 @@ public class ScheduledPushTask {
                 return;
             }
             List<String> allTopics = items.stream().map(SubscriptionDTO.TopicScheduleItemDTO::getTopic).toList();
-            Report persisted = reportAssemblyService.assembleAndPersist(
-                    subscription.getUserId(), date, displayTime, allTopics);
+            Report persisted = reportAssemblyService.assembleAndPersistItems(
+                    subscription.getUserId(), date, displayTime, items);
             if (persisted == null) {
                 log.warn("[{}] user={} 勾选了 {} 个主题但暂无可拼装段落", slot, subscription.getUserId(), allTopics.size());
                 return;
             }
 
             List<PushChannel> channels = pushChannelService.listEnabledByUser(subscription.getUserId());
-            Map<Long, List<String>> interestsByChannel = new java.util.LinkedHashMap<>();
+            Map<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> itemsByChannel = new java.util.LinkedHashMap<>();
             for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
                 if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
                 item.getChannelIds().forEach(channelId -> {
                     if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
-                        interestsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>())
-                                .add(item.getTopic());
+                        itemsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>()).add(item);
                     }
                 });
             }
-            if (interestsByChannel.isEmpty()) {
+            if (itemsByChannel.isEmpty()) {
                 log.info("[{}] user={} 已入库网页简报，未绑定渠道", slot, subscription.getUserId());
                 return;
             }
             Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
-            for (Map.Entry<Long, List<String>> entry : interestsByChannel.entrySet()) {
-                Report personalized = reportAssemblyService.assembleEphemeral(
+            for (Map.Entry<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> entry : itemsByChannel.entrySet()) {
+                Report personalized = reportAssemblyService.assembleEphemeralItems(
                         persisted.getId(), date, displayTime, entry.getValue());
                 if (personalized != null) {
                     reportsByChannel.put(entry.getKey(), personalized);

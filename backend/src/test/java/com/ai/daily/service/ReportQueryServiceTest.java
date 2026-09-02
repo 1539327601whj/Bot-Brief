@@ -1,6 +1,7 @@
 package com.ai.daily.service;
 
 import com.ai.daily.entity.Report;
+import com.ai.daily.task.ScheduledPushTask;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,7 +20,8 @@ class ReportQueryServiceTest {
                 reports,
                 mock(ReportAssemblyService.class),
                 mock(SubscriptionService.class),
-                mock(SubscriptionPreferences.class));
+                mock(SubscriptionPreferences.class),
+                mock(ScheduledPushTask.class));
         Report publicMorning = new Report();
         publicMorning.setId(8L);
         publicMorning.setUserId(Report.PUBLIC_OWNER_ID);
@@ -53,7 +55,8 @@ class ReportQueryServiceTest {
                 reports,
                 mock(ReportAssemblyService.class),
                 subscriptions,
-                mock(SubscriptionPreferences.class));
+                mock(SubscriptionPreferences.class),
+                mock(ScheduledPushTask.class));
         Report publicMorning = new Report();
         publicMorning.setId(8L);
         publicMorning.setUserId(Report.PUBLIC_OWNER_ID);
@@ -80,7 +83,8 @@ class ReportQueryServiceTest {
                 reports,
                 mock(ReportAssemblyService.class),
                 mock(SubscriptionService.class),
-                mock(SubscriptionPreferences.class));
+                mock(SubscriptionPreferences.class),
+                mock(ScheduledPushTask.class));
         Report market = new Report();
         market.setId(10L);
         market.setUserId(Report.PUBLIC_OWNER_ID);

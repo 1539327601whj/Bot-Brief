@@ -3,6 +3,7 @@ package com.ai.daily.service;
 import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
+import com.ai.daily.task.ScheduledPushTask;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class ReportQueryService {
     private final ReportAssemblyService reportAssemblyService;
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
+    private final ScheduledPushTask scheduledPushTask;
 
     public void ensureTodayAssembled(Long userId) {
         if (userId == null) return;
@@ -241,6 +243,7 @@ public class ReportQueryService {
             List<SubscriptionDTO.TopicScheduleItemDTO> slotItems =
                     subscriptionPreferences.enabledTopicItemsAt(subscription, time, today);
             reportAssemblyService.assembleForWebIfReadyItems(userId, today, time, slotItems);
+            scheduledPushTask.catchUpUser(subscription, today, time);
         }
     }
 

@@ -1,17 +1,37 @@
 import dayjs from './dayjs'
 
+const PUBLIC_SLOT: Record<string, string> = {
+  morning: '08:00',
+  evening: '20:00',
+  market_watch_evening: '18:00',
+  market_watch_morning: '08:00',
+  etf_evening: '18:00',
+  etf_morning: '08:00',
+}
+
+export function reportDisplayClock(
+  report?: { displayTime?: string; createdAt?: string; edition?: string },
+  edition = report?.edition,
+) {
+  if (report?.displayTime && report.displayTime.length >= 5) {
+    return report.displayTime.slice(0, 5)
+  }
+  if (edition && PUBLIC_SLOT[edition]) return PUBLIC_SLOT[edition]
+  return report?.createdAt ? dayjs(report.createdAt).tz('Asia/Shanghai').format('HH:mm') : ''
+}
+
 export function reportSlotStamp(report?: {
   createdAt?: string
   displayTime?: string
   reportDate?: string
+  edition?: string
 }, format = 'MM-DD HH:mm') {
   if (!report) return ''
-  const date = report.reportDate || (report.createdAt ? dayjs(report.createdAt).format('YYYY-MM-DD') : '')
-  const time = report.displayTime
-    ? report.displayTime.slice(0, 5)
-    : (report.createdAt ? dayjs(report.createdAt).format('HH:mm') : '')
-  if (!date) return report.createdAt ? dayjs(report.createdAt).format(format) : ''
-  return dayjs(`${date} ${time || '00:00'}`).format(format)
+  const date = report.reportDate
+    || (report.createdAt ? dayjs(report.createdAt).tz('Asia/Shanghai').format('YYYY-MM-DD') : '')
+  const time = reportDisplayClock(report)
+  if (!date) return time
+  return dayjs.tz(`${date} ${time || '00:00'}`, 'Asia/Shanghai').format(format)
 }
 
 export function reportIsOnDate(report?: { createdAt?: string; reportDate?: string } | null, day = dayjs()) {
