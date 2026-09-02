@@ -58,7 +58,7 @@ public class EtfPriceHistoryServiceImpl extends ServiceImpl<EtfPriceHistoryMappe
                 .eq(EtfPriceHistory::getFundCode, fundCode.trim())
                 .eq(EtfPriceHistory::getAdjustmentType, normalizedAdjustmentType)
                 .orderByDesc(EtfPriceHistory::getTradeDate)
-                .last("LIMIT " + Math.max(1, Math.min(limit, 365)))
+                .last("LIMIT " + Math.max(1, Math.min(limit, 800)))
                 .list();
     }
 

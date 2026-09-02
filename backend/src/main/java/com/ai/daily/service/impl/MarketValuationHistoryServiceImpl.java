@@ -57,7 +57,7 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
                 .eq(MarketValuationHistory::getPercentileMethod, percentileMethod.trim())
                 .isNotNull(MarketValuationHistory::getPePercentile)
                 .orderByDesc(MarketValuationHistory::getTradeDate)
-                .last("LIMIT " + Math.max(1, Math.min(limit, 365)))
+                .last("LIMIT " + Math.max(1, Math.min(limit, 800)))
                 .list();
     }
 

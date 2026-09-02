@@ -106,16 +106,18 @@ VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/ma
 CSI_PE_TTM_ROLLING_10Y = "CSI_PE_TTM_ROLLING_10Y"
 DANJUAN_PE_TTM_PROVIDER = "DANJUAN_PE_TTM_PROVIDER"
 PRICE_ADJUSTMENT_TYPE = "QFQ"
-PRICE_HISTORY_LIMIT = 280
-PRICE_CACHE_QUERY_LIMIT = 365
+PRICE_HISTORY_LIMIT = 800
+PRICE_CACHE_QUERY_LIMIT = 800
+PRICE_INGEST_BATCH_SIZE = 250
+VALUATION_HISTORY_LIMIT = 800
 PRICE_MAX_STALENESS_DAYS = 15
 PE_LOOKBACK_DAYS = 15
-NAV_HISTORY_PAGES = 8
+NAV_HISTORY_PAGES = 20
 NAV_PAGE_SIZE = 40
-UNADJUSTED_CLOSE_LIMIT = 280
+UNADJUSTED_CLOSE_LIMIT = 800
 PREMIUM_HISTORY_STALENESS_DAYS = 15
 SIGNED_CHANGE_TOKEN = re.compile(
-    r"(?<![.\d])(\+[\d.]+(?:%|pt)|-[\d.]+(?:%|pt)|0(?:\.00)?(?:%|pt))(?!\d)"
+    r"(?<![.\d])(\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点))(?!\d)"
 )
 EASTMONEY_FUND_HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -659,13 +661,17 @@ def push_etf_price_history(
         "fetchedAt": fetched_at,
     } for item in completed]
     try:
-        resp = requests.post(
-            f"{backend_url}/api/etf-prices/ingest",
-            json=payload,
-            headers=backend_headers(),
-            timeout=(4, 12),
-        )
-        return backend_result(resp, f"{etf['name']}价格缓存同步") is not None
+        for start in range(0, len(payload), PRICE_INGEST_BATCH_SIZE):
+            batch = payload[start:start + PRICE_INGEST_BATCH_SIZE]
+            resp = requests.post(
+                f"{backend_url}/api/etf-prices/ingest",
+                json=batch,
+                headers=backend_headers(),
+                timeout=(4, 12),
+            )
+            if backend_result(resp, f"{etf['name']}价格缓存同步") is None:
+                return False
+        return True
     except Exception as e:
         print(f"  ⚠️ {etf['name']} 价格缓存同步失败: {e}")
         return False
@@ -707,6 +713,9 @@ def build_price_context(
     year_item = latest_observation_on_or_before(
         completed, subtract_years(quote_date, 1), max_staleness_days=15
     )
+    three_year_item = latest_observation_on_or_before(
+        completed, subtract_years(quote_date, 3), max_staleness_days=15
+    )
     previous_close = to_optional_float(quote.get("previous_close"))
     if previous_close is None and previous_item:
         previous_close = previous_item["close"]
@@ -714,6 +723,7 @@ def build_price_context(
     month_baseline = month_item["close"] if month_item else None
     half_year_baseline = half_year_item["close"] if half_year_item else None
     year_baseline = year_item["close"] if year_item else None
+    three_year_baseline = three_year_item["close"] if three_year_item else None
     month_high = max((item["high"] for item in recent_month), default=None)
     month_low = min((item["low"] for item in recent_month), default=None)
     range_position = None
@@ -730,10 +740,13 @@ def build_price_context(
         "half_year_baseline_date": half_year_item["date"] if half_year_item else None,
         "year_baseline": year_baseline,
         "year_baseline_date": year_item["date"] if year_item else None,
+        "three_year_baseline": three_year_baseline,
+        "three_year_baseline_date": three_year_item["date"] if three_year_item else None,
         "week_pct_change": pct_return(current, week_baseline),
         "month_pct_change": pct_return(current, month_baseline),
         "half_year_pct_change": pct_return(current, half_year_baseline),
         "year_pct_change": pct_return(current, year_baseline),
+        "three_year_pct_change": pct_return(current, three_year_baseline),
         "month_high": month_high,
         "month_low": month_low,
         "distance_from_month_high": pct_return(current, month_high),
@@ -762,10 +775,13 @@ def empty_price_context(
         "half_year_baseline_date": None,
         "year_baseline": None,
         "year_baseline_date": None,
+        "three_year_baseline": None,
+        "three_year_baseline_date": None,
         "week_pct_change": None,
         "month_pct_change": None,
         "half_year_pct_change": None,
         "year_pct_change": None,
+        "three_year_pct_change": None,
         "month_high": None,
         "month_low": None,
         "distance_from_month_high": None,
@@ -912,6 +928,8 @@ def empty_premium_history_fields() -> dict[str, Any]:
         "half_year_date": None,
         "year_rate": None,
         "year_date": None,
+        "three_year_rate": None,
+        "three_year_date": None,
         "history_source": None,
         "history_error": None,
     }
@@ -1108,6 +1126,9 @@ def enrich_premium_with_history(
         year = latest_observation_on_or_before(
             observations, subtract_years(history_anchor, 1), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
         )
+        three_year = latest_observation_on_or_before(
+            observations, subtract_years(history_anchor, 3), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
         fields.update({
             "display_rate": latest["premium_rate"] if latest else None,
             "display_date": latest["date"] if latest else None,
@@ -1121,6 +1142,8 @@ def enrich_premium_with_history(
             "half_year_date": half_year["date"] if half_year else None,
             "year_rate": year["premium_rate"] if year else None,
             "year_date": year["date"] if year else None,
+            "three_year_rate": three_year["premium_rate"] if three_year else None,
+            "three_year_date": three_year["date"] if three_year else None,
             "history_source": "东方财富单位净值+不复权收盘",
         })
     except Exception as e:
@@ -1456,6 +1479,9 @@ def fetch_source_valuation(
             current_date - timedelta(days=1),
             current_date - timedelta(days=7),
             subtract_calendar_month(current_date),
+            subtract_calendar_months(current_date, 6),
+            subtract_years(current_date, 1),
+            subtract_years(current_date, 3),
         }
         for target in sorted(targets, reverse=True):
             if pe_observation_on_or_before(history, target) is not None:
@@ -1522,16 +1548,18 @@ def fmt_compact_pct_change(value: Optional[float]) -> Optional[str]:
     return f"{value:+.2f}%"
 
 
-def fmt_compact_pt_change(value: Optional[float], digits: int = 0) -> Optional[str]:
+def fmt_compact_pt_change(
+    value: Optional[float], digits: int = 0, unit: str = "pt"
+) -> Optional[str]:
     if value is None:
         return None
     if digits <= 0:
         rounded = int(round(value))
-        return "0pt" if rounded == 0 else f"{rounded:+d}pt"
+        return f"0{unit}" if rounded == 0 else f"{rounded:+d}{unit}"
     threshold = 0.5 * (10 ** -digits)
     if abs(value) < threshold:
-        return f"{0:.{digits}f}pt"
-    return f"{value:+.{digits}f}pt"
+        return f"{0:.{digits}f}{unit}"
+    return f"{value:+.{digits}f}{unit}"
 
 
 def fmt_plain_pct(value: Optional[float], digits: int = 2) -> Optional[str]:
@@ -1659,7 +1687,11 @@ def merge_pe_history(
 
 
 def fmt_pe_percentile(value: Optional[float]) -> str:
-    return "不可确认" if value is None else f"{value:.0f}%"
+    return "不可确认" if value is None else f"{value:.0f}"
+
+
+def fmt_pe_rank(value: Optional[float]) -> Optional[str]:
+    return None if value is None else f"{value:.0f}"
 
 
 def fmt_baseline_date(value: Optional[str]) -> str:
@@ -1709,6 +1741,8 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
             "half_year_baseline_date": None,
             "year_baseline": None,
             "year_baseline_date": None,
+            "three_year_baseline": None,
+            "three_year_baseline_date": None,
         }
 
     method = valuation.get("percentile_method") or valuation.get("percentileMethod")
@@ -1718,6 +1752,7 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
     month = pe_observation_on_or_before(history, subtract_calendar_month(current_date))
     half_year = pe_observation_on_or_before(history, subtract_calendar_months(current_date, 6))
     year = pe_observation_on_or_before(history, subtract_years(current_date, 1))
+    three_year = pe_observation_on_or_before(history, subtract_years(current_date, 3))
 
     def value(item: Optional[dict[str, Any]]) -> Optional[float]:
         return to_optional_float(item.get("pePercentile")) if item else None
@@ -1738,6 +1773,8 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         "half_year_baseline_date": trade_date(half_year),
         "year_baseline": value(year),
         "year_baseline_date": trade_date(year),
+        "three_year_baseline": value(three_year),
+        "three_year_baseline_date": trade_date(three_year),
     }
 
 
@@ -1780,7 +1817,7 @@ def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
         resp = http_get(
             f"{backend_url}/api/market-valuations/{etf['valuation_index_code']}/latest",
             params={
-                "limit": 365,
+                "limit": VALUATION_HISTORY_LIMIT,
                 "percentileMethod": valuation_percentile_method(etf),
             },
             headers={"X-Ingest-Token": ingest_token},
@@ -1816,6 +1853,7 @@ def push_valuation_history(snapshot: dict[str, Any]) -> bool:
         context.get("month_baseline_date"),
         context.get("half_year_baseline_date"),
         context.get("year_baseline_date"),
+        context.get("three_year_baseline_date"),
     }
     method = valuation.get("percentile_method") or valuation.get("percentileMethod")
     source_items = merge_pe_history(
@@ -1953,7 +1991,7 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
 
 def sanitize_report(report: str) -> str:
     report = report.replace(f"> {DISCLAIMER}", "").replace(DISCLAIMER, "")
-    return report.rstrip() + f"\n\n> {DISCLAIMER}"
+    return re.sub(r"\n{3,}", "\n\n", report).rstrip()
 
 
 def parse_eastmoney_clist(body: Any) -> list[dict[str, Any]]:
@@ -2326,15 +2364,21 @@ def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
                 ("月", fmt_compact_price(context.get("month_baseline")), fmt_compact_pct_change(context.get("month_pct_change"))),
                 ("半年", fmt_compact_price(context.get("half_year_baseline")), fmt_compact_pct_change(context.get("half_year_pct_change"))),
                 ("一年", fmt_compact_price(context.get("year_baseline")), fmt_compact_pct_change(context.get("year_pct_change"))),
+                ("三年", fmt_compact_price(context.get("three_year_baseline")), fmt_compact_pct_change(context.get("three_year_pct_change"))),
             ]),
         ])
     return lines
 
 
-def _pt_delta(current: Optional[float], baseline: Optional[float], digits: int = 0) -> Optional[str]:
+def _pt_delta(
+    current: Optional[float],
+    baseline: Optional[float],
+    digits: int = 0,
+    unit: str = "pt",
+) -> Optional[str]:
     if current is None or baseline is None:
         return None
-    return fmt_compact_pt_change(current - baseline, digits)
+    return fmt_compact_pt_change(current - baseline, digits, unit=unit)
 
 
 def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
@@ -2345,11 +2389,12 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         lines.extend([
             f"### {etf_short_name(snapshot)}",
             "- " + join_compact_lookbacks(fmt_pe_percentile(current), [
-                ("昨", fmt_plain_pct(pe_context.get("previous"), 0), _pt_delta(current, pe_context.get("previous"))),
-                ("周", fmt_plain_pct(pe_context.get("week_baseline"), 0), _pt_delta(current, pe_context.get("week_baseline"))),
-                ("月", fmt_plain_pct(pe_context.get("month_baseline"), 0), _pt_delta(current, pe_context.get("month_baseline"))),
-                ("半年", fmt_plain_pct(pe_context.get("half_year_baseline"), 0), _pt_delta(current, pe_context.get("half_year_baseline"))),
-                ("一年", fmt_plain_pct(pe_context.get("year_baseline"), 0), _pt_delta(current, pe_context.get("year_baseline"))),
+                ("昨", fmt_pe_rank(pe_context.get("previous")), _pt_delta(current, pe_context.get("previous"), unit="点")),
+                ("周", fmt_pe_rank(pe_context.get("week_baseline")), _pt_delta(current, pe_context.get("week_baseline"), unit="点")),
+                ("月", fmt_pe_rank(pe_context.get("month_baseline")), _pt_delta(current, pe_context.get("month_baseline"), unit="点")),
+                ("半年", fmt_pe_rank(pe_context.get("half_year_baseline")), _pt_delta(current, pe_context.get("half_year_baseline"), unit="点")),
+                ("一年", fmt_pe_rank(pe_context.get("year_baseline")), _pt_delta(current, pe_context.get("year_baseline"), unit="点")),
+                ("三年", fmt_pe_rank(pe_context.get("three_year_baseline")), _pt_delta(current, pe_context.get("three_year_baseline"), unit="点")),
             ]),
         ])
     return lines
@@ -2371,6 +2416,7 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
                 ("月", fmt_plain_pct(premium.get("month_rate")), _pt_delta(current, premium.get("month_rate"), 2)),
                 ("半年", fmt_plain_pct(premium.get("half_year_rate")), _pt_delta(current, premium.get("half_year_rate"), 2)),
                 ("一年", fmt_plain_pct(premium.get("year_rate")), _pt_delta(current, premium.get("year_rate"), 2)),
+                ("三年", fmt_plain_pct(premium.get("three_year_rate")), _pt_delta(current, premium.get("three_year_rate"), 2)),
             ]),
         ])
     return lines
@@ -2440,7 +2486,8 @@ def build_programmatic_report(
 
 def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
     memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
-    return sanitize_report("\n".join([
+    premium_section = format_premium_change_section(snapshots)
+    lines = [
         report_title(edition),
         "",
         *format_lead_conclusion(snapshots, memos),
@@ -2448,7 +2495,10 @@ def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
         *format_price_change_section(snapshots),
         "",
         *format_pe_change_section(snapshots),
-    ]))
+    ]
+    if premium_section:
+        lines.extend(["", *premium_section])
+    return sanitize_report("\n".join(lines))
 
 
 def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason: str) -> str:

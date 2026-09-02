@@ -64,6 +64,9 @@ def complete_snapshot(etf=ETF):
             "year_baseline": 3.4,
             "year_baseline_date": "2025-07-27",
             "year_pct_change": 20.59,
+            "three_year_baseline": 3.0,
+            "three_year_baseline_date": "2023-07-27",
+            "three_year_pct_change": 36.67,
             "month_high": 4.30,
             "month_low": 3.80,
             "distance_from_month_high": -4.65,
@@ -91,6 +94,8 @@ def complete_snapshot(etf=ETF):
             "half_year_date": "2026-01-27",
             "year_rate": 0.3,
             "year_date": "2025-07-27",
+            "three_year_rate": 0.1,
+            "three_year_date": "2023-07-27",
             "history_source": "溢价历史测试源",
             "error": None,
         },
@@ -108,6 +113,11 @@ def complete_snapshot(etf=ETF):
             "tradeDate": "2026-07-24",
             "peTtm": 12.0,
             "pePercentile": 40.0,
+            "percentileMethod": method,
+        }, {
+            "tradeDate": "2023-07-27",
+            "peTtm": 10.0,
+            "pePercentile": 30.0,
             "percentileMethod": method,
         }],
     }
@@ -180,6 +190,7 @@ class PremiumHistoryTests(unittest.TestCase):
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_enrich_keeps_today_iopv_and_fills_lookbacks(self, _):
         observations = [
+            {"date": "2023-07-27", "close": 1.802, "nav": 1.80, "premium_rate": 0.11},
             {"date": "2026-06-27", "close": 2.01, "nav": 2.00, "premium_rate": 0.5},
             {"date": "2026-07-20", "close": 2.016, "nav": 2.00, "premium_rate": 0.8},
             {"date": "2026-07-24", "close": 2.02, "nav": 2.00, "premium_rate": 1.0},
@@ -203,6 +214,7 @@ class PremiumHistoryTests(unittest.TestCase):
         self.assertEqual(result["previous_date"], "2026-07-24")
         self.assertEqual(result["week_date"], "2026-07-20")
         self.assertEqual(result["month_date"], "2026-06-27")
+        self.assertEqual(result["three_year_date"], "2023-07-27")
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_format_premium_falls_back_to_nav_close(self, _):
@@ -225,26 +237,35 @@ class PremiumHistoryTests(unittest.TestCase):
 
     def test_change_sections_are_one_line_without_dates(self):
         price = "\n".join(report.format_price_change_section([complete_snapshot()]))
-        self.assertIn("今 4.100｜昨 4.000 +2.50%｜周 3.900 +5.13%｜月 3.800 +7.89%｜半年 3.600 +13.89%｜一年 3.400 +20.59%", price)
+        self.assertIn("今 4.100｜昨 4.000 +2.50%｜周 3.900 +5.13%｜月 3.800 +7.89%｜半年 3.600 +13.89%｜一年 3.400 +20.59%｜三年 3.000 +36.67%", price)
         self.assertNotIn("08-", price)
         self.assertNotIn("行情价", price)
         pe = "\n".join(report.format_pe_change_section([complete_snapshot()]))
-        self.assertIn("今 45%｜昨 40% +5pt", pe)
+        self.assertIn("今 45｜昨 40 +5点｜三年 30 +15点", pe)
+        self.assertNotIn("今 45%", pe)
+        self.assertNotIn("pt", pe)
         self.assertNotIn("个百分点", pe)
 
     def test_colorize_wework_uses_signed_tokens(self):
-        colored = report.colorize_wework_changes("今 4.100｜昨 4.000 +2.50%｜周 3.900 -1.20%｜月 3.800 0.00%")
+        colored = report.colorize_wework_changes("今 4.100｜昨 4.000 +2.50%｜周 3.900 -1.20%｜月 3.800 0.00%｜昨 40 +5点")
         self.assertIn('<font color="warning">+2.50%</font>', colored)
         self.assertIn('<font color="info">-1.20%</font>', colored)
         self.assertIn('<font color="comment">0.00%</font>', colored)
+        self.assertIn('<font color="warning">+5点</font>', colored)
         self.assertNotIn("4.100</font>", colored)
+
+    def test_sanitize_report_drops_disclaimer(self):
+        text = report.sanitize_report(f"## 先看结论\n\n> {report.DISCLAIMER}")
+        self.assertNotIn("数据说明", text)
+        self.assertNotIn("不构成投资建议", text)
+        self.assertIn("先看结论", text)
 
     def test_premium_change_lists_delta_once_per_lookback(self):
         text = "\n".join(report.format_premium_change_section([
             complete_snapshot(report.ETF_LIST[1]),
         ]))
         self.assertEqual(text.count("今 0.20%"), 1)
-        self.assertIn("今 0.20%｜昨 1.00% -0.80pt｜周 0.80% -0.60pt｜月 0.50% -0.30pt｜半年 0.40% -0.20pt｜一年 0.30% -0.10pt", text)
+        self.assertIn("今 0.20%｜昨 1.00% -0.80pt｜周 0.80% -0.60pt｜月 0.50% -0.30pt｜半年 0.40% -0.20pt｜一年 0.30% -0.10pt｜三年 0.10% +0.10pt", text)
         self.assertNotIn("当天溢价", text)
         self.assertNotIn("（07-24）", text)
 
@@ -487,9 +508,11 @@ class ReportTests(unittest.TestCase):
         )
         for required in (
             "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
-            "按计划买", "4.100", "PE 12.50", "分位 45%",
+            "按计划买", "4.100", "PE 12.50", "分位 45",
             "今 4.100｜昨 4.000 +2.50%",
-            "今 45%｜昨 40% +5pt",
+            "今 45｜昨 40 +5点",
+            "三年 3.000 +36.67%",
+            "三年 30 +15点",
             "2026-07-27",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
@@ -498,7 +521,8 @@ class ReportTests(unittest.TestCase):
             "加仓", "减仓", "正常定投", "今日动作", "观察线",
             "定额配置官", "规则动作", "数据降级",
             "行情源", "历史源", "估值源", "外部数据已校验",
-            "各指数分位口径", "数据异常",
+            "各指数分位口径", "数据异常", "数据说明",
+            "不构成投资建议",
             "中证 PE(TTM) 滚动10年分位", "估值测试源",
         ):
             self.assertNotIn(forbidden, text)
@@ -507,19 +531,21 @@ class ReportTests(unittest.TestCase):
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_report_keeps_action_and_change_sections_only(self, _):
-        snapshots = [complete_snapshot(), complete_snapshot(report.ETF_LIST[1])]
+        snapshots = [complete_snapshot(item) for item in report.ETF_LIST]
         text = report.build_wechat_report(snapshots, "market_watch_evening")
         for required in (
             "ETF 行情日报", "先看结论", "按计划买",
             "ETF变化", "PE分位变化",
-            "4.100", "PE 12.50", "分位 45%",
+            "4.100", "PE 12.50", "分位 45",
             "周 3.900 +5.13%", "月 3.800 +7.89%",
+            "三年 3.000 +36.67%",
+            "溢价变化", "今 0.20%",
         ):
             self.assertIn(required, text)
         for forbidden in (
             "定额配置官", "规则动作", "数据降级", "A股观察候选",
             "加仓", "减仓", "正常定投", "今日动作",
-            "行情源", "估值源", "数据异常",
+            "行情源", "估值源", "数据异常", "数据说明", "不构成投资建议",
         ):
             self.assertNotIn(forbidden, text)
         wx = report.convert_to_wework_markdown(text)
@@ -538,7 +564,9 @@ class ReportTests(unittest.TestCase):
         expensive["premium"]["premium_rate"] = 1.0
         text = report.build_wechat_report([expensive], "market_watch_evening")
         self.assertIn("少买", text)
-        self.assertIn("分位 75%", text)
+        self.assertIn("分位 75", text)
+        self.assertNotIn("分位 75%", text)
+        self.assertNotIn("溢价变化", text)
         self.assertIn("4.100", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
@@ -578,6 +606,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("今 0.20%｜昨 1.00% -0.80pt", text)
         self.assertIn("周 0.80% -0.60pt", text)
         self.assertIn("月 0.50% -0.30pt", text)
+        self.assertIn("三年 0.10% +0.10pt", text)
+        self.assertEqual(text.count("### 纳指100ETF"), 3)
+        self.assertEqual(text.count("### 标普500ETF"), 3)
         self.assertNotIn("当天溢价", text)
         self.assertNotIn("个百分点", text)
         self.assertIn("### 纳指100ETF", text)
@@ -585,6 +616,7 @@ class ReportTests(unittest.TestCase):
         for forbidden in (
             "行情源", "历史源", "估值源", "外部数据已校验", "写入缓存",
             "各指数分位口径", "数据异常", "跨境仅供参考", "HTTPSConnectionPool",
+            "数据说明", "不构成投资建议",
         ):
             self.assertNotIn(forbidden, text)
         wx = report.convert_to_wework_markdown(text)

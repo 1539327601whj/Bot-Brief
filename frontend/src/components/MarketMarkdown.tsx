@@ -6,7 +6,15 @@ interface MarketMarkdownProps {
   children: string
 }
 
-const changePattern = /(?<![.\d])(\+[\d.]+(?:%|pt)|-[\d.]+(?:%|pt)|0(?:\.00)?(?:%|pt))(?!\d)/g
+const changePattern = /(?<![.\d])(\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点))(?!\d)/g
+
+function stripNonReportMeta(markdown: string) {
+  return markdown
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(?:^|\n)>\s*数据说明：[^\n]*/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd()
+}
 
 function renderMarketChanges(node: ReactNode): ReactNode {
   if (typeof node === 'string') {
@@ -17,7 +25,7 @@ function renderMarketChanges(node: ReactNode): ReactNode {
       if (/^-\d/.test(part)) {
         return <span key={index} className="market-change market-change-down">{part}</span>
       }
-      if (/^0(?:\.00)?(?:%|pt)$/.test(part)) {
+      if (/^0(?:\.00)?(?:%|pt|点)$/.test(part)) {
         return <span key={index} className="market-change market-change-flat">{part}</span>
       }
       return part
@@ -53,7 +61,7 @@ export default function MarketMarkdown({ children }: MarketMarkdownProps) {
           ),
         }}
       >
-        {children}
+        {stripNonReportMeta(children)}
       </ReactMarkdown>
     </div>
   )
