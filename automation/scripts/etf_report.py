@@ -106,14 +106,17 @@ VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/ma
 CSI_PE_TTM_ROLLING_10Y = "CSI_PE_TTM_ROLLING_10Y"
 DANJUAN_PE_TTM_PROVIDER = "DANJUAN_PE_TTM_PROVIDER"
 PRICE_ADJUSTMENT_TYPE = "QFQ"
-PRICE_HISTORY_LIMIT = 120
-PRICE_CACHE_QUERY_LIMIT = PRICE_HISTORY_LIMIT * 2
+PRICE_HISTORY_LIMIT = 280
+PRICE_CACHE_QUERY_LIMIT = 365
 PRICE_MAX_STALENESS_DAYS = 15
 PE_LOOKBACK_DAYS = 15
-NAV_HISTORY_PAGES = 2
-NAV_PAGE_SIZE = 20
-UNADJUSTED_CLOSE_LIMIT = 60
+NAV_HISTORY_PAGES = 8
+NAV_PAGE_SIZE = 40
+UNADJUSTED_CLOSE_LIMIT = 280
 PREMIUM_HISTORY_STALENESS_DAYS = 15
+SIGNED_CHANGE_TOKEN = re.compile(
+    r"(?<![.\d])(\+[\d.]+(?:%|pt)|-[\d.]+(?:%|pt)|0(?:\.00)?(?:%|pt))(?!\d)"
+)
 EASTMONEY_FUND_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Referer": "https://fundf10.eastmoney.com/",
@@ -484,11 +487,18 @@ def parse_iso_date(value: Any) -> Optional[date]:
         return None
 
 
-def subtract_calendar_month(value: date) -> date:
-    year = value.year - (1 if value.month == 1 else 0)
-    month = 12 if value.month == 1 else value.month - 1
+def subtract_calendar_months(value: date, months: int) -> date:
+    year = value.year
+    month = value.month - months
+    while month <= 0:
+        month += 12
+        year -= 1
     day = min(value.day, calendar.monthrange(year, month)[1])
     return date(year, month, day)
+
+
+def subtract_calendar_month(value: date) -> date:
+    return subtract_calendar_months(value, 1)
 
 
 def is_fresh_date(value: Any, reference_date: date, max_staleness_days: int) -> bool:
@@ -691,11 +701,19 @@ def build_price_context(
     month_item = latest_observation_on_or_before(
         completed, subtract_calendar_month(quote_date), max_staleness_days=15
     )
+    half_year_item = latest_observation_on_or_before(
+        completed, subtract_calendar_months(quote_date, 6), max_staleness_days=15
+    )
+    year_item = latest_observation_on_or_before(
+        completed, subtract_years(quote_date, 1), max_staleness_days=15
+    )
     previous_close = to_optional_float(quote.get("previous_close"))
     if previous_close is None and previous_item:
         previous_close = previous_item["close"]
     week_baseline = week_item["close"] if week_item else None
     month_baseline = month_item["close"] if month_item else None
+    half_year_baseline = half_year_item["close"] if half_year_item else None
+    year_baseline = year_item["close"] if year_item else None
     month_high = max((item["high"] for item in recent_month), default=None)
     month_low = min((item["low"] for item in recent_month), default=None)
     range_position = None
@@ -708,8 +726,14 @@ def build_price_context(
         "week_baseline_date": week_item["date"] if week_item else None,
         "month_baseline": month_baseline,
         "month_baseline_date": month_item["date"] if month_item else None,
+        "half_year_baseline": half_year_baseline,
+        "half_year_baseline_date": half_year_item["date"] if half_year_item else None,
+        "year_baseline": year_baseline,
+        "year_baseline_date": year_item["date"] if year_item else None,
         "week_pct_change": pct_return(current, week_baseline),
         "month_pct_change": pct_return(current, month_baseline),
+        "half_year_pct_change": pct_return(current, half_year_baseline),
+        "year_pct_change": pct_return(current, year_baseline),
         "month_high": month_high,
         "month_low": month_low,
         "distance_from_month_high": pct_return(current, month_high),
@@ -734,8 +758,14 @@ def empty_price_context(
         "week_baseline_date": None,
         "month_baseline": None,
         "month_baseline_date": None,
+        "half_year_baseline": None,
+        "half_year_baseline_date": None,
+        "year_baseline": None,
+        "year_baseline_date": None,
         "week_pct_change": None,
         "month_pct_change": None,
+        "half_year_pct_change": None,
+        "year_pct_change": None,
         "month_high": None,
         "month_low": None,
         "distance_from_month_high": None,
@@ -878,6 +908,10 @@ def empty_premium_history_fields() -> dict[str, Any]:
         "week_date": None,
         "month_rate": None,
         "month_date": None,
+        "half_year_rate": None,
+        "half_year_date": None,
+        "year_rate": None,
+        "year_date": None,
         "history_source": None,
         "history_error": None,
     }
@@ -1068,6 +1102,12 @@ def enrich_premium_with_history(
         month = latest_observation_on_or_before(
             observations, subtract_calendar_month(history_anchor), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
         )
+        half_year = latest_observation_on_or_before(
+            observations, subtract_calendar_months(history_anchor, 6), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
+        year = latest_observation_on_or_before(
+            observations, subtract_years(history_anchor, 1), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+        )
         fields.update({
             "display_rate": latest["premium_rate"] if latest else None,
             "display_date": latest["date"] if latest else None,
@@ -1077,6 +1117,10 @@ def enrich_premium_with_history(
             "week_date": week["date"] if week else None,
             "month_rate": month["premium_rate"] if month else None,
             "month_date": month["date"] if month else None,
+            "half_year_rate": half_year["premium_rate"] if half_year else None,
+            "half_year_date": half_year["date"] if half_year else None,
+            "year_rate": year["premium_rate"] if year else None,
+            "year_date": year["date"] if year else None,
             "history_source": "东方财富单位净值+不复权收盘",
         })
     except Exception as e:
@@ -1466,6 +1510,46 @@ def fmt_signed_pct(value: Optional[float]) -> str:
     return f"{value:+.2f}%"
 
 
+def fmt_compact_price(value: Optional[float]) -> Optional[str]:
+    return None if value is None else f"{value:.3f}"
+
+
+def fmt_compact_pct_change(value: Optional[float]) -> Optional[str]:
+    if value is None:
+        return None
+    if abs(value) < 0.005:
+        return "0.00%"
+    return f"{value:+.2f}%"
+
+
+def fmt_compact_pt_change(value: Optional[float], digits: int = 0) -> Optional[str]:
+    if value is None:
+        return None
+    if digits <= 0:
+        rounded = int(round(value))
+        return "0pt" if rounded == 0 else f"{rounded:+d}pt"
+    threshold = 0.5 * (10 ** -digits)
+    if abs(value) < threshold:
+        return f"{0:.{digits}f}pt"
+    return f"{value:+.{digits}f}pt"
+
+
+def fmt_plain_pct(value: Optional[float], digits: int = 2) -> Optional[str]:
+    return None if value is None else f"{value:.{digits}f}%"
+
+
+def join_compact_lookbacks(
+    today_text: Optional[str],
+    items: list[tuple[str, Optional[str], Optional[str]]],
+) -> str:
+    parts = [f"今 {today_text or '不可确认'}"]
+    for label, value_text, change_text in items:
+        if not value_text:
+            continue
+        parts.append(f"{label} {value_text} {change_text}" if change_text else f"{label} {value_text}")
+    return "｜".join(parts)
+
+
 def fmt_change_pct(value: Optional[float]) -> str:
     if value is None:
         return "不可确认"
@@ -1621,6 +1705,10 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
             "week_baseline_date": None,
             "month_baseline": None,
             "month_baseline_date": None,
+            "half_year_baseline": None,
+            "half_year_baseline_date": None,
+            "year_baseline": None,
+            "year_baseline_date": None,
         }
 
     method = valuation.get("percentile_method") or valuation.get("percentileMethod")
@@ -1628,6 +1716,8 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
     previous = pe_observation_on_or_before(history, current_date - timedelta(days=1))
     week = pe_observation_on_or_before(history, current_date - timedelta(days=7))
     month = pe_observation_on_or_before(history, subtract_calendar_month(current_date))
+    half_year = pe_observation_on_or_before(history, subtract_calendar_months(current_date, 6))
+    year = pe_observation_on_or_before(history, subtract_years(current_date, 1))
 
     def value(item: Optional[dict[str, Any]]) -> Optional[float]:
         return to_optional_float(item.get("pePercentile")) if item else None
@@ -1644,6 +1734,10 @@ def build_pe_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         "week_baseline_date": trade_date(week),
         "month_baseline": value(month),
         "month_baseline_date": trade_date(month),
+        "half_year_baseline": value(half_year),
+        "half_year_baseline_date": trade_date(half_year),
+        "year_baseline": value(year),
+        "year_baseline_date": trade_date(year),
     }
 
 
@@ -1720,6 +1814,8 @@ def push_valuation_history(snapshot: dict[str, Any]) -> bool:
         context.get("previous_date"),
         context.get("week_baseline_date"),
         context.get("month_baseline_date"),
+        context.get("half_year_baseline_date"),
+        context.get("year_baseline_date"),
     }
     method = valuation.get("percentile_method") or valuation.get("percentileMethod")
     source_items = merge_pe_history(
@@ -2194,7 +2290,6 @@ def snapshot_data_issues(snapshot: dict[str, Any]) -> list[str]:
 def format_conclusion_line(snapshot: dict[str, Any], memo: Any) -> str:
     quote = snapshot["quote"]
     valuation = snapshot["valuation"]
-    pe_context = build_pe_context(snapshot)
     note = ""
     if memo["action"] == "无法判断":
         note = "，主数据不足不下动作"
@@ -2202,10 +2297,9 @@ def format_conclusion_line(snapshot: dict[str, Any], memo: Any) -> str:
         note = f"，{memo['vetoes'][0]}"
     return (
         f"- {etf_short_name(snapshot)}：{memo['action']}｜"
-        f"行情价 {fmt_price(quote.get('latest_price'))}，该交易日 {fmt_change_pct(quote.get('pct_change'))}｜"
-        f"PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}，"
-        f"PE分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}，"
-        f"本次观测 {fmt_pe_change(pe_context['current'], pe_context['previous'])}{note}"
+        f"{fmt_compact_price(quote.get('latest_price')) or '不可确认'}｜"
+        f"PE {fmt_number(valuation.get('pe_ttm'), 2)}｜"
+        f"分位 {fmt_pe_percentile(valuation.get('pe_percentile'))}{note}"
     )
 
 
@@ -2220,50 +2314,45 @@ def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     for snapshot in snapshots:
         quote = snapshot["quote"]
         context = snapshot["price_context"]
-        current_price = fmt_price(quote.get("latest_price"))
-        price_label = "最近确认收盘价" if quote.get("data_status") == "cached_close" else "行情价"
+        current = quote.get("latest_price")
         lines.extend([
             f"### {etf_short_name(snapshot)}",
-            f"- {price_label}（截至 {quote.get('data_time') or '不可确认'}）{current_price}｜该交易日 "
-            f"{fmt_change_pct(quote.get('pct_change'))}",
-            f"- 行情价 {current_price}｜上一交易日收盘{fmt_baseline_date(context.get('previous_date'))} "
-            f"{fmt_price(context.get('previous_close'))}",
-            f"- 行情价 {current_price}｜一周前价{fmt_baseline_date(context.get('week_baseline_date'))} "
-            f"{fmt_price(context.get('week_baseline'))}｜近一周 {fmt_change_pct(context.get('week_pct_change'))}",
-            f"- 行情价 {current_price}｜一月前价{fmt_baseline_date(context.get('month_baseline_date'))} "
-            f"{fmt_price(context.get('month_baseline'))}｜近一月 {fmt_change_pct(context.get('month_pct_change'))}",
+            "- " + join_compact_lookbacks(fmt_compact_price(current), [
+                ("昨", fmt_compact_price(context.get("previous_close")), fmt_compact_pct_change(
+                    quote.get("pct_change") if quote.get("pct_change") is not None
+                    else pct_return(current, context.get("previous_close"))
+                )),
+                ("周", fmt_compact_price(context.get("week_baseline")), fmt_compact_pct_change(context.get("week_pct_change"))),
+                ("月", fmt_compact_price(context.get("month_baseline")), fmt_compact_pct_change(context.get("month_pct_change"))),
+                ("半年", fmt_compact_price(context.get("half_year_baseline")), fmt_compact_pct_change(context.get("half_year_pct_change"))),
+                ("一年", fmt_compact_price(context.get("year_baseline")), fmt_compact_pct_change(context.get("year_pct_change"))),
+            ]),
         ])
     return lines
+
+
+def _pt_delta(current: Optional[float], baseline: Optional[float], digits: int = 0) -> Optional[str]:
+    if current is None or baseline is None:
+        return None
+    return fmt_compact_pt_change(current - baseline, digits)
 
 
 def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     lines = ["## PE分位变化"]
     for snapshot in snapshots:
-        valuation = snapshot["valuation"]
         pe_context = build_pe_context(snapshot)
-        current = fmt_pe_percentile(pe_context["current"])
+        current = pe_context["current"]
         lines.extend([
-            f"### {etf_short_name(snapshot)}（{valuation.get('valuation_level') or '估值状态不可确认'}）",
-            f"- PE(TTM) {fmt_number(valuation.get('pe_ttm'), 2)}｜当前PE分位 {current}｜估值日期 "
-            f"{valuation_trade_date(valuation) or '不可确认'}",
-            f"- 当前PE分位 {current}｜上一观测分位{fmt_baseline_date(pe_context['previous_date'])} "
-            f"{fmt_pe_percentile(pe_context['previous'])}｜本次观测 "
-            f"{fmt_pe_change(pe_context['current'], pe_context['previous'])}",
-            f"- 当前PE分位 {current}｜一周前分位{fmt_baseline_date(pe_context['week_baseline_date'])} "
-            f"{fmt_pe_percentile(pe_context['week_baseline'])}｜近一周 "
-            f"{fmt_pe_change(pe_context['current'], pe_context['week_baseline'])}",
-            f"- 当前PE分位 {current}｜一月前分位{fmt_baseline_date(pe_context['month_baseline_date'])} "
-            f"{fmt_pe_percentile(pe_context['month_baseline'])}｜近一月 "
-            f"{fmt_pe_change(pe_context['current'], pe_context['month_baseline'])}",
+            f"### {etf_short_name(snapshot)}",
+            "- " + join_compact_lookbacks(fmt_pe_percentile(current), [
+                ("昨", fmt_plain_pct(pe_context.get("previous"), 0), _pt_delta(current, pe_context.get("previous"))),
+                ("周", fmt_plain_pct(pe_context.get("week_baseline"), 0), _pt_delta(current, pe_context.get("week_baseline"))),
+                ("月", fmt_plain_pct(pe_context.get("month_baseline"), 0), _pt_delta(current, pe_context.get("month_baseline"))),
+                ("半年", fmt_plain_pct(pe_context.get("half_year_baseline"), 0), _pt_delta(current, pe_context.get("half_year_baseline"))),
+                ("一年", fmt_plain_pct(pe_context.get("year_baseline"), 0), _pt_delta(current, pe_context.get("year_baseline"))),
+            ]),
         ])
     return lines
-
-
-def format_premium_lookback_line(label: str, current: Optional[float], baseline: Optional[float], baseline_date: Any) -> str:
-    return (
-        f"- {label}溢价：{format_premium_amount(baseline)}"
-        f"{fmt_baseline_date(baseline_date)}{fmt_premium_vs_today(current, baseline)}"
-    )
 
 
 def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
@@ -2276,10 +2365,13 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         current = current_premium_rate(premium)
         lines.extend([
             f"### {etf_short_name(snapshot)}",
-            f"- 当天溢价 {format_premium(premium)}",
-            format_premium_lookback_line("一天前", current, premium.get("previous_rate"), premium.get("previous_date")),
-            format_premium_lookback_line("一周前", current, premium.get("week_rate"), premium.get("week_date")),
-            format_premium_lookback_line("一月前", current, premium.get("month_rate"), premium.get("month_date")),
+            "- " + join_compact_lookbacks(fmt_plain_pct(current), [
+                ("昨", fmt_plain_pct(premium.get("previous_rate")), _pt_delta(current, premium.get("previous_rate"), 2)),
+                ("周", fmt_plain_pct(premium.get("week_rate")), _pt_delta(current, premium.get("week_rate"), 2)),
+                ("月", fmt_plain_pct(premium.get("month_rate")), _pt_delta(current, premium.get("month_rate"), 2)),
+                ("半年", fmt_plain_pct(premium.get("half_year_rate")), _pt_delta(current, premium.get("half_year_rate"), 2)),
+                ("一年", fmt_plain_pct(premium.get("year_rate")), _pt_delta(current, premium.get("year_rate"), 2)),
+            ]),
         ])
     return lines
 
@@ -2369,21 +2461,14 @@ def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason:
 
 
 def colorize_wework_changes(text: str) -> str:
-    text = re.sub(
-        r"↑ \+\d+(?:\.\d+)?(?:%| 个百分点)",
-        lambda match: f'<font color="warning">{match.group(0)}</font>',
-        text,
-    )
-    text = re.sub(
-        r"↓ -\d+(?:\.\d+)?(?:%| 个百分点)",
-        lambda match: f'<font color="info">{match.group(0)}</font>',
-        text,
-    )
-    return re.sub(
-        r"— 0(?:\.0+)?(?:%| 个百分点)",
-        lambda match: f'<font color="comment">{match.group(0)}</font>',
-        text,
-    )
+    def paint(match: re.Match[str]) -> str:
+        token = match.group(1)
+        if token.startswith("+"):
+            return f'<font color="warning">{token}</font>'
+        if token.startswith("-"):
+            return f'<font color="info">{token}</font>'
+        return f'<font color="comment">{token}</font>'
+    return SIGNED_CHANGE_TOKEN.sub(paint, text)
 
 
 def convert_to_wework_markdown(md_text: str) -> str:

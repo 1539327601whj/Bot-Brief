@@ -58,6 +58,12 @@ def complete_snapshot(etf=ETF):
             "month_baseline": 3.8,
             "month_baseline_date": "2026-06-27",
             "month_pct_change": 7.89,
+            "half_year_baseline": 3.6,
+            "half_year_baseline_date": "2026-01-27",
+            "half_year_pct_change": 13.89,
+            "year_baseline": 3.4,
+            "year_baseline_date": "2025-07-27",
+            "year_pct_change": 20.59,
             "month_high": 4.30,
             "month_low": 3.80,
             "distance_from_month_high": -4.65,
@@ -81,6 +87,10 @@ def complete_snapshot(etf=ETF):
             "week_date": "2026-07-20",
             "month_rate": 0.5,
             "month_date": "2026-06-27",
+            "half_year_rate": 0.4,
+            "half_year_date": "2026-01-27",
+            "year_rate": 0.3,
+            "year_date": "2025-07-27",
             "history_source": "溢价历史测试源",
             "error": None,
         },
@@ -213,17 +223,30 @@ class PremiumHistoryTests(unittest.TestCase):
         text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening")
         self.assertNotIn("溢价变化", text)
 
+    def test_change_sections_are_one_line_without_dates(self):
+        price = "\n".join(report.format_price_change_section([complete_snapshot()]))
+        self.assertIn("今 4.100｜昨 4.000 +2.50%｜周 3.900 +5.13%｜月 3.800 +7.89%｜半年 3.600 +13.89%｜一年 3.400 +20.59%", price)
+        self.assertNotIn("08-", price)
+        self.assertNotIn("行情价", price)
+        pe = "\n".join(report.format_pe_change_section([complete_snapshot()]))
+        self.assertIn("今 45%｜昨 40% +5pt", pe)
+        self.assertNotIn("个百分点", pe)
+
+    def test_colorize_wework_uses_signed_tokens(self):
+        colored = report.colorize_wework_changes("今 4.100｜昨 4.000 +2.50%｜周 3.900 -1.20%｜月 3.800 0.00%")
+        self.assertIn('<font color="warning">+2.50%</font>', colored)
+        self.assertIn('<font color="info">-1.20%</font>', colored)
+        self.assertIn('<font color="comment">0.00%</font>', colored)
+        self.assertNotIn("4.100</font>", colored)
+
     def test_premium_change_lists_delta_once_per_lookback(self):
         text = "\n".join(report.format_premium_change_section([
             complete_snapshot(report.ETF_LIST[1]),
         ]))
-        self.assertEqual(text.count("当天溢价"), 1)
-        self.assertIn("当天溢价 +0.20%", text)
-        self.assertIn("一天前溢价：1.00%（07-24），当天比那天低 0.80 个百分点", text)
-        self.assertIn("一周前溢价：0.80%（07-20），当天比那天低 0.60 个百分点", text)
-        self.assertIn("一月前溢价：0.50%（06-27），当天比那天低 0.30 个百分点", text)
-        self.assertNotIn("当天溢价 +0.20%｜一天前", text)
-        self.assertNotIn("较一天前", text)
+        self.assertEqual(text.count("今 0.20%"), 1)
+        self.assertIn("今 0.20%｜昨 1.00% -0.80pt｜周 0.80% -0.60pt｜月 0.50% -0.30pt｜半年 0.40% -0.20pt｜一年 0.30% -0.10pt", text)
+        self.assertNotIn("当天溢价", text)
+        self.assertNotIn("（07-24）", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     @patch.object(report, "http_get")
@@ -235,10 +258,11 @@ class PremiumHistoryTests(unittest.TestCase):
             response({"Data": {"LSJZList": [
                 {"FSRQ": f"2026-06-{day:02d}", "DWJZ": "1.90"} for day in range(10, 20)
             ]}}),
+            response({"Data": {"LSJZList": []}}),
         ]
         navs = report.fetch_etf_nav_history_from_eastmoney(report.ETF_LIST[1])
         self.assertEqual(len(navs), 20)
-        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_count, 3)
         self.assertEqual(get.call_args_list[0].kwargs["params"]["fundCode"], "513100")
         self.assertEqual(get.call_args_list[1].kwargs["params"]["pageIndex"], 2)
 
@@ -463,8 +487,9 @@ class ReportTests(unittest.TestCase):
         )
         for required in (
             "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
-            "按计划买", "行情价 4.100 元", "该交易日",
-            "PE(TTM) 12.50", "PE分位 45%", "本次观测",
+            "按计划买", "4.100", "PE 12.50", "分位 45%",
+            "今 4.100｜昨 4.000 +2.50%",
+            "今 45%｜昨 40% +5pt",
             "2026-07-27",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
@@ -487,8 +512,8 @@ class ReportTests(unittest.TestCase):
         for required in (
             "ETF 行情日报", "先看结论", "按计划买",
             "ETF变化", "PE分位变化",
-            "行情价 4.100 元", "PE(TTM) 12.50", "PE分位 45%",
-            "一周前", "一月前",
+            "4.100", "PE 12.50", "分位 45%",
+            "周 3.900 +5.13%", "月 3.800 +7.89%",
         ):
             self.assertIn(required, text)
         for forbidden in (
@@ -502,7 +527,8 @@ class ReportTests(unittest.TestCase):
         self.assertLessEqual(len(wx.encode("utf-8")), 3800)
         self.assertIn("ETF变化", wx)
         self.assertIn("PE分位变化", wx)
-        self.assertIn("一周前", wx)
+        self.assertIn("+5.13%", wx)
+        self.assertIn('font color="warning"', wx)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_conclusion_uses_allocation_action(self, _):
@@ -512,8 +538,8 @@ class ReportTests(unittest.TestCase):
         expensive["premium"]["premium_rate"] = 1.0
         text = report.build_wechat_report([expensive], "market_watch_evening")
         self.assertIn("少买", text)
-        self.assertIn("PE分位 75%", text)
-        self.assertIn("行情价 4.100 元", text)
+        self.assertIn("分位 75%", text)
+        self.assertIn("4.100", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_convert_does_not_keep_a_share_tail_after_truncate(self, _):
@@ -549,11 +575,11 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ETF变化", text)
         self.assertNotIn("两只ETF变化", text)
         self.assertIn("溢价变化", text)
-        self.assertIn("一天前溢价：", text)
-        self.assertIn("一周前溢价：", text)
-        self.assertIn("一月前溢价：", text)
-        self.assertNotIn("当天溢价 +0.20%｜", text)
-        self.assertNotIn("较一天前", text)
+        self.assertIn("今 0.20%｜昨 1.00% -0.80pt", text)
+        self.assertIn("周 0.80% -0.60pt", text)
+        self.assertIn("月 0.50% -0.30pt", text)
+        self.assertNotIn("当天溢价", text)
+        self.assertNotIn("个百分点", text)
         self.assertIn("### 纳指100ETF", text)
         self.assertIn("### 标普500ETF", text)
         for forbidden in (

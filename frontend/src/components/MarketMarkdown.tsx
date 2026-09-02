@@ -6,18 +6,18 @@ interface MarketMarkdownProps {
   children: string
 }
 
-const changePattern = /(↑ \+\d+(?:\.\d+)?(?:%| 个百分点)|↓ -\d+(?:\.\d+)?(?:%| 个百分点)|— 0(?:\.0+)?(?:%| 个百分点))/g
+const changePattern = /(?<![.\d])(\+[\d.]+(?:%|pt)|-[\d.]+(?:%|pt)|0(?:\.00)?(?:%|pt))(?!\d)/g
 
 function renderMarketChanges(node: ReactNode): ReactNode {
   if (typeof node === 'string') {
     return node.split(changePattern).map((part, index) => {
-      if (/^↑ \+/.test(part)) {
+      if (/^\+\d/.test(part)) {
         return <span key={index} className="market-change market-change-up">{part}</span>
       }
-      if (/^↓ -/.test(part)) {
+      if (/^-\d/.test(part)) {
         return <span key={index} className="market-change market-change-down">{part}</span>
       }
-      if (/^— 0/.test(part)) {
+      if (/^0(?:\.00)?(?:%|pt)$/.test(part)) {
         return <span key={index} className="market-change market-change-flat">{part}</span>
       }
       return part
