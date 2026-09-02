@@ -174,8 +174,8 @@ public class SubscriptionPreferences {
             if (copy.getChannelIds() == null) {
                 copy.setChannelIds(List.of());
             } else {
-                copy.setChannelIds(copy.getChannelIds().stream()
-                        .filter(id -> id != null && owned.contains(id))
+                copy.setChannelIds(ChannelIds.coerceAll(copy.getChannelIds()).stream()
+                        .filter(id -> owned.stream().anyMatch(ownedId -> ChannelIds.same(ownedId, id)))
                         .distinct()
                         .toList());
             }
@@ -252,11 +252,7 @@ public class SubscriptionPreferences {
     }
 
     private List<Long> normalizeChannelIds(List<Long> channelIds) {
-        if (channelIds == null) return List.of();
-        return channelIds.stream()
-                .filter(id -> id != null && id > 0)
-                .distinct()
-                .toList();
+        return ChannelIds.coerceAll(channelIds);
     }
 
     private SubscriptionDTO.TopicSchedulesDTO schedulesFromFields(List<String> fields) {

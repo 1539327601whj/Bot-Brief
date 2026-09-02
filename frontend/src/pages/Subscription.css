@@ -1001,7 +1001,8 @@ a.ghost-link {
 }
 
 .schedule-badge.status-delivered,
-.schedule-badge.status-ready {
+.schedule-badge.status-ready,
+.schedule-badge.status-pushed {
   background: rgba(0, 212, 170, 0.12);
   color: #00d4aa;
 }
@@ -1010,11 +1011,14 @@ a.ghost-link {
   background: rgba(139, 156, 255, 0.12);
   color: #a8b2ff;
 }
-.schedule-badge.status-skipped {
+.schedule-badge.status-skipped,
+.schedule-badge.status-web_ready,
+.schedule-badge.status-push_partial {
   background: rgba(255, 195, 66, 0.12);
   color: #ffc542;
 }
-.schedule-badge.status-failed {
+.schedule-badge.status-failed,
+.schedule-badge.status-push_failed {
   background: rgba(255, 128, 128, 0.12);
   color: #ff8080;
 }

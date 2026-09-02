@@ -56,7 +56,15 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
         try {
             return baseMapper.insert(log) == 1 ? log.getId() : null;
         } catch (DuplicateKeyException e) {
-            return null;
+            PushLog raced = getOne(new LambdaQueryWrapper<PushLog>()
+                    .eq(PushLog::getDispatchKey, dispatchKey)
+                    .last("LIMIT 1"));
+            if (raced == null || !canRetry(raced)) return null;
+            raced.setReportId(reportId);
+            raced.setStatus("sending");
+            raced.setErrorMessage(null);
+            raced.setPushedAt(LocalDateTime.now(BEIJING));
+            return updateById(raced) ? raced.getId() : null;
         }
     }
 

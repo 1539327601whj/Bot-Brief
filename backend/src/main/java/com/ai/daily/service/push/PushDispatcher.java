@@ -2,12 +2,14 @@ package com.ai.daily.service.push;
 
 import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
+import com.ai.daily.service.ChannelIds;
 import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.PushLogService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,11 +73,13 @@ public class PushDispatcher {
 
     public DispatchResult dispatchScheduledByChannel(Long userId, Map<Long, Report> reportsByChannel,
                                                        String slotKey, LocalDate date) {
-        List<PushChannel> channels = channelService.listEnabledByUser(userId);
+        List<PushChannel> channels = channelService.listEnabledByUser(userId).stream()
+                .sorted(Comparator.comparingInt(channel -> "email".equals(channel.getChannelType()) ? 1 : 0))
+                .toList();
         int ok = 0, fail = 0, skipped = 0;
         int total = 0;
         for (PushChannel channel : channels) {
-            Report report = reportsByChannel.get(channel.getId());
+            Report report = reportFor(reportsByChannel, channel.getId());
             if (report == null) continue;
             total++;
             String dispatchKey = scheduledDispatchKey(userId, channel.getId(), slotKey, date);
@@ -124,6 +128,16 @@ public class PushDispatcher {
                     channel.getChannelType(), false, errorMessage);
             throw new IllegalStateException(errorMessage);
         }
+    }
+
+    private static Report reportFor(Map<Long, Report> reportsByChannel, Long channelId) {
+        if (reportsByChannel == null || channelId == null) return null;
+        Report direct = reportsByChannel.get(channelId);
+        if (direct != null) return direct;
+        for (Map.Entry<Long, Report> entry : reportsByChannel.entrySet()) {
+            if (ChannelIds.same(entry.getKey(), channelId)) return entry.getValue();
+        }
+        return null;
     }
 
     private String scheduledDispatchKey(Long userId, Long channelId, String slotKey, LocalDate date) {

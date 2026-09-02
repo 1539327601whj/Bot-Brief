@@ -1,19 +1,20 @@
 package com.ai.daily.task;
 
+import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.UserMapper;
+import com.ai.daily.service.ChannelIds;
 import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportAssemblyService;
 import com.ai.daily.service.ReportWindows;
 import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
-import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.service.push.PushDispatcher;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -22,8 +23,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -34,7 +38,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ScheduledPushTask {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
@@ -46,6 +49,23 @@ public class ScheduledPushTask {
     private final ReportAssemblyService reportAssemblyService;
     private final PushDispatcher pushDispatcher;
     private final UserMapper userMapper;
+    private final Executor pushDispatchExecutor;
+
+    public ScheduledPushTask(SubscriptionService subscriptionService,
+                             SubscriptionPreferences subscriptionPreferences,
+                             PushChannelService pushChannelService,
+                             ReportAssemblyService reportAssemblyService,
+                             PushDispatcher pushDispatcher,
+                             UserMapper userMapper,
+                             @Qualifier("pushDispatchExecutor") Executor pushDispatchExecutor) {
+        this.subscriptionService = subscriptionService;
+        this.subscriptionPreferences = subscriptionPreferences;
+        this.pushChannelService = pushChannelService;
+        this.reportAssemblyService = reportAssemblyService;
+        this.pushDispatcher = pushDispatcher;
+        this.userMapper = userMapper;
+        this.pushDispatchExecutor = pushDispatchExecutor != null ? pushDispatchExecutor : Runnable::run;
+    }
 
     @Scheduled(cron = "0 * * * * *", zone = "Asia/Shanghai")
     public void tick() {
@@ -120,36 +140,45 @@ public class ScheduledPushTask {
             }
 
             List<PushChannel> channels = pushChannelService.listEnabledByUser(subscription.getUserId());
-            Map<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> itemsByChannel = new java.util.LinkedHashMap<>();
+            Map<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> itemsByChannel = new LinkedHashMap<>();
+            List<Long> boundIds = new ArrayList<>();
             for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
-                if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
-                item.getChannelIds().forEach(channelId -> {
-                    if (channels.stream().anyMatch(channel -> channel.getId().equals(channelId))) {
-                        itemsByChannel.computeIfAbsent(channelId, ignored -> new java.util.ArrayList<>()).add(item);
+                List<Long> channelIds = ChannelIds.coerceAll(item.getChannelIds());
+                boundIds.addAll(channelIds);
+                for (Long channelId : channelIds) {
+                    PushChannel matched = ChannelIds.find(channels, channelId);
+                    if (matched != null) {
+                        itemsByChannel.computeIfAbsent(matched.getId(), ignored -> new ArrayList<>()).add(item);
                     }
-                });
+                }
             }
             if (itemsByChannel.isEmpty()) {
-                log.info("[{}] user={} 已入库网页简报，未绑定渠道", slot, subscription.getUserId());
+                if (!boundIds.isEmpty()) {
+                    log.warn("[{}] user={} 已入库网页简报，绑定渠道 {} 与已启用渠道不匹配",
+                            slot, subscription.getUserId(), boundIds);
+                } else {
+                    log.info("[{}] user={} 已入库网页简报，未绑定渠道", slot, subscription.getUserId());
+                }
                 return;
             }
-            Map<Long, Report> reportsByChannel = new java.util.LinkedHashMap<>();
+            Map<Long, Report> reportsByChannel = new LinkedHashMap<>();
             for (Map.Entry<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> entry : itemsByChannel.entrySet()) {
                 Report personalized = reportAssemblyService.assembleEphemeralItems(
                         persisted.getId(), date, displayTime, entry.getValue());
-                if (personalized != null) {
-                    reportsByChannel.put(entry.getKey(), personalized);
+                reportsByChannel.put(entry.getKey(), personalized != null ? personalized : persisted);
+            }
+            final Map<Long, Report> outbound = Map.copyOf(reportsByChannel);
+            pushDispatchExecutor.execute(() -> {
+                try {
+                    PushDispatcher.DispatchResult result = pushDispatcher.dispatchScheduledByChannel(
+                            subscription.getUserId(), outbound, slot, date);
+                    log.info("[{}] user={} interests={} channels={} 分发结果 total={} ok={} fail={} skipped={}",
+                            slot, subscription.getUserId(), items.size(), outbound.size(),
+                            result.total(), result.ok(), result.fail(), result.skipped());
+                } catch (Exception e) {
+                    log.error("[{}] user={} 异步分发异常", slot, subscription.getUserId(), e);
                 }
-            }
-            if (reportsByChannel.isEmpty()) {
-                log.warn("[{}] user={} 已拼装简报但各渠道主题均无内容", slot, subscription.getUserId());
-                return;
-            }
-            PushDispatcher.DispatchResult result = pushDispatcher.dispatchScheduledByChannel(
-                    subscription.getUserId(), reportsByChannel, slot, date);
-            log.info("[{}] user={} interests={} channels={} 分发结果 total={} ok={} fail={} skipped={}",
-                    slot, subscription.getUserId(), items.size(), reportsByChannel.size(),
-                    result.total(), result.ok(), result.fail(), result.skipped());
+            });
         } catch (Exception e) {
             log.error("[{}] user={} 分发异常", slot, subscription.getUserId(), e);
         }

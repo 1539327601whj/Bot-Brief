@@ -19,7 +19,17 @@ export function slotFromDispatchKey(dispatchKey?: string | null) {
   return /^\d{2}:\d{2}$/.test(parts[2]) ? parts[2] : ''
 }
 
-export type TopicProgressStatus = 'upcoming' | 'preparing' | 'ready' | 'skipped' | 'failed' | 'delivered'
+export type TopicProgressStatus =
+  | 'upcoming'
+  | 'preparing'
+  | 'ready'
+  | 'skipped'
+  | 'failed'
+  | 'delivered'
+  | 'web_ready'
+  | 'pushed'
+  | 'push_failed'
+  | 'push_partial'
 
 export interface TopicProgressItem {
   topic: string

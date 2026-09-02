@@ -91,4 +91,22 @@ class PushLogServiceImplTest {
         assertThat(service.claimScheduled(1L, 20L, 10L, "wechat", "scheduled:2026-08-31:20:00:1:10"))
                 .isNull();
     }
+
+    @Test
+    void claimScheduledRetriesFailedDuplicateInsert() {
+        PushLog failed = new PushLog();
+        failed.setId(13L);
+        failed.setStatus("failed");
+        PushLogMapper mapper = mock(PushLogMapper.class);
+        when(mapper.insert(any())).thenThrow(new DuplicateKeyException("uk_push_log_dispatch_key"));
+        PushLogServiceImpl service = spy(new PushLogServiceImpl());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        doReturn(null, failed).when(service).getOne(any());
+        doReturn(true).when(service).updateById(failed);
+
+        assertThat(service.claimScheduled(1L, 20L, 10L, "wechat", "scheduled:2026-09-02:15:10:1:10"))
+                .isEqualTo(13L);
+        assertThat(failed.getStatus()).isEqualTo("sending");
+        verify(service).updateById(failed);
+    }
 }

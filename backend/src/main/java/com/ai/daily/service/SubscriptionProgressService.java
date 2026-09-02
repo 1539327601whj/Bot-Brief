@@ -3,6 +3,7 @@ package com.ai.daily.service;
 import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.dto.SubscriptionTodayStatusDTO;
 import com.ai.daily.entity.OpsHeartbeat;
+import com.ai.daily.entity.PushLog;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.TopicGenerationStatus;
@@ -15,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +32,8 @@ public class SubscriptionProgressService {
     private final ReportService reportService;
     private final OpsHeartbeatService heartbeatService;
     private final SubscribedTopicService subscribedTopicService;
+    private final PushLogService pushLogService;
+    private final ReportQueryService reportQueryService;
 
     @Value("${report.generation-lead-minutes:30}")
     private int leadMinutes;
@@ -47,6 +51,11 @@ public class SubscriptionProgressService {
         dto.setEarliestOnTime(ReportWindows.format(ReportWindows.earliestOnTime(now, onTimeLeadMinutes)));
         dto.setPoller(pollerStatus());
         if (userId == null) return dto;
+
+        try {
+            reportQueryService.ensureTodayAssembled(userId);
+        } catch (Exception ignored) {
+        }
 
         Subscription subscription = subscriptionService.getOrCreateForUser(userId);
         if (subscription == null || !Boolean.TRUE.equals(subscription.getEnabled())) {
@@ -77,9 +86,7 @@ public class SubscriptionProgressService {
         TopicGenerationStatus recorded = generationStatusService.find(today, window, topic);
 
         if (assembled != null) {
-            row.setStatus("delivered");
-            row.setLabel("已生成");
-            row.setMessage("网页已可查看，绑定的渠道会按此时刻投递");
+            applyDeliveryStatus(row, userId, today, item);
             return row;
         }
         if (hasSection || (recorded != null && TopicGenerationStatus.READY.equals(recorded.getStatus()))) {
@@ -117,6 +124,70 @@ public class SubscriptionProgressService {
         row.setLabel("准备中");
         row.setMessage("已过准备起点，正在或即将抓取。通常 2–5 分钟写完；" + row.getTime() + " 准点推送，错过整分会在随后补推");
         return row;
+    }
+
+    private void applyDeliveryStatus(
+            SubscriptionTodayStatusDTO.ItemStatusDTO row,
+            Long userId,
+            LocalDate today,
+            SubscriptionDTO.TopicScheduleItemDTO item) {
+        List<Long> bound = ChannelIds.coerceAll(item.getChannelIds());
+        if (bound.isEmpty()) {
+            row.setStatus("delivered");
+            row.setLabel("已生成");
+            row.setMessage("网页已可查看（未绑定渠道，不会外推）");
+            return;
+        }
+        String prefix = "scheduled:" + today + ":" + row.getTime() + ":" + userId + ":";
+        List<PushLog> slotLogs = pushLogService.recentByUser(userId, 200).stream()
+                .filter(log -> log.getDispatchKey() != null && log.getDispatchKey().startsWith(prefix))
+                .toList();
+        int success = 0;
+        int failed = 0;
+        int sending = 0;
+        for (Long channelId : bound) {
+            PushLog latest = slotLogs.stream()
+                    .filter(log -> ChannelIds.same(log.getChannelId(), channelId))
+                    .findFirst()
+                    .orElse(null);
+            if (latest == null) continue;
+            if ("success".equals(latest.getStatus())) success++;
+            else if ("failed".equals(latest.getStatus())) failed++;
+            else sending++;
+        }
+        if (success >= bound.size()) {
+            row.setStatus("pushed");
+            row.setLabel("已推送");
+            row.setMessage("网页已可查看，绑定的 " + bound.size() + " 个渠道已投递");
+            return;
+        }
+        if (success > 0 && failed == 0 && sending == 0) {
+            row.setStatus("pushed");
+            row.setLabel("已推送");
+            row.setMessage("网页已可查看，已投递 " + success + " / " + bound.size() + " 个渠道");
+            return;
+        }
+        if (failed > 0 && success == 0) {
+            row.setStatus("push_failed");
+            row.setLabel("推送失败");
+            row.setMessage("网页已可查看，渠道投递失败，系统会继续补推。也可到通知记录查看原因");
+            return;
+        }
+        if (success > 0) {
+            row.setStatus("push_partial");
+            row.setLabel("部分推送");
+            row.setMessage("网页已可查看，已投递 " + success + " / " + bound.size() + " 个渠道，失败的会继续补推");
+            return;
+        }
+        if (sending > 0) {
+            row.setStatus("web_ready");
+            row.setLabel("推送中");
+            row.setMessage("网页已可查看，正在投递绑定渠道");
+            return;
+        }
+        row.setStatus("web_ready");
+        row.setLabel("网页已出");
+        row.setMessage("网页已可查看，绑定渠道还没投递成功；打开本页或下一分钟会补推");
     }
 
     private static String retryableFailureMessage(String recorded, String fallback) {

@@ -179,6 +179,21 @@ public class ReportController {
         }
     }
 
+    @PostMapping("/dispatch-due")
+    public Result<Boolean> dispatchDue(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        try {
+            scheduledPushTask.catchUpToday(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")));
+            return Result.ok(true);
+        } catch (Exception e) {
+            log.warn("到期推送补扫失败", e);
+            return Result.error(500, "到期推送补扫失败");
+        }
+    }
+
     private Result<Boolean> saveReport(ReportPushDTO dto) {
         String summary = dto.getSummary();
         if (summary == null || summary.isBlank()) {

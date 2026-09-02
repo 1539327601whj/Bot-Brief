@@ -38,7 +38,7 @@ class ScheduledPushTaskTest {
         PushDispatcher dispatcher = mock(PushDispatcher.class);
         PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
 
         Subscription first = subscription(1L);
         Subscription second = subscription(2L);
@@ -75,7 +75,7 @@ class ScheduledPushTaskTest {
         PushDispatcher dispatcher = mock(PushDispatcher.class);
         PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
 
         Subscription subscription = subscription(1L);
         LocalDate date = LocalDate.of(2026, 7, 24);
@@ -110,7 +110,7 @@ class ScheduledPushTaskTest {
         PushDispatcher dispatcher = mock(PushDispatcher.class);
         PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
 
         Subscription demo = subscription(1L);
         Subscription disabled = subscription(2L);
@@ -135,7 +135,7 @@ class ScheduledPushTaskTest {
         PushDispatcher dispatcher = mock(PushDispatcher.class);
         PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
 
         Subscription subscription = subscription(1L);
         LocalDate date = LocalDate.of(2026, 8, 25);
@@ -153,6 +153,37 @@ class ScheduledPushTaskTest {
     }
 
     @Test
+    void pushesPersistedReportWhenEphemeralAssembleMisses() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        ReportAssemblyService assembly = mock(ReportAssemblyService.class);
+        PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
+        UserMapper users = mock(UserMapper.class);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
+
+        Subscription subscription = subscription(1L);
+        LocalDate date = LocalDate.of(2026, 9, 2);
+        LocalTime now = LocalTime.of(15, 10);
+        Report persisted = report("网页简报");
+        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
+        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("马斯克", List.of(11L))));
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(null);
+        when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
+
+        task.dispatchDue(now, date);
+
+        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("15:10"), eq(date));
+        assertThat(reportsByChannel.getValue()).containsEntry(11L, persisted);
+    }
+
+    @Test
     void catchUpUserDoesNotPushBeforeDisplayTime() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
@@ -160,7 +191,7 @@ class ScheduledPushTaskTest {
         PushDispatcher dispatcher = mock(PushDispatcher.class);
         PushChannelService channels = mock(PushChannelService.class);
         UserMapper users = mock(UserMapper.class);
-        ScheduledPushTask task = new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
 
         LocalTime now = LocalTime.now(java.time.ZoneId.of("Asia/Shanghai")).withSecond(0).withNano(0);
         LocalTime future = now.plusMinutes(15);
@@ -173,6 +204,16 @@ class ScheduledPushTaskTest {
 
         verify(assembly, never()).assembleAndPersistItems(any(), any(), any(), any());
         verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
+    }
+
+    private ScheduledPushTask task(
+            SubscriptionService subscriptions,
+            SubscriptionPreferences preferences,
+            PushChannelService channels,
+            ReportAssemblyService assembly,
+            PushDispatcher dispatcher,
+            UserMapper users) {
+        return new ScheduledPushTask(subscriptions, preferences, channels, assembly, dispatcher, users, Runnable::run);
     }
 
     private SubscriptionDTO.TopicScheduleItemDTO topic(String name, List<Long> channelIds) {

@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -103,7 +104,7 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
     public List<PushChannel> listEnabledByUser(Long userId) {
         LambdaQueryWrapper<PushChannel> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PushChannel::getUserId, userId).eq(PushChannel::getEnabled, true);
-        return list(wrapper).stream().map(this::decryptCopy).toList();
+        return list(wrapper).stream().map(this::decryptCopyOrSkip).filter(Objects::nonNull).toList();
     }
 
     @Override
@@ -111,7 +112,7 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
         if (ids == null || ids.isEmpty()) return List.of();
         LambdaQueryWrapper<PushChannel> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PushChannel::getUserId, userId).in(PushChannel::getId, ids);
-        return list(wrapper).stream().map(this::decryptCopy).toList();
+        return list(wrapper).stream().map(this::decryptCopyOrSkip).filter(Objects::nonNull).toList();
     }
 
     @Override
@@ -170,6 +171,15 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
         LambdaQueryWrapper<PushChannel> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PushChannel::getId, id).eq(PushChannel::getUserId, userId).last("LIMIT 1");
         return getOne(wrapper);
+    }
+
+    private PushChannel decryptCopyOrSkip(PushChannel stored) {
+        try {
+            return decryptCopy(stored);
+        } catch (RuntimeException e) {
+            log.warn("跳过无法解密的推送渠道 channel_id={}", stored != null ? stored.getId() : null);
+            return null;
+        }
     }
 
     private PushChannel decryptCopy(PushChannel stored) {

@@ -206,9 +206,9 @@ function FocusCard({ report }: { report: Report | null }) {
 }
 
 function progressTone(status?: string) {
-  if (status === 'failed') return 'danger'
-  if (status === 'skipped') return 'warn'
-  if (status === 'ready' || status === 'delivered') return 'ok'
+  if (status === 'failed' || status === 'push_failed') return 'danger'
+  if (status === 'skipped' || status === 'web_ready' || status === 'push_partial') return 'warn'
+  if (status === 'ready' || status === 'delivered' || status === 'pushed') return 'ok'
   if (status === 'preparing') return 'info'
   return ''
 }
@@ -460,6 +460,8 @@ export default function Dashboard() {
       todayProgress.items.forEach(item => {
         if (item.status === 'failed') items.push(`${item.time} 「${item.topic}」生成失败`)
         if (item.status === 'skipped') items.push(`${item.time} 「${item.topic}」没有匹配资讯`)
+        if (item.status === 'push_failed') items.push(`${item.time} 「${item.topic}」网页已出，渠道推送失败`)
+        if (item.status === 'web_ready') items.push(`${item.time} 「${item.topic}」网页已出，渠道还没推到`)
       })
       if (isAdmin && todayProgress.poller && !todayProgress.poller.healthy) {
         items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
