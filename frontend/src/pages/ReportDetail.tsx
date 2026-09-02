@@ -25,6 +25,10 @@ function editionTone(className: string) {
   return 'other'
 }
 
+function stripLeadTitleQuote(content: string) {
+  return content.replace(/^\s*>\s*\*\*[^\n*]+\*\*\s*(?:\n[ \t]*)+/, '')
+}
+
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -84,11 +88,12 @@ export default function ReportDetail() {
             <span className="detail-version">{editionInfo.version}</span>
             <span className="time">{reportSlotStamp(report, 'YYYY-MM-DD HH:mm')}</span>
           </div>
+          <p className="detail-kicker">简报正文</p>
           <h1>{report.title}</h1>
         </header>
 
         <div className="article-content">
-          <MarketMarkdown>{report.content}</MarketMarkdown>
+          <MarketMarkdown>{stripLeadTitleQuote(report.content || '')}</MarketMarkdown>
         </div>
       </article>
     </div>
