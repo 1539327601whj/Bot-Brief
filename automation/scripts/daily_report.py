@@ -90,6 +90,41 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
     return False
 
 
+def record_ops_delivery(edition, report_date, success=True, channel_type="wechat", error_message=None):
+    """脚本直推企业微信后补记 push_log，避免首页投递计数一直是 0。"""
+    import requests as req
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    try:
+        resp = req.post(
+            f"{backend_url.rstrip('/')}/api/reports/record-delivery",
+            json={
+                "edition": edition,
+                "reportDate": report_date,
+                "channelType": channel_type,
+                "success": success,
+                "errorMessage": error_message,
+            },
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 15),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
+        if ok:
+            print(f"  📝 已记入投递记录 {body.get('data')}")
+        else:
+            print(f"  ⚠️ 投递记录写入失败: HTTP {resp.status_code}")
+        return ok
+    except req.RequestException as e:
+        print(f"  ⚠️ 投递记录写入失败: {e}")
+        return False
+
+
 def dispatch_due_pushes():
     """到点后补推：生成可以提前，推送必须按用户订阅时刻。"""
     import requests as req
@@ -1621,11 +1656,13 @@ def main():
             print("❌ 同步到后端失败，本次日报不继续推送")
             sys.exit(1)
         print("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
+        dispatch_due_pushes()
     else:
         wx_content = convert_to_wework_markdown(full_report)
         if not push_to_wechat(wx_content, webhook_url):
             print("❌ 企业微信推送失败")
             sys.exit(1)
+        record_ops_delivery(edition, today, success=True)
 
     try:
         with open(report_file, "w", encoding="utf-8") as f:

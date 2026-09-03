@@ -21,6 +21,8 @@ public interface PushChannelService extends IService<PushChannel> {
 
     List<PushChannel> listEnabledByUser(Long userId);
 
+    List<PushChannel> listEnabledByType(String channelType);
+
     List<PushChannel> listByIdsForUser(Long userId, Collection<Long> ids);
 
     PushChannel getByIdForUser(Long id, Long userId);

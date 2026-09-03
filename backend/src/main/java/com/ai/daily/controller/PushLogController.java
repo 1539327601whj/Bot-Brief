@@ -20,6 +20,10 @@ public class PushLogController {
     public Result<List<PushLog>> recent(@RequestParam(defaultValue = "100") int limit) {
         Long uid = SecurityUtils.currentUserId();
         if (uid == null) return Result.error(401, "未登录");
-        return Result.ok(pushLogService.recentByUser(uid, limit));
+        try {
+            return Result.ok(pushLogService.recentByUser(uid, limit));
+        } catch (RuntimeException e) {
+            return Result.error(503, "推送记录暂时读不到，请稍后刷新");
+        }
     }
 }

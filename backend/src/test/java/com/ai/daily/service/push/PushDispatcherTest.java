@@ -5,7 +5,6 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.PushLogService;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -26,6 +25,19 @@ class PushDispatcherTest {
     @Test
     void sendOneRecordsSuccess() throws Exception {
         Fixture fixture = fixture();
+        when(fixture.logs.claimScheduled(eq(1L), eq(20L), eq(10L), eq("wechat"), any())).thenReturn(88L);
+
+        fixture.dispatcher.sendOne(fixture.channel, fixture.report);
+
+        verify(fixture.sender).send(fixture.channel, fixture.report);
+        verify(fixture.logs).markSuccess(88L);
+        verify(fixture.logs, never()).record(any(), any(), any(), any(), eq(true), any());
+    }
+
+    @Test
+    void sendOneFallsBackToRecordWhenClaimUnavailable() throws Exception {
+        Fixture fixture = fixture();
+        when(fixture.logs.claimScheduled(eq(1L), eq(20L), eq(10L), eq("wechat"), any())).thenReturn(null);
 
         fixture.dispatcher.sendOne(fixture.channel, fixture.report);
 
@@ -36,6 +48,7 @@ class PushDispatcherTest {
     @Test
     void sendOneRecordsSanitizedFailureAndRethrows() throws Exception {
         Fixture fixture = fixture();
+        when(fixture.logs.claimScheduled(eq(1L), eq(20L), eq(10L), eq("wechat"), any())).thenReturn(88L);
         doThrow(new IllegalStateException("delivery failed https://secret.example/token"))
                 .when(fixture.sender).send(fixture.channel, fixture.report);
 
@@ -44,9 +57,7 @@ class PushDispatcherTest {
                 .hasMessage("推送服务异常")
                 .hasMessageNotContaining("secret.example");
 
-        ArgumentCaptor<String> error = ArgumentCaptor.forClass(String.class);
-        verify(fixture.logs).record(eq(1L), eq(20L), eq(10L), eq("wechat"), eq(false), error.capture());
-        assertThat(error.getValue()).isEqualTo("推送服务异常");
+        verify(fixture.logs).markFailed(88L, "推送服务异常");
     }
 
     @Test

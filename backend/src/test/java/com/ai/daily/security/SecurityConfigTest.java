@@ -38,7 +38,8 @@ class SecurityConfigTest {
                 "/api/shop/analytics/overview", "/api/subscription", "/api/channels",
                 "/api/push-logs", "/api/admin/invite-codes", "/api/market-valuations/000300/latest",
                 "/api/etf-prices/510300/latest", "/api/etf-prices/ingest",
-                "/api/health", "/api/push/wechat", "/api/reports/dispatch-due"
+                "/api/health", "/api/push/wechat", "/api/reports/dispatch-due",
+                "/api/reports/record-delivery"
         })
         String ok() {
             return "ok";
@@ -63,6 +64,8 @@ class SecurityConfigTest {
         mockMvc.perform(post("/api/etf-prices/ingest"))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/reports/dispatch-due"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/reports/record-delivery"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/reports"))

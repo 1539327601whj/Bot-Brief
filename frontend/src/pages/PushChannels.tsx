@@ -234,7 +234,7 @@ export default function PushChannels() {
     try {
       const res = await api.post<ResultEnvelope>(`/channels/${id}/test`)
       requireBusinessSuccess(res.data, '测试推送失败')
-      setFeedback({ type: 'success', text: res.data.message || '测试推送发送成功' })
+      setFeedback({ type: 'success', text: (res.data.message || '测试推送发送成功') + '，已写入通知记录' })
     } catch (error: any) {
       setFeedback({ type: 'error', text: `测试失败：${getErrorMessage(error, '请检查渠道配置后重试')}` })
     } finally {

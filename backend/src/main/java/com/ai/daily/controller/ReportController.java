@@ -56,6 +56,9 @@ public class ReportController {
     @Autowired
     private com.ai.daily.service.TopicGenerationStatusService topicGenerationStatusService;
 
+    @Autowired
+    private com.ai.daily.service.OpsDeliveryService opsDeliveryService;
+
     @Value("${report.ingest-token:}")
     private String ingestToken;
 
@@ -191,6 +194,21 @@ public class ReportController {
         } catch (Exception e) {
             log.warn("到期推送补扫失败", e);
             return Result.error(500, "到期推送补扫失败");
+        }
+    }
+
+    @PostMapping("/record-delivery")
+    public Result<Integer> recordDelivery(
+            @RequestHeader(value = "X-Ingest-Token", required = false) String token,
+            @RequestBody com.ai.daily.dto.OpsDeliveryDTO dto) {
+        if (invalidIngestToken(token)) {
+            return Result.error(401, "入库 token 无效");
+        }
+        try {
+            return Result.ok(opsDeliveryService.record(dto));
+        } catch (Exception e) {
+            log.warn("运营投递记账失败", e);
+            return Result.error(500, "运营投递记账失败");
         }
     }
 

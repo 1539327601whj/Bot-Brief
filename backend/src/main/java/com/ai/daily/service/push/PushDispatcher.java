@@ -114,19 +114,48 @@ public class PushDispatcher {
         ChannelSender sender = senders.get(channel.getChannelType());
         if (sender == null) {
             IllegalArgumentException error = new IllegalArgumentException("未知渠道类型");
-            pushLogService.record(channel.getUserId(), report.getId(), channel.getId(),
-                    channel.getChannelType(), false, safeError(error));
+            writeImmediate(channel, report, false, safeError(error));
             throw error;
         }
+        Long logId = claimTest(channel, report);
         try {
             sender.send(channel, report);
-            pushLogService.record(channel.getUserId(), report.getId(), channel.getId(),
-                    channel.getChannelType(), true, null);
+            if (logId != null) {
+                pushLogService.markSuccess(logId);
+            } else {
+                writeImmediate(channel, report, true, null);
+            }
         } catch (Exception e) {
             String errorMessage = safeError(e);
-            pushLogService.record(channel.getUserId(), report.getId(), channel.getId(),
-                    channel.getChannelType(), false, errorMessage);
+            if (logId != null) {
+                pushLogService.markFailed(logId, errorMessage);
+            } else {
+                writeImmediate(channel, report, false, errorMessage);
+            }
             throw new IllegalStateException(errorMessage);
+        }
+    }
+
+    private Long claimTest(PushChannel channel, Report report) {
+        try {
+            String dispatchKey = "test:" + System.currentTimeMillis() + ":"
+                    + channel.getUserId() + ":" + channel.getId();
+            return pushLogService.claimScheduled(
+                    channel.getUserId(), report.getId(), channel.getId(),
+                    channel.getChannelType(), dispatchKey);
+        } catch (RuntimeException e) {
+            log.warn("预写测试推送记录失败 channel_id={} report_id={}", channel.getId(), report.getId(), e);
+            return null;
+        }
+    }
+
+    private void writeImmediate(PushChannel channel, Report report, boolean success, String errorMessage) {
+        try {
+            pushLogService.record(channel.getUserId(), report.getId(), channel.getId(),
+                    channel.getChannelType(), success, errorMessage);
+        } catch (RuntimeException e) {
+            log.error("写入推送记录失败 channel_id={} report_id={} success={}",
+                    channel.getId(), report.getId(), success, e);
         }
     }
 

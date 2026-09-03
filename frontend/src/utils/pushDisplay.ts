@@ -15,6 +15,8 @@ export function channelLabel(type?: string) {
 export function slotFromDispatchKey(dispatchKey?: string | null) {
   if (!dispatchKey) return ''
   const parts = dispatchKey.split(':')
+  if (parts[0] === 'test') return '测试推送'
+  if (parts[0] === 'ops') return '脚本直推'
   if (parts[0] !== 'scheduled' || parts.length < 4) return ''
   return /^\d{2}:\d{2}$/.test(parts[2]) ? parts[2] : ''
 }

@@ -147,12 +147,30 @@ class DeliveryTests(unittest.TestCase):
     @patch.object(report, "call_llm_with_retry", return_value="## 要点\n正文")
     @patch.object(report, "generate_due_topic_sections", return_value=0)
     @patch.object(report, "push_to_backend", return_value=True)
+    @patch.object(report, "dispatch_due_pushes", return_value=True)
     @patch.object(report, "push_to_wechat")
     @patch("builtins.open", new_callable=mock_open)
-    def test_backend_ingest_skips_script_wechat(self, opened, wechat, backend, *_):
+    def test_backend_ingest_skips_script_wechat(self, opened, wechat, dispatch, backend, *_):
         report.main()
         backend.assert_called_once()
         wechat.assert_not_called()
+        dispatch.assert_called_once()
+
+    @patch.dict(os.environ, {
+        "BACKEND_API_URL": "https://backend.test",
+        "REPORT_INGEST_TOKEN": "token",
+    }, clear=False)
+    @patch("requests.post")
+    def test_record_ops_delivery_posts_ingest(self, post):
+        resp = Mock(status_code=200)
+        resp.json.return_value = {"code": 200, "data": 1}
+        post.return_value = resp
+        self.assertTrue(report.record_ops_delivery("morning", "2026-09-03"))
+        post.assert_called_once()
+        args, kwargs = post.call_args
+        self.assertTrue(args[0].endswith("/api/reports/record-delivery"))
+        self.assertEqual(kwargs["json"]["edition"], "morning")
+        self.assertEqual(kwargs["json"]["channelType"], "wechat")
 
 
 class TopicSectionTests(unittest.TestCase):

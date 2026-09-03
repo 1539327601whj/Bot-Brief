@@ -129,7 +129,7 @@ class ScheduledPushTaskTest {
     }
 
     @Test
-    void skipsPushWhenNoChannelsBound() {
+    void usesEnabledChannelsWhenTopicsDidNotPickAny() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         ReportAssemblyService assembly = mock(ReportAssemblyService.class);
@@ -141,17 +141,23 @@ class ScheduledPushTaskTest {
         Subscription subscription = subscription(1L);
         LocalDate date = LocalDate.of(2026, 8, 25);
         LocalTime now = LocalTime.of(8, 20);
+        Report persisted = report("网页简报");
         when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("数据库", List.of())));
         when(preferences.boundChannelIds(subscription, date)).thenReturn(List.of());
-        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(report("网页简报"));
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(persisted);
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
 
         task.dispatchDue(now, date);
 
-        verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
+        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("08:20"), eq(date));
+        assertThat(reportsByChannel.getValue()).containsKey(11L);
     }
 
     @Test

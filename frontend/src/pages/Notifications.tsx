@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../utils/api'
-import dayjs from '../utils/dayjs'
+import { parseBeijing } from '../utils/dayjs'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs } from '../demo/fixtures'
@@ -12,7 +12,7 @@ interface PushLog {
   reportId: number
   channelId: number
   channelType: string
-  status: 'success' | 'failed'
+  status: 'success' | 'failed' | 'sending'
   errorMessage: string | null
   dispatchKey?: string | null
   pushedAt: string
@@ -29,6 +29,7 @@ export default function Notifications() {
   const isDemo = user?.accountType === 'DEMO'
   const [logs, setLogs] = useState<PushLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
 
   useEffect(() => {
@@ -38,8 +39,19 @@ export default function Notifications() {
       return
     }
     api.get('/push-logs', { params: { limit: 200 } })
-      .then(res => setLogs(res.data?.data || []))
-      .catch(() => setLogs([]))
+      .then(res => {
+        if (res.data?.code === 200) {
+          setLogs(res.data?.data || [])
+          setLoadError('')
+          return
+        }
+        setLogs([])
+        setLoadError(res.data?.message || '推送记录加载失败')
+      })
+      .catch(() => {
+        setLogs([])
+        setLoadError('推送记录加载失败')
+      })
       .finally(() => setLoading(false))
   }, [isDemo])
 
@@ -68,8 +80,8 @@ export default function Notifications() {
       ) : visible.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🕊️</div>
-          <p>{filter === 'failed' ? '没有失败记录' : '暂无推送记录'}</p>
-          <p className="hint">订阅里绑好渠道后，到点会写在这里。也可以先到「推送渠道」做一次测试推送。</p>
+          <p>{loadError || (filter === 'failed' ? '没有失败记录' : '暂无推送记录')}</p>
+          <p className="hint">测试推送、到点投递，以及脚本直推企业微信成功后都会写在这里。</p>
         </div>
       ) : (
         <div className="log-list">
@@ -81,13 +93,13 @@ export default function Notifications() {
                 <div className="log-info">
                   <div className="log-title">
                     <span className="log-type">{channelLabel(l.channelType)}</span>
-                    <span className={`log-status ${l.status}`}>
-                      {l.status === 'success' ? '成功' : '失败'}
+                    <span className={`log-status ${l.status === 'sending' ? 'success' : l.status}`}>
+                      {l.status === 'success' ? '成功' : l.status === 'sending' ? '投递中' : '失败'}
                     </span>
-                    <span className="log-time">{dayjs(l.pushedAt).tz('Asia/Shanghai').format('MM-DD HH:mm')}</span>
+                    <span className="log-time">{parseBeijing(l.pushedAt).tz('Asia/Shanghai').format('MM-DD HH:mm')}</span>
                   </div>
                   <div className="log-meta">
-                    {slot ? `订阅时刻 ${slot} · ` : ''}实际投递 {dayjs(l.pushedAt).tz('Asia/Shanghai').format('HH:mm')}
+                    {slot ? `${slot.includes(':') ? `订阅时刻 ${slot}` : slot} · ` : ''}实际投递 {parseBeijing(l.pushedAt).tz('Asia/Shanghai').format('HH:mm')}
                     {l.reportId ? ` · 简报 #${l.reportId}` : ''}
                   </div>
                   {l.errorMessage && (

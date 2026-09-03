@@ -2582,6 +2582,39 @@ def push_to_wechat(content: str, webhook_url: str, max_attempts: int = 3) -> boo
     return False
 
 
+def record_ops_delivery(edition, report_date, success=True, channel_type="wechat", error_message=None):
+    backend_url = os.environ.get("BACKEND_API_URL", "")
+    ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
+    if not backend_url or not ingest_token:
+        return False
+    try:
+        resp = requests.post(
+            f"{backend_url.rstrip('/')}/api/reports/record-delivery",
+            json={
+                "edition": edition,
+                "reportDate": report_date,
+                "channelType": channel_type,
+                "success": success,
+                "errorMessage": error_message,
+            },
+            headers={"X-Ingest-Token": ingest_token},
+            timeout=(5, 15),
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
+        if ok:
+            print(f"  📝 已记入投递记录 {body.get('data')}")
+        else:
+            print(f"  ⚠️ 投递记录写入失败: HTTP {resp.status_code}")
+        return ok
+    except requests.RequestException as e:
+        print(f"  ⚠️ 投递记录写入失败: {e}")
+        return False
+
+
 def push_to_backend(
     edition: str,
     report_date: str,
@@ -2813,6 +2846,8 @@ def main() -> None:
         elif not push_to_wechat(wx_content, webhook_url):
             print("❌ ETF 企业微信推送失败，报告已入库")
             sys.exit(1)
+        else:
+            record_ops_delivery(edition, today, success=True)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
 

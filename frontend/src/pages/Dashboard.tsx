@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
-import dayjs from '../utils/dayjs'
+import dayjs, { parseBeijing } from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo, reportIsOnDate, reportSlotStamp } from '../utils/reportEdition'
 import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
@@ -66,8 +66,7 @@ interface PushLog {
 type EditionKey = 'morning' | 'evening' | 'market_watch_evening' | 'personal'
 
 function isToday(date?: string) {
-  if (!date) return false
-  const parsed = dayjs(date)
+  const parsed = parseBeijing(date)
   if (!parsed.isValid()) return false
   return parsed.tz('Asia/Shanghai').format('YYYY-MM-DD') === dayjs.tz().format('YYYY-MM-DD')
 }
@@ -303,11 +302,11 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
         </div>
       )}
       {latest ? (
-        <p className="overview-muted">最近一次渠道投递：{dayjs(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
+        <p className="overview-muted">最近一次渠道投递：{parseBeijing(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
       ) : readyBriefs.length > 0 ? (
-        <p className="overview-muted">网页已按订阅时刻展示；绑定渠道会在同一时刻投递，目前还没有投递记录。</p>
+        <p className="overview-muted">网页已按订阅时刻展示。企业微信群机器人直推以前不会记在这里；现在测试推送和到点投递都会写入记录。</p>
       ) : (
-        <p className="overview-muted">今日暂无推送记录</p>
+        <p className="overview-muted">今日暂无推送记录。到「推送渠道」测一次，或等订阅时刻自动投递。</p>
       )}
       {failed[0]?.errorMessage && <div className="alert-line danger">{failed[0].errorMessage}</div>}
     </div>
@@ -422,6 +421,24 @@ export default function Dashboard() {
     loadOverview()
     return () => { mounted = false }
   }, [isDemo, canSeePublicDigest])
+
+  useEffect(() => {
+    if (isDemo) return
+    const refreshLogs = () => {
+      safeGet<PushLog[]>('/push-logs', { params: { limit: 20 } }).then(data => {
+        if (data) setPushLogs(data)
+      })
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshLogs()
+    }
+    window.addEventListener('focus', refreshLogs)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', refreshLogs)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [isDemo])
 
   const slotTimes = uniqueTimes(itemsDueToday(subscriptionItems(subscription)))
   const personalByTime = useMemo(() => {

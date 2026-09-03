@@ -575,7 +575,7 @@ export default function Subscription() {
             <p className="section-sub">
               每个主题选星期和时刻，并可写「我想看」。现在保存即可，不用提前半小时勾选。
               准点推送请选 {todayStatus.earliestOnTime || earliestOnTimeLabel(dayjs.tz(), todayStatus.onTimeLeadMinutes || 5)} 及以后；
-              更近的时刻也会生成，可能晚 1–2 分钟补推。某个主题没选渠道时，会沿用你在其他主题绑过的账号；全都没绑才只上网页。
+              更近的时刻也会生成，可能晚 1–2 分钟补推。某个主题没选渠道时，会沿用其它主题绑过的账号；再没有就用你已启用的推送账号。一个账号都没有才只上网页。
             </p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>
@@ -723,7 +723,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻并绑渠道。不写「我想看」时按原文生成；写了想法后优先按这个角度检索，找不到再退回主题本身。自定义兴趣如「黄仁勋」同样可以写想法。</p>
+      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻。推送渠道里有已启用账号就会投递并记入通知记录；主题上再选一次只是指定用哪个。不写「我想看」时按原文生成；写了想法后优先按这个角度检索，找不到再退回主题本身。</p>
       <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
       {message && <div className={`message ${messageType}`}>{message}</div>}
       </section>

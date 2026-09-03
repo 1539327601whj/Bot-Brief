@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 /**
  * 每分钟扫描订阅，按用户选定的时刻拼装并推送。
  * 同一用户同一分钟只发一封；不同时刻各发一封。
- * 幂等键包含展示时刻。未绑定渠道的主题只入库网页简报。
+ * 幂等键包含展示时刻。主题没选渠道时沿用其它主题，再不行就用已启用账号。
  */
 @Slf4j
 @Component
@@ -153,6 +153,13 @@ public class ScheduledPushTask {
                         itemsByChannel.computeIfAbsent(matched.getId(), ignored -> new ArrayList<>()).add(item);
                     }
                 }
+            }
+            if (itemsByChannel.isEmpty() && boundIds.isEmpty() && !channels.isEmpty()) {
+                for (PushChannel channel : channels) {
+                    itemsByChannel.computeIfAbsent(channel.getId(), ignored -> new ArrayList<>()).addAll(items);
+                }
+                log.info("[{}] user={} 主题未点选渠道，改用已启用的 {} 个账号",
+                        slot, subscription.getUserId(), channels.size());
             }
             if (itemsByChannel.isEmpty()) {
                 if (!boundIds.isEmpty()) {
