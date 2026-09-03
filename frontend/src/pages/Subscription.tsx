@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ConfigProvider, TimePicker, theme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
@@ -49,10 +49,12 @@ interface SubscriptionData {
 
 const AI_TECH_DIGEST = 'AI科技'
 const ETF_DIGEST = '纳指标普沪深300ETF'
-const FIELD_OPTIONS = [
-  AI_TECH_DIGEST, ETF_DIGEST, 'AI大模型', 'Web开发', '移动端', '云原生', '数据库',
-  '安全', 'DevOps', '数据分析', '机器学习', '区块链'
+const COMMON_PRESETS = [
+  'AI大模型', 'Web开发', '移动端', '云原生', '数据库',
+  '安全', 'DevOps', '数据分析', '机器学习', '区块链',
 ]
+const DIGEST_TOPICS = [AI_TECH_DIGEST, ETF_DIGEST]
+const FIELD_OPTIONS = [...DIGEST_TOPICS, ...COMMON_PRESETS]
 const MAX_INTERESTS = 20
 const MAX_INTEREST_LENGTH = 40
 const DEFAULT_TIME = '08:15'
@@ -108,7 +110,6 @@ const isEtfDigest = (topic: string) => {
   const key = interestKey(topic).replace(/\s+/g, '')
   return key === interestKey(ETF_DIGEST) || key === 'etf' || key === '市场观察'
 }
-const isDigestTopic = (topic: string) => isAiTechDigest(topic) || isEtfDigest(topic)
 const digestBadge = (topic: string) => {
   if (isAiTechDigest(topic)) return '早晚报原文'
   if (isEtfDigest(topic)) return 'ETF原文'
@@ -150,10 +151,13 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
   return items
 }
 
-const normalizeSubscription = (source: any): SubscriptionData => ({
-  enabled: source?.enabled ?? true,
-  topicSchedules: { items: flattenItems(source) },
-})
+const normalizeSubscription = (source: any): SubscriptionData => {
+  const items = flattenItems(source)
+  return {
+    enabled: items.some(item => item.enabled),
+    topicSchedules: { items },
+  }
+}
 
 const isUnauthorized = (error?: any, body?: any) =>
   error?.response?.status === 401 || body?.code === 401 || error?.response?.data?.code === 401
@@ -193,6 +197,9 @@ export default function Subscription() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'ok' | 'error'>('ok')
   const [todayStatus, setTodayStatus] = useState<TodayProgress>({ items: [] })
+  const [moreTopicsOpen, setMoreTopicsOpen] = useState(false)
+  const [allSchedulesOpen, setAllSchedulesOpen] = useState(false)
+  const [featuredTopic, setFeaturedTopic] = useState('')
 
   const showMessage = (text: string, type: 'ok' | 'error' = 'ok') => {
     setMessageType(type)
@@ -272,12 +279,46 @@ export default function Subscription() {
     })
     return names
   }, [items])
-  const enabledTopics = useMemo(() => {
+  const subscribedTopics = useMemo(() => {
     const unique = new Map<string, string>()
-    items.filter(item => item.enabled).forEach(item => unique.set(interestKey(item.topic), item.topic))
+    items.forEach(item => unique.set(interestKey(item.topic), item.topic))
     return Array.from(unique.values())
   }, [items])
+  const enabledTopics = useMemo(
+    () => subscribedTopics.filter(topic => items.some(item => interestKey(item.topic) === interestKey(topic) && item.enabled)),
+    [items, subscribedTopics]
+  )
+  const extraTopics = useMemo(() => {
+    const names = [...DIGEST_TOPICS]
+    items.forEach(item => {
+      if (COMMON_PRESETS.some(name => interestKey(name) === interestKey(item.topic))) return
+      if (!names.some(name => interestKey(name) === interestKey(item.topic))) names.push(item.topic)
+    })
+    return names
+  }, [items])
   const enabledSlots = items.filter(item => item.enabled)
+
+  useEffect(() => {
+    if (featuredTopic && subscribedTopics.some(topic => interestKey(topic) === interestKey(featuredTopic))) return
+    setFeaturedTopic(subscribedTopics[0] || '')
+  }, [subscribedTopics, featuredTopic])
+
+  useEffect(() => {
+    if (!moreTopicsOpen && !allSchedulesOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMoreTopicsOpen(false)
+        setAllSchedulesOpen(false)
+      }
+    }
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previous
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [moreTopicsOpen, allSchedulesOpen])
   const channelsByType = useMemo(() => {
     const grouped: Partial<Record<ChannelType, Channel[]>> = {}
     channels.forEach(channel => {
@@ -286,18 +327,40 @@ export default function Subscription() {
     return grouped
   }, [channels])
 
+  const allToggleRef = useRef<HTMLInputElement>(null)
   const topicItems = (topic: string) => items.filter(item => interestKey(item.topic) === interestKey(topic))
+  const topicSubscribed = (topic: string) => topicItems(topic).length > 0
   const topicEnabled = (topic: string) => topicItems(topic).some(item => item.enabled)
+  const extraSubscribedCount = extraTopics.filter(topic => topicSubscribed(topic)).length
   const slotProgress = (topic: string, time: string): TopicProgressItem | undefined =>
     todayStatus.items.find(item => item.topic === topic && item.time === time)
+  const canonicalTopic = (topic: string) => (
+    isAiTechDigest(topic) ? AI_TECH_DIGEST : isEtfDigest(topic) ? ETF_DIGEST : topic
+  )
+  const sameTopic = (left: string, right: string) => (
+    interestKey(left) === interestKey(right)
+    || (isAiTechDigest(left) && isAiTechDigest(right))
+    || (isEtfDigest(left) && isEtfDigest(right))
+  )
+
+  useEffect(() => {
+    if (!allToggleRef.current) return
+    allToggleRef.current.indeterminate = subscribedTopics.length > 0
+      && enabledTopics.length > 0
+      && enabledTopics.length < subscribedTopics.length
+  }, [enabledTopics.length, subscribedTopics.length])
 
   const updateItems = (next: TopicScheduleItem[]) => {
     if (isDemo) return
-    setData(prev => ({ ...prev, topicSchedules: { items: next } }))
+    setData(prev => ({
+      ...prev,
+      enabled: next.some(item => item.enabled),
+      topicSchedules: { items: next },
+    }))
   }
 
-  const defaultChannelIds = () => {
-    const used = items.flatMap(item => item.channelIds || [])
+  const defaultChannelIdsFrom = (current: TopicScheduleItem[]) => {
+    const used = current.flatMap(item => item.channelIds || [])
     if (used.length) return [...new Set(used)]
     const picked: number[] = []
     ;(Object.keys(CHANNEL_META) as ChannelType[]).forEach(type => {
@@ -306,26 +369,72 @@ export default function Subscription() {
     })
     return picked
   }
+  const defaultChannelIds = () => defaultChannelIdsFrom(items)
 
+  const setTopicsEnabled = (topics: string[], enabled: boolean) => {
+    if (isDemo || topics.length === 0) return
+    setData(prev => {
+      const nextItems = prev.topicSchedules.items.map(item => (
+        topics.some(topic => sameTopic(topic, item.topic)) ? { ...item, enabled } : item
+      ))
+      return {
+        ...prev,
+        enabled: nextItems.some(item => item.enabled),
+        topicSchedules: { items: nextItems },
+      }
+    })
+  }
+  const toggleAllSubscriptions = (enabled: boolean) => {
+    setTopicsEnabled(subscribedTopics, enabled)
+  }
+  const subscribeTopics = (topics: string[]) => {
+    if (isDemo || topics.length === 0) return
+    const last = canonicalTopic(topics[topics.length - 1])
+    setFeaturedTopic(last)
+    setData(prev => {
+      let next = [...prev.topicSchedules.items]
+      topics.forEach(topic => {
+        const name = canonicalTopic(topic)
+        if (next.some(item => sameTopic(name, item.topic))) {
+          next = next.map(item => sameTopic(name, item.topic) ? { ...item, enabled: true } : item)
+          return
+        }
+        const channelIds = defaultChannelIdsFrom(next)
+        if (isAiTechDigest(name)) {
+          next = [
+            ...next,
+            { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '' },
+            { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '' },
+          ]
+          return
+        }
+        if (isEtfDigest(name)) {
+          next = [...next, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds, intent: '' }]
+          return
+        }
+        next = [...next, { topic: name, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds, intent: '' }]
+      })
+      return {
+        ...prev,
+        enabled: next.some(item => item.enabled),
+        topicSchedules: { items: next },
+      }
+    })
+  }
+  const unsubscribeTopics = (topics: string[]) => {
+    if (isDemo || topics.length === 0) return
+    setData(prev => {
+      const next = prev.topicSchedules.items.filter(item => !topics.some(topic => sameTopic(topic, item.topic)))
+      return {
+        ...prev,
+        enabled: next.some(item => item.enabled),
+        topicSchedules: { items: next },
+      }
+    })
+  }
   const toggleTopic = (topic: string, enabled: boolean) => {
-    const existing = topicItems(topic)
-    if (enabled && existing.length === 0) {
-      if (isAiTechDigest(topic)) {
-        updateItems([
-          ...items,
-          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: defaultChannelIds(), intent: '' },
-          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: defaultChannelIds(), intent: '' },
-        ])
-        return
-      }
-      if (isEtfDigest(topic)) {
-        updateItems([...items, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds: defaultChannelIds(), intent: '' }])
-        return
-      }
-      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: defaultChannelIds(), intent: '' }])
-      return
-    }
-    updateItems(items.map(item => interestKey(item.topic) === interestKey(topic) ? { ...item, enabled } : item))
+    if (enabled) subscribeTopics([topic])
+    else unsubscribeTopics([topic])
   }
 
   const updateSlot = (index: number, patch: Partial<TopicScheduleItem>) => {
@@ -362,7 +471,7 @@ export default function Subscription() {
     setMessage('')
     updateItems([...items, {
       topic,
-      enabled: true,
+      enabled: topicEnabled(topic),
       time: WINDOW_DEFAULTS[nextWindow],
       weekdayFrom: DEFAULT_WEEKDAY_FROM,
       weekdayTo: DEFAULT_WEEKDAY_TO,
@@ -390,26 +499,17 @@ export default function Subscription() {
     if (!topic) return showMessage('请输入感兴趣的内容', 'error')
     if (interestLength(topic) > MAX_INTEREST_LENGTH) return showMessage(`每个兴趣不能超过 ${MAX_INTEREST_LENGTH} 个字符`, 'error')
     const exists = topics.some(name => interestKey(name) === interestKey(topic))
-    if (!exists && enabledTopics.length >= MAX_INTERESTS && !topics.includes(topic)) {
-      const uniqueCount = new Set(topics.map(interestKey)).size
-      if (uniqueCount >= MAX_INTERESTS) return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
+    if (!exists && subscribedTopics.length >= MAX_INTERESTS) {
+      return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
     }
     if (!exists && new Set([...topics, topic].map(interestKey)).size > MAX_INTERESTS) {
       return showMessage(`兴趣总数不能超过 ${MAX_INTERESTS} 个`, 'error')
     }
-    if (!topicItems(topic).length) {
-      if (isAiTechDigest(topic)) {
-        toggleTopic(AI_TECH_DIGEST, true)
-      } else if (isEtfDigest(topic)) {
-        toggleTopic(ETF_DIGEST, true)
-      } else {
-        updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: defaultChannelIds(), intent: '' }])
-      }
-    } else {
-      toggleTopic(topic, true)
-    }
+    subscribeTopics([topic])
     setCustomInput('')
     setMessage('')
+    setMoreTopicsOpen(true)
+    setFeaturedTopic(isAiTechDigest(topic) ? AI_TECH_DIGEST : isEtfDigest(topic) ? ETF_DIGEST : topic)
   }
 
   const removeCustomInterest = (topic: string) => {
@@ -428,8 +528,8 @@ export default function Subscription() {
     setMessage('')
     try {
       const payload = {
-        enabled: data.enabled,
-        preferenceFields: enabledTopics,
+        enabled: items.some(item => item.enabled),
+        preferenceFields: subscribedTopics,
         topicSchedules: { items },
       }
       const res = await api.put('/subscription', payload)
@@ -452,6 +552,149 @@ export default function Subscription() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const renderTopicCard = (topic: string, showOverview = false) => (
+    <div key={topic} className={`topic-schedule-row kind-${topicKind(topic)}${topicSubscribed(topic) ? ' active' : ''}${topicSubscribed(topic) && !topicEnabled(topic) ? ' paused' : ''}`}>
+      <label className="topic-check">
+        <input
+          type="checkbox"
+          checked={topicSubscribed(topic)}
+          disabled={isDemo}
+          onChange={event => toggleTopic(topic, event.target.checked)}
+        />
+        <span>{topic}</span>
+        {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
+        {!isPreset(topic) && <small>自定义</small>}
+      </label>
+      {showOverview && topicSubscribed(topic) && <p className="topic-overview">{topicOverview(topic)}</p>}
+      {!isPreset(topic) && (
+        <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeCustomInterest(topic)}>删除</button>
+      )}
+    </div>
+  )
+
+  const renderScheduleTopic = (topic: string) => {
+    const slots = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => interestKey(item.topic) === interestKey(topic))
+    if (slots.length === 0) return null
+    const active = topicEnabled(topic)
+    return (
+      <div key={topic} className={`schedule-topic kind-${topicKind(topic)}${active ? '' : ' paused'}`}>
+        <div className="schedule-topic-head">
+          <div className="schedule-topic-title">
+            <strong>{topic}</strong>
+            {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
+            {!isPreset(topic) && <small>自定义</small>}
+            <label className="topic-switch" title={active ? '关闭后这个主题不再生成和推送，时刻和渠道会保留' : '开启后按下面的时刻生成并推送'}>
+              <input type="checkbox" checked={active} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
+              <span className="slider compact"></span>
+              <em>{active ? '推送中' : '已暂停'}</em>
+            </label>
+          </div>
+          <p className="topic-overview">{topicOverview(topic)}</p>
+        </div>
+        {slots.map(({ item, index }, slotIndex) => (
+          <div key={`${topic}-${index}`} className="schedule-row">
+            <div className="schedule-name">
+              <div className="weekday-range">
+                <select
+                  value={item.weekdayFrom}
+                  disabled={isDemo}
+                  aria-label={`${topic}起始星期`}
+                  onChange={event => updateSlot(index, { weekdayFrom: Number(event.target.value) })}
+                >
+                  {WEEKDAY_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <span>至</span>
+                <select
+                  value={item.weekdayTo}
+                  disabled={isDemo}
+                  aria-label={`${topic}结束星期`}
+                  onChange={event => updateSlot(index, { weekdayTo: Number(event.target.value) })}
+                >
+                  {WEEKDAY_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="schedule-time">
+              <TimePicker
+                className="subscription-time-picker"
+                popupClassName="subscription-time-popup"
+                value={dayjs(`2000-01-01T${item.time}:00`)}
+                format="HH:mm"
+                minuteStep={1}
+                allowClear={false}
+                showNow={false}
+                inputReadOnly
+                disabled={isDemo}
+                onChange={value => { if (value) changeSlotTime(index, value.format('HH:mm')) }}
+              />
+            </div>
+            <span className={item.channelIds.length ? 'schedule-badge bound' : 'schedule-badge'}>
+              {item.channelIds.length ? `已绑 ${item.channelIds.length} 个渠道` : '仅网页'}
+            </span>
+            {slotProgress(topic, item.time) && (
+              <span className={`schedule-badge status-${slotProgress(topic, item.time)?.status || ''}`} title={slotProgress(topic, item.time)?.message}>
+                {slotProgress(topic, item.time)?.label}
+              </span>
+            )}
+            <div className="schedule-actions">
+              {slotIndex === 0 && (
+                <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>再加时段</button>
+              )}
+              {slots.length > 1 && (
+                <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeSlot(index)}>删除</button>
+              )}
+            </div>
+            {channels.length > 0 && (
+              <div className="channel-binds">
+                {(Object.keys(CHANNEL_META) as ChannelType[]).map(type => {
+                  const options = channelsByType[type] || []
+                  if (options.length === 0) return null
+                  const selected = item.channelIds.find(id => options.some(channel => channel.id === id)) || ''
+                  return (
+                    <label key={type} className="channel-bind">
+                      <span>{CHANNEL_META[type]}</span>
+                      <select
+                        value={selected}
+                        disabled={isDemo}
+                        onChange={event => bindChannel(index, type, event.target.value ? Number(event.target.value) : null)}
+                      >
+                        <option value="">不推送</option>
+                        {options.map(channel => (
+                          <option key={channel.id} value={channel.id}>
+                            {channel.displayName || CHANNEL_META[type]}{channel.enabled ? '' : '（已暂停）'}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="topic-intent-card">
+          <label className="topic-intent">
+            <span>我想看 · {topic}</span>
+            <textarea
+              value={slots[0]?.item.intent || ''}
+              maxLength={MAX_INTENT_LENGTH}
+              disabled={isDemo}
+              placeholder={topicIntentHint(topic)}
+              onChange={event => updateTopicIntent(topic, event.target.value)}
+            />
+            <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 优先按这句话找；没有这个角度就写主题相近内容</small>
+          </label>
+        </div>
+      </div>
+    )
   }
 
   if (!authReady || loading) return <div className="loading">加载中...</div>
@@ -519,53 +762,77 @@ export default function Subscription() {
       )}
 
       <div className="subscription-summary">
-        <div><span className="summary-label">已订阅兴趣</span><strong>{enabledTopics.length}</strong></div>
+        <div><span className="summary-label">已订阅兴趣</span><strong>{subscribedTopics.length}</strong></div>
         <div><span className="summary-label">推送时刻</span><strong>{new Set(enabledSlots.map(item => item.time)).size}</strong></div>
         <div><span className="summary-label">渠道绑定</span><strong>{enabledSlots.filter(item => item.channelIds.length > 0).length}</strong></div>
       </div>
 
       <div className="section">
         <div className="section-title-row">
-          <h3>兴趣主题</h3>
-          <span className="section-count">已选 {enabledTopics.length} 个</span>
+          <div>
+            <h3>兴趣主题</h3>
+            <p className="section-sub">这里只放 10 个常用主题。科技日报、ETF 和自定义兴趣在「其他订阅」里勾选。</p>
+          </div>
+          <span className="section-count">已选 {subscribedTopics.length} 个</span>
         </div>
         <div className="topic-actions">
-          <button type="button" disabled={isDemo} onClick={() => FIELD_OPTIONS.forEach(topic => { if (!isDigestTopic(topic) && !topicEnabled(topic)) toggleTopic(topic, true) })}>全选常用</button>
-          <button type="button" disabled={isDemo} onClick={() => updateItems(items.map(item => ({ ...item, enabled: false })))}>清空勾选</button>
+          <button type="button" disabled={isDemo} onClick={() => subscribeTopics(COMMON_PRESETS)}>全选常用</button>
+          <button type="button" disabled={isDemo} onClick={() => unsubscribeTopics(COMMON_PRESETS)}>清空勾选</button>
         </div>
-        <div className="topic-schedule-list">
-          {topics.map(topic => (
-            <div key={topic} className={`topic-schedule-row kind-${topicKind(topic)}${topicEnabled(topic) ? ' active' : ''}`}>
-              <label className="topic-check">
-                <input
-                  type="checkbox"
-                  checked={topicEnabled(topic)}
-                  disabled={isDemo}
-                  onChange={event => toggleTopic(topic, event.target.checked)}
-                />
-                <span>{topic}</span>
-                {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
-                {!isPreset(topic) && <small>自定义</small>}
-              </label>
-              {topicEnabled(topic) && <p className="topic-overview">{topicOverview(topic)}</p>}
-              {!isPreset(topic) && (
-                <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeCustomInterest(topic)}>删除</button>
-              )}
-            </div>
-          ))}
+        <div className="topic-schedule-list compact">
+          {COMMON_PRESETS.map(topic => renderTopicCard(topic))}
         </div>
-        <div className="custom-interest-row">
+        <button type="button" className="more-panel-btn" onClick={() => setMoreTopicsOpen(true)}>
+          <span>其他订阅 · 公共日报与自定义</span>
+          <strong>{extraSubscribedCount > 0 ? `已选 ${extraSubscribedCount}` : '去勾选并设置'}</strong>
+        </button>
+      </div>
+
+      <div className="section">
+        <div className="section-title-row">
+          <div>
+            <h3>订阅开关</h3>
+            <p className="section-sub">一键开或关全部已勾选主题；每个主题也可以单独暂停，时刻和渠道会保留。</p>
+          </div>
+          <span className="section-count">推送中 {enabledTopics.length}/{subscribedTopics.length}</span>
+        </div>
+        <label className={`toggle all-subscriptions${subscribedTopics.length === 0 ? ' disabled' : ''}`}>
           <input
-            type="text"
-            value={customInput}
-            maxLength={MAX_INTEREST_LENGTH * 2}
-            disabled={isDemo}
-            placeholder="添加自定义兴趣，如：黄仁勋"
-            onChange={event => setCustomInput(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCustomInterest() } }}
+            ref={allToggleRef}
+            type="checkbox"
+            checked={subscribedTopics.length > 0 && enabledTopics.length === subscribedTopics.length}
+            disabled={isDemo || subscribedTopics.length === 0}
+            onChange={event => toggleAllSubscriptions(event.target.checked)}
           />
-          <button type="button" disabled={isDemo} onClick={addCustomInterest}>添加兴趣</button>
-        </div>
+          <span className="slider"></span>
+          <span className="toggle-label">
+            {subscribedTopics.length === 0
+              ? '还没有已勾选的订阅'
+              : enabledTopics.length === subscribedTopics.length
+                ? `已开启全部 ${subscribedTopics.length} 个订阅`
+                : enabledTopics.length === 0
+                  ? '已关闭全部订阅'
+                  : `一键开启全部（当前 ${enabledTopics.length}/${subscribedTopics.length} 个在推送）`}
+          </span>
+        </label>
+        {subscribedTopics.length > 0 && (
+          <div className="topic-switch-list">
+            {subscribedTopics.map(topic => (
+              <label key={topic} className={`topic-switch-row kind-${topicKind(topic)}${topicEnabled(topic) ? '' : ' paused'}`}>
+                <span>
+                  <strong>{topic}</strong>
+                  {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
+                  {!isPreset(topic) && <small>自定义</small>}
+                </span>
+                <em>
+                  <input type="checkbox" checked={topicEnabled(topic)} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
+                  <span className="slider compact"></span>
+                  {topicEnabled(topic) ? '推送中' : '已暂停'}
+                </em>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="section schedule-section">
@@ -573,143 +840,28 @@ export default function Subscription() {
           <div>
             <h3>推送时间</h3>
             <p className="section-sub">
-              每个主题选星期和时刻，并可写「我想看」。现在保存即可，不用提前半小时勾选。
-              准点推送请选 {todayStatus.earliestOnTime || earliestOnTimeLabel(dayjs.tz(), todayStatus.onTimeLeadMinutes || 5)} 及以后；
-              更近的时刻也会生成，可能晚 1–2 分钟补推。某个主题没选渠道时，会沿用其它主题绑过的账号；再没有就用你已启用的推送账号。一个账号都没有才只上网页。
+              默认只展开一个已勾选主题。准点请选 {todayStatus.earliestOnTime || earliestOnTimeLabel(dayjs.tz(), todayStatus.onTimeLeadMinutes || 5)} 及以后；更近的时刻也会生成，可能晚 1–2 分钟补推。
             </p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>
         </div>
-        {enabledTopics.length === 0 ? (
+        {subscribedTopics.length === 0 ? (
           <div className="schedule-empty">先在上面勾选兴趣，再设置星期和时刻</div>
         ) : (
           <div className="schedule-list">
-            {enabledTopics.map(topic => {
-              const slots = items
-                .map((item, index) => ({ item, index }))
-                .filter(({ item }) => item.enabled && interestKey(item.topic) === interestKey(topic))
-              return (
-                <div key={topic} className={`schedule-topic kind-${topicKind(topic)}`}>
-                  <div className="schedule-topic-head">
-                    <div className="schedule-topic-title">
-                      <strong>{topic}</strong>
-                      {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
-                      {!isPreset(topic) && <small>自定义</small>}
-                    </div>
-                    <p className="topic-overview">{topicOverview(topic)}</p>
-                  </div>
-                  {slots.map(({ item, index }, slotIndex) => (
-                    <div key={`${topic}-${index}`} className="schedule-row">
-                      <div className="schedule-name">
-                        <div className="weekday-range">
-                          <select
-                            value={item.weekdayFrom}
-                            disabled={isDemo}
-                            aria-label={`${topic}起始星期`}
-                            onChange={event => updateSlot(index, { weekdayFrom: Number(event.target.value) })}
-                          >
-                            {WEEKDAY_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                          <span>至</span>
-                          <select
-                            value={item.weekdayTo}
-                            disabled={isDemo}
-                            aria-label={`${topic}结束星期`}
-                            onChange={event => updateSlot(index, { weekdayTo: Number(event.target.value) })}
-                          >
-                            {WEEKDAY_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="schedule-time">
-                        <TimePicker
-                          className="subscription-time-picker"
-                          popupClassName="subscription-time-popup"
-                          value={dayjs(`2000-01-01T${item.time}:00`)}
-                          format="HH:mm"
-                          minuteStep={1}
-                          allowClear={false}
-                          showNow={false}
-                          inputReadOnly
-                          disabled={isDemo}
-                          onChange={value => { if (value) changeSlotTime(index, value.format('HH:mm')) }}
-                        />
-                      </div>
-                      <span className={item.channelIds.length ? 'schedule-badge bound' : 'schedule-badge'}>
-                        {item.channelIds.length ? `已绑 ${item.channelIds.length} 个渠道` : '仅网页'}
-                      </span>
-                      {slotProgress(topic, item.time) && (
-                        <span className={`schedule-badge status-${slotProgress(topic, item.time)?.status || ''}`} title={slotProgress(topic, item.time)?.message}>
-                          {slotProgress(topic, item.time)?.label}
-                        </span>
-                      )}
-                      <div className="schedule-actions">
-                        {slotIndex === 0 && (
-                          <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>再加时段</button>
-                        )}
-                        {slots.length > 1 && (
-                          <button type="button" className="remove-interest" disabled={isDemo} onClick={() => removeSlot(index)}>删除</button>
-                        )}
-                      </div>
-                      {channels.length > 0 && (
-                        <div className="channel-binds">
-                          {(Object.keys(CHANNEL_META) as ChannelType[]).map(type => {
-                            const options = channelsByType[type] || []
-                            if (options.length === 0) return null
-                            const selected = item.channelIds.find(id => options.some(channel => channel.id === id)) || ''
-                            return (
-                              <label key={type} className="channel-bind">
-                                <span>{CHANNEL_META[type]}</span>
-                                <select
-                                  value={selected}
-                                  disabled={isDemo}
-                                  onChange={event => bindChannel(index, type, event.target.value ? Number(event.target.value) : null)}
-                                >
-                                  <option value="">不推送</option>
-                                  {options.map(channel => (
-                                    <option key={channel.id} value={channel.id}>
-                                      {channel.displayName || CHANNEL_META[type]}{channel.enabled ? '' : '（已暂停）'}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <div className="topic-intent-card">
-                    <label className="topic-intent">
-                      <span>我想看 · {topic}</span>
-                      <textarea
-                        value={slots[0]?.item.intent || ''}
-                        maxLength={MAX_INTENT_LENGTH}
-                        disabled={isDemo}
-                        placeholder={topicIntentHint(topic)}
-                        onChange={event => updateTopicIntent(topic, event.target.value)}
-                      />
-                      <small>{Array.from(slots[0]?.item.intent || '').length}/{MAX_INTENT_LENGTH} · 优先按这句话找；没有这个角度就写主题相近内容</small>
-                    </label>
-                  </div>
-                </div>
-              )
-            })}
+            {renderScheduleTopic(
+              featuredTopic && subscribedTopics.some(topic => interestKey(topic) === interestKey(featuredTopic))
+                ? featuredTopic
+                : subscribedTopics[0]
+            )}
+            {subscribedTopics.length > 1 && (
+              <button type="button" className="more-panel-btn" onClick={() => setAllSchedulesOpen(true)}>
+                <span>查看全部已订阅</span>
+                <strong>还有 {subscribedTopics.length - 1} 个主题可设时刻和渠道</strong>
+              </button>
+            )}
           </div>
         )}
-      </div>
-
-      <div className="section">
-        <h3>订阅总开关</h3>
-        <label className="toggle">
-          <input type="checkbox" checked={data.enabled} disabled={isDemo} onChange={event => { if (!isDemo) setData(prev => ({ ...prev, enabled: event.target.checked })) }} />
-          <span className="slider"></span>
-          <span className="toggle-label">{data.enabled ? '订阅已启用' : '订阅已暂停'}</span>
-        </label>
       </div>
 
       <div className="section">
@@ -723,10 +875,61 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">要收科技日报和 ETF，请勾选「AI科技」和「纳指标普沪深300ETF」，设好时刻。推送渠道里有已启用账号就会投递并记入通知记录；主题上再选一次只是指定用哪个。不写「我想看」时按原文生成；写了想法后优先按这个角度检索，找不到再退回主题本身。</p>
-      <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
-      {message && <div className={`message ${messageType}`}>{message}</div>}
+      <p className="interest-help">科技日报和 ETF 在「其他订阅」里勾选。推送渠道里有已启用账号就会投递；主题上再选一次只是指定用哪个。</p>
+      <div className="subscription-save-bar">
+        <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
+        {message && <div className={`message ${messageType}`}>{message}</div>}
+      </div>
       </section>
+
+      {moreTopicsOpen && (
+        <div className="subscription-drawer" onClick={() => setMoreTopicsOpen(false)}>
+          <div className="subscription-drawer-panel" onClick={event => event.stopPropagation()} role="dialog" aria-label="其他订阅">
+            <div className="subscription-drawer-head">
+              <div>
+                <h3>其他订阅</h3>
+                <p>勾选科技日报、ETF 和自定义兴趣，并可直接设时刻、绑渠道。</p>
+              </div>
+              <button type="button" className="ghost-link" onClick={() => setMoreTopicsOpen(false)}>关闭</button>
+            </div>
+            <div className="topic-schedule-list">
+              {extraTopics.map(topic => renderTopicCard(topic, true))}
+            </div>
+            <div className="custom-interest-row">
+              <input
+                type="text"
+                value={customInput}
+                maxLength={MAX_INTEREST_LENGTH * 2}
+                disabled={isDemo}
+                placeholder="添加自定义兴趣，如：黄仁勋"
+                onChange={event => setCustomInput(event.target.value)}
+                onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCustomInterest() } }}
+              />
+              <button type="button" disabled={isDemo} onClick={addCustomInterest}>添加兴趣</button>
+            </div>
+            <div className="schedule-list drawer-schedules">
+              {extraTopics.filter(topic => topicItems(topic).length > 0).map(topic => renderScheduleTopic(topic))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {allSchedulesOpen && (
+        <div className="subscription-drawer" onClick={() => setAllSchedulesOpen(false)}>
+          <div className="subscription-drawer-panel" onClick={event => event.stopPropagation()} role="dialog" aria-label="全部已订阅">
+            <div className="subscription-drawer-head">
+              <div>
+                <h3>全部已订阅</h3>
+                <p>给每个主题设星期、时刻，并绑定邮箱 / 企业微信 / 钉钉 / 飞书。</p>
+              </div>
+              <button type="button" className="ghost-link" onClick={() => setAllSchedulesOpen(false)}>关闭</button>
+            </div>
+            <div className="schedule-list drawer-schedules">
+              {subscribedTopics.map(topic => renderScheduleTopic(topic))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </ConfigProvider>
   )

@@ -16,6 +16,7 @@ import type {
 const demoNow = dayjs()
 
 export const demoPushLogs = [
+  { id: 504, reportId: 303, channelId: 401, channelType: 'wechat', status: 'success' as const, errorMessage: null, dispatchKey: 'test:1756881000000:1:401', pushedAt: demoNow.hour(15).minute(10).second(0).toISOString() },
   { id: 501, reportId: 301, channelId: 401, channelType: 'email', status: 'success' as const, errorMessage: null, dispatchKey: 'scheduled:2026-08-29:08:15:1:401', pushedAt: demoNow.hour(8).minute(15).second(0).toISOString() },
   { id: 502, reportId: 302, channelId: 402, channelType: 'feishu', status: 'success' as const, errorMessage: null, dispatchKey: 'scheduled:2026-08-29:20:15:1:402', pushedAt: demoNow.hour(20).minute(15).second(0).toISOString() },
   { id: 503, reportId: 299, channelId: 401, channelType: 'email', status: 'failed' as const, errorMessage: '合成示例：目标渠道暂时不可达', pushedAt: demoNow.subtract(1, 'day').hour(20).minute(15).second(0).toISOString() },

@@ -1548,20 +1548,6 @@ def fmt_compact_pct_change(value: Optional[float]) -> Optional[str]:
     return f"{value:+.2f}%"
 
 
-def fmt_compact_pt_change(
-    value: Optional[float], digits: int = 0, unit: str = "pt"
-) -> Optional[str]:
-    if value is None:
-        return None
-    if digits <= 0:
-        rounded = int(round(value))
-        return f"0{unit}" if rounded == 0 else f"{rounded:+d}{unit}"
-    threshold = 0.5 * (10 ** -digits)
-    if abs(value) < threshold:
-        return f"{0:.{digits}f}{unit}"
-    return f"{value:+.{digits}f}{unit}"
-
-
 def fmt_plain_pct(value: Optional[float], digits: int = 2) -> Optional[str]:
     return None if value is None else f"{value:.{digits}f}%"
 
@@ -2370,15 +2356,10 @@ def format_price_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _pt_delta(
-    current: Optional[float],
-    baseline: Optional[float],
-    digits: int = 0,
-    unit: str = "pt",
-) -> Optional[str]:
+def _pct_delta(current: Optional[float], baseline: Optional[float]) -> Optional[str]:
     if current is None or baseline is None:
         return None
-    return fmt_compact_pt_change(current - baseline, digits, unit=unit)
+    return fmt_compact_pct_change(current - baseline)
 
 
 def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
@@ -2389,12 +2370,12 @@ def format_pe_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         lines.extend([
             f"### {etf_short_name(snapshot)}",
             "- " + join_compact_lookbacks(fmt_pe_percentile(current), [
-                ("昨", fmt_pe_rank(pe_context.get("previous")), _pt_delta(current, pe_context.get("previous"), unit="点")),
-                ("周", fmt_pe_rank(pe_context.get("week_baseline")), _pt_delta(current, pe_context.get("week_baseline"), unit="点")),
-                ("月", fmt_pe_rank(pe_context.get("month_baseline")), _pt_delta(current, pe_context.get("month_baseline"), unit="点")),
-                ("半年", fmt_pe_rank(pe_context.get("half_year_baseline")), _pt_delta(current, pe_context.get("half_year_baseline"), unit="点")),
-                ("一年", fmt_pe_rank(pe_context.get("year_baseline")), _pt_delta(current, pe_context.get("year_baseline"), unit="点")),
-                ("三年", fmt_pe_rank(pe_context.get("three_year_baseline")), _pt_delta(current, pe_context.get("three_year_baseline"), unit="点")),
+                ("昨", fmt_pe_rank(pe_context.get("previous")), _pct_delta(current, pe_context.get("previous"))),
+                ("周", fmt_pe_rank(pe_context.get("week_baseline")), _pct_delta(current, pe_context.get("week_baseline"))),
+                ("月", fmt_pe_rank(pe_context.get("month_baseline")), _pct_delta(current, pe_context.get("month_baseline"))),
+                ("半年", fmt_pe_rank(pe_context.get("half_year_baseline")), _pct_delta(current, pe_context.get("half_year_baseline"))),
+                ("一年", fmt_pe_rank(pe_context.get("year_baseline")), _pct_delta(current, pe_context.get("year_baseline"))),
+                ("三年", fmt_pe_rank(pe_context.get("three_year_baseline")), _pct_delta(current, pe_context.get("three_year_baseline"))),
             ]),
         ])
     return lines
@@ -2411,12 +2392,12 @@ def format_premium_change_section(snapshots: list[dict[str, Any]]) -> list[str]:
         lines.extend([
             f"### {etf_short_name(snapshot)}",
             "- " + join_compact_lookbacks(fmt_plain_pct(current), [
-                ("昨", fmt_plain_pct(premium.get("previous_rate")), _pt_delta(current, premium.get("previous_rate"), 2)),
-                ("周", fmt_plain_pct(premium.get("week_rate")), _pt_delta(current, premium.get("week_rate"), 2)),
-                ("月", fmt_plain_pct(premium.get("month_rate")), _pt_delta(current, premium.get("month_rate"), 2)),
-                ("半年", fmt_plain_pct(premium.get("half_year_rate")), _pt_delta(current, premium.get("half_year_rate"), 2)),
-                ("一年", fmt_plain_pct(premium.get("year_rate")), _pt_delta(current, premium.get("year_rate"), 2)),
-                ("三年", fmt_plain_pct(premium.get("three_year_rate")), _pt_delta(current, premium.get("three_year_rate"), 2)),
+                ("昨", fmt_plain_pct(premium.get("previous_rate")), _pct_delta(current, premium.get("previous_rate"))),
+                ("周", fmt_plain_pct(premium.get("week_rate")), _pct_delta(current, premium.get("week_rate"))),
+                ("月", fmt_plain_pct(premium.get("month_rate")), _pct_delta(current, premium.get("month_rate"))),
+                ("半年", fmt_plain_pct(premium.get("half_year_rate")), _pct_delta(current, premium.get("half_year_rate"))),
+                ("一年", fmt_plain_pct(premium.get("year_rate")), _pct_delta(current, premium.get("year_rate"))),
+                ("三年", fmt_plain_pct(premium.get("three_year_rate")), _pct_delta(current, premium.get("three_year_rate"))),
             ]),
         ])
     return lines

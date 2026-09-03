@@ -30,7 +30,7 @@ public class Subscription {
     /** 早/晚间版的兴趣选择（JSON） */
     private String topicSchedules;
 
-    /** 总开关：1启用 0暂停 */
+    /** 是否还有开启中的主题（由各主题开关汇总） */
     private Boolean enabled;
 
     /** 是否接收早间版 */

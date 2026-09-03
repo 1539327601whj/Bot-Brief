@@ -17,7 +17,7 @@ public class SubscriptionDTO {
     /** 偏好领域列表 */
     private List<String> preferenceFields;
 
-    /** 总开关 */
+    /** 是否还有开启中的主题；由各主题开关汇总 */
     private Boolean enabled;
 
     /** 是否接收早间版 */

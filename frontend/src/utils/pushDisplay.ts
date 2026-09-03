@@ -12,13 +12,42 @@ export function channelLabel(type?: string) {
   return CHANNEL_LABEL[type] || type
 }
 
+export type PushKind = 'test' | 'scheduled' | 'ops' | 'unknown'
+
+export interface PushKindInfo {
+  kind: PushKind
+  label: string
+  slot: string
+}
+
+export function dispatchKeyOf(log: { dispatchKey?: string | null; dispatch_key?: string | null } | null | undefined) {
+  return log?.dispatchKey || log?.dispatch_key || ''
+}
+
+export function pushKindFromDispatchKey(dispatchKey?: string | null): PushKindInfo {
+  if (!dispatchKey) {
+    return { kind: 'unknown', label: '来源未知', slot: '' }
+  }
+  if (dispatchKey.startsWith('test:')) {
+    return { kind: 'test', label: '测试推送', slot: '' }
+  }
+  if (dispatchKey.startsWith('ops:')) {
+    return { kind: 'ops', label: '脚本直推', slot: '' }
+  }
+  const scheduledSlot = dispatchKey.match(/^scheduled:\d{4}-\d{2}-\d{2}:(\d{2}:\d{2})(?::|$)/)
+  if (scheduledSlot) {
+    return { kind: 'scheduled', label: '订阅投递', slot: scheduledSlot[1] }
+  }
+  if (dispatchKey.startsWith('scheduled:')) {
+    return { kind: 'scheduled', label: '订阅投递', slot: '' }
+  }
+  return { kind: 'unknown', label: '来源未知', slot: '' }
+}
+
 export function slotFromDispatchKey(dispatchKey?: string | null) {
-  if (!dispatchKey) return ''
-  const parts = dispatchKey.split(':')
-  if (parts[0] === 'test') return '测试推送'
-  if (parts[0] === 'ops') return '脚本直推'
-  if (parts[0] !== 'scheduled' || parts.length < 4) return ''
-  return /^\d{2}:\d{2}$/.test(parts[2]) ? parts[2] : ''
+  const info = pushKindFromDispatchKey(dispatchKey)
+  if (info.kind === 'test' || info.kind === 'ops') return info.label
+  return info.slot
 }
 
 export type TopicProgressStatus =

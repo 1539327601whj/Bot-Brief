@@ -86,6 +86,11 @@ public class SubscriptionPreferences {
                 .toList();
     }
 
+    /** 至少有一个主题开关打开时才生成和推送，不再看账号级总开关。 */
+    public boolean hasActiveTopics(Subscription subscription) {
+        return !enabledTopicItems(subscription).isEmpty();
+    }
+
     public List<String> enabledTopicsForWindow(Subscription subscription, String window) {
         if (window == null) return List.of();
         return enabledTopicItems(subscription).stream()
@@ -127,7 +132,7 @@ public class SubscriptionPreferences {
 
     public List<LocalTime> dueDisplayTimes(
             Subscription subscription, LocalTime now, java.time.Duration maxLateness, LocalDate date) {
-        if (!Boolean.TRUE.equals(subscription.getEnabled()) || now == null) return List.of();
+        if (now == null) return List.of();
         LocalTime minute = now.withSecond(0).withNano(0);
         LocalTime earliest = maxLateness == null ? LocalTime.MIN : minusClamped(minute, maxLateness);
         return displayTimesOn(subscription, date).stream()
@@ -154,7 +159,7 @@ public class SubscriptionPreferences {
 
     public boolean isDueThrough(
             Subscription subscription, LocalTime now, java.time.Duration maxLateness, LocalDate date) {
-        if (!Boolean.TRUE.equals(subscription.getEnabled()) || now == null) return false;
+        if (now == null) return false;
         LocalTime minute = now.withSecond(0).withNano(0);
         LocalTime earliest = maxLateness == null ? LocalTime.MIN : minusClamped(minute, maxLateness);
         for (SubscriptionDTO.TopicScheduleItemDTO item : enabledTopicItemsOn(subscription, date)) {

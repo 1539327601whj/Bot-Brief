@@ -8,8 +8,22 @@ interface MarketMarkdownProps {
 
 const changePattern = /(?<![.\d])(\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点))(?!\d)/g
 
-function stripNonReportMeta(markdown: string) {
+function restyleLegacyChangeUnits(markdown: string) {
   return markdown
+    .replace(/(?<![.\d])([+-]\d+)点(?!\d)/g, (_, token) => {
+      const value = Number(token)
+      return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+    })
+    .replace(/(?<![.\d])0点(?!\d)/g, '0.00%')
+    .replace(/(?<![.\d])([+-]?\d+(?:\.\d+)?)pt(?!\d)/g, (_, raw) => {
+      const value = Number(raw)
+      if (Number.isNaN(value) || Math.abs(value) < 0.005) return '0.00%'
+      return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+    })
+}
+
+function stripNonReportMeta(markdown: string) {
+  return restyleLegacyChangeUnits(markdown)
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(?:^|\n)>\s*数据说明：[^\n]*/g, '')
     .replace(/\n{3,}/g, '\n\n')

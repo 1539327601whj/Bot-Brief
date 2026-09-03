@@ -109,4 +109,19 @@ class PushLogServiceImplTest {
         assertThat(failed.getStatus()).isEqualTo("sending");
         verify(service).updateById(failed);
     }
+
+    @Test
+    void recordPersistsDispatchKey() {
+        PushLogMapper mapper = mock(PushLogMapper.class);
+        PushLogServiceImpl service = spy(new PushLogServiceImpl());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        doReturn(true).when(service).save(any());
+
+        service.record(1L, 20L, 10L, "wechat", true, null, "test:1:1:10");
+
+        verify(service).save(org.mockito.ArgumentMatchers.argThat(log ->
+                "test:1:1:10".equals(log.getDispatchKey())
+                        && "success".equals(log.getStatus())
+                        && Long.valueOf(20L).equals(log.getReportId())));
+    }
 }

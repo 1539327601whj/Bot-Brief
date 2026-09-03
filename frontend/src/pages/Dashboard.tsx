@@ -8,7 +8,7 @@ import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { slotEmptyHint, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { dispatchKeyOf, pushKindFromDispatchKey, slotEmptyHint, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Dashboard.css'
 
 interface Report {
@@ -60,6 +60,8 @@ interface PushLog {
   channelType: string
   status: 'success' | 'failed'
   errorMessage: string | null
+  dispatchKey?: string | null
+  dispatch_key?: string | null
   pushedAt: string
 }
 
@@ -75,12 +77,15 @@ function isSystemBriefEdition(edition?: string) {
   return edition === 'morning' || edition === 'evening' || edition === 'personal'
 }
 
-function subscriptionItems(subscription?: Subscription | null): TopicScheduleItem[] {
+function allScheduleItems(subscription?: Subscription | null): TopicScheduleItem[] {
   const schedules = subscription?.topicSchedules
-  const raw = schedules?.items?.length
+  return schedules?.items?.length
     ? schedules.items
     : [...(schedules?.morning || []), ...(schedules?.evening || [])]
-  return raw.filter(item => item.enabled)
+}
+
+function subscriptionItems(subscription?: Subscription | null): TopicScheduleItem[] {
+  return allScheduleItems(subscription).filter(item => item.enabled)
 }
 
 function uniqueTimes(items: TopicScheduleItem[]) {
@@ -226,12 +231,14 @@ function SubscriptionCard({ subscription, progress }: { subscription: Subscripti
   }
 
   const items = subscriptionItems(subscription)
+  const configured = allScheduleItems(subscription)
   const fields = [...new Set(items.map(item => item.topic))]
   const times = uniqueTimes(items)
   const days = [...new Set(items.map(item => {
     const range = weekdaysOf(item, 1, 7)
     return weekdayRangeLabel(range.weekdayFrom, range.weekdayTo)
   }))]
+  const pushing = items.length > 0
   return (
     <div className="overview-card">
       <div className="overview-card-header">
@@ -240,8 +247,10 @@ function SubscriptionCard({ subscription, progress }: { subscription: Subscripti
       </div>
       <div className="status-list">
         <div className="status-row">
-          <span>总开关</span>
-          <span className={`sub-status ${subscription.enabled ? 'active' : 'inactive'}`}>{subscription.enabled ? '已开启' : '已关闭'}</span>
+          <span>订阅</span>
+          <span className={`sub-status ${pushing ? 'active' : 'inactive'}`}>
+            {configured.length === 0 ? '未设置' : pushing ? `${fields.length} 个主题在推送` : '已全部关闭'}
+          </span>
         </div>
         <div className="status-row">
           <span>推送时刻</span>
@@ -302,7 +311,7 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
         </div>
       )}
       {latest ? (
-        <p className="overview-muted">最近一次渠道投递：{parseBeijing(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
+        <p className="overview-muted">最近一次{pushKindFromDispatchKey(dispatchKeyOf(latest)).label}：{parseBeijing(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
       ) : readyBriefs.length > 0 ? (
         <p className="overview-muted">网页已按订阅时刻展示。企业微信群机器人直推以前不会记在这里；现在测试推送和到点投递都会写入记录。</p>
       ) : (
@@ -487,7 +496,7 @@ export default function Dashboard() {
     if (now.hour() >= 18 && !reportIsOnDate(marketWatch)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
-    if (subscription?.enabled && todayLogs.length === 0 && now.hour() >= 9) {
+    if (subscriptionItems(subscription).length > 0 && todayLogs.length === 0 && now.hour() >= 9) {
       items.push(hasSystemBrief
         ? '你的简报已生成，但个人渠道今天还没有投递记录'
         : '订阅已开启，但今日暂无推送记录')
@@ -497,7 +506,9 @@ export default function Dashboard() {
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
-    if (subscription && !subscription.enabled) return ['订阅总开关已关闭，可以开启后接收每日简报。']
+    if (allScheduleItems(subscription).length > 0 && subscriptionItems(subscription).length === 0) {
+      return ['全部订阅已关闭，打开任意主题的开关并保存后才会生成和推送。']
+    }
     if (subscriptionItems(subscription).length === 0) return ['完善关注领域和时间，让后续内容更贴合你的偏好。']
     if (!isDemo && slotTimes.some(time => !reportIsOnDate(personalByTime.get(time)))) {
       return ['今日勾选主题尚未完全生成，可以先查看已有段落或等待下次生成。']

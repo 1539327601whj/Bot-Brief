@@ -14,6 +14,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,7 +44,8 @@ class PushDispatcherTest {
         fixture.dispatcher.sendOne(fixture.channel, fixture.report);
 
         verify(fixture.sender).send(fixture.channel, fixture.report);
-        verify(fixture.logs).record(1L, 20L, 10L, "wechat", true, null);
+        verify(fixture.logs).record(eq(1L), eq(20L), eq(10L), eq("wechat"), eq(true), isNull(),
+                startsWith("test:"));
     }
 
     @Test
@@ -71,7 +74,8 @@ class PushDispatcherTest {
         assertThatThrownBy(() -> dispatcher.sendOne(channel, report))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("未知渠道类型");
-        verify(logs).record(1L, 20L, 10L, "unknown", false, "未知渠道类型");
+        verify(logs).record(eq(1L), eq(20L), eq(10L), eq("unknown"), eq(false), eq("未知渠道类型"),
+                startsWith("test:"));
     }
 
     @Test

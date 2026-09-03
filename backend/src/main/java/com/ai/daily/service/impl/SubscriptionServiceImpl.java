@@ -85,6 +85,8 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
 
     @Override
     public List<Subscription> listEnabled() {
-        return this.lambdaQuery().eq(Subscription::getEnabled, true).list();
+        return this.list().stream()
+                .filter(subscriptionPreferences::hasActiveTopics)
+                .toList();
     }
 }

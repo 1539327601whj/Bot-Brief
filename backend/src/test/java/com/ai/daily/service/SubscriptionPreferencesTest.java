@@ -148,6 +148,20 @@ class SubscriptionPreferencesTest {
     }
 
     @Test
+    void topicSwitchNotAccountFlagControlsDue() {
+        Subscription subscription = new Subscription();
+        subscription.setEnabled(false);
+        subscription.setTopicSchedules("{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":true,\"time\":\"09:00\"}]}");
+
+        assertThat(preferences.hasActiveTopics(subscription)).isTrue();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO)).isTrue();
+
+        subscription.setTopicSchedules("{\"items\":[{\"topic\":\"AI大模型\",\"enabled\":false,\"time\":\"09:00\"}]}");
+        assertThat(preferences.hasActiveTopics(subscription)).isFalse();
+        assertThat(preferences.isDueThrough(subscription, LocalTime.of(9, 0), Duration.ZERO)).isFalse();
+    }
+
+    @Test
     void dueTimesUseTopicClocksNotLegacyColumns() {
         Subscription subscription = new Subscription();
         subscription.setEnabled(true);

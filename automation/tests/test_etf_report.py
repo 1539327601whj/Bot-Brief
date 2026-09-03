@@ -241,17 +241,18 @@ class PremiumHistoryTests(unittest.TestCase):
         self.assertNotIn("08-", price)
         self.assertNotIn("行情价", price)
         pe = "\n".join(report.format_pe_change_section([complete_snapshot()]))
-        self.assertIn("今 45｜昨 40 +5点｜三年 30 +15点", pe)
+        self.assertIn("今 45｜昨 40 +5.00%｜三年 30 +15.00%", pe)
         self.assertNotIn("今 45%", pe)
         self.assertNotIn("pt", pe)
+        self.assertNotIn("点", pe)
         self.assertNotIn("个百分点", pe)
 
     def test_colorize_wework_uses_signed_tokens(self):
-        colored = report.colorize_wework_changes("今 4.100｜昨 4.000 +2.50%｜周 3.900 -1.20%｜月 3.800 0.00%｜昨 40 +5点")
+        colored = report.colorize_wework_changes("今 4.100｜昨 4.000 +2.50%｜周 3.900 -1.20%｜月 3.800 0.00%｜昨 40 +5.00%")
         self.assertIn('<font color="warning">+2.50%</font>', colored)
         self.assertIn('<font color="info">-1.20%</font>', colored)
         self.assertIn('<font color="comment">0.00%</font>', colored)
-        self.assertIn('<font color="warning">+5点</font>', colored)
+        self.assertIn('<font color="warning">+5.00%</font>', colored)
         self.assertNotIn("4.100</font>", colored)
 
     def test_sanitize_report_drops_disclaimer(self):
@@ -265,7 +266,7 @@ class PremiumHistoryTests(unittest.TestCase):
             complete_snapshot(report.ETF_LIST[1]),
         ]))
         self.assertEqual(text.count("今 0.20%"), 1)
-        self.assertIn("今 0.20%｜昨 1.00% -0.80pt｜周 0.80% -0.60pt｜月 0.50% -0.30pt｜半年 0.40% -0.20pt｜一年 0.30% -0.10pt｜三年 0.10% +0.10pt", text)
+        self.assertIn("今 0.20%｜昨 1.00% -0.80%｜周 0.80% -0.60%｜月 0.50% -0.30%｜半年 0.40% -0.20%｜一年 0.30% -0.10%｜三年 0.10% +0.10%", text)
         self.assertNotIn("当天溢价", text)
         self.assertNotIn("（07-24）", text)
 
@@ -510,9 +511,9 @@ class ReportTests(unittest.TestCase):
             "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
             "按计划买", "4.100", "PE 12.50", "分位 45",
             "今 4.100｜昨 4.000 +2.50%",
-            "今 45｜昨 40 +5点",
+            "今 45｜昨 40 +5.00%",
             "三年 3.000 +36.67%",
-            "三年 30 +15点",
+            "三年 30 +15.00%",
             "2026-07-27",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
@@ -603,10 +604,11 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ETF变化", text)
         self.assertNotIn("两只ETF变化", text)
         self.assertIn("溢价变化", text)
-        self.assertIn("今 0.20%｜昨 1.00% -0.80pt", text)
-        self.assertIn("周 0.80% -0.60pt", text)
-        self.assertIn("月 0.50% -0.30pt", text)
-        self.assertIn("三年 0.10% +0.10pt", text)
+        self.assertIn("今 0.20%｜昨 1.00% -0.80%", text)
+        self.assertIn("周 0.80% -0.60%", text)
+        self.assertIn("月 0.50% -0.30%", text)
+        self.assertIn("三年 0.10% +0.10%", text)
+        self.assertNotIn("pt", text)
         self.assertEqual(text.count("### 纳指100ETF"), 3)
         self.assertEqual(text.count("### 标普500ETF"), 3)
         self.assertNotIn("当天溢价", text)

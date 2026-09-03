@@ -133,10 +133,10 @@ public class SubscriptionController {
     private SubscriptionDTO convertToDTO(Subscription subscription) {
         SubscriptionDTO dto = new SubscriptionDTO();
         dto.setReceiveTime(subscription.getReceiveTime());
-        dto.setEnabled(subscription.getEnabled());
         dto.setPreferenceFields(subscriptionPreferences.readPreferenceFields(subscription.getPreferenceFields()));
         dto.setTopicSchedules(subscriptionPreferences.readSchedules(subscription));
         List<SubscriptionDTO.TopicScheduleItemDTO> enabled = subscriptionPreferences.enabledTopicItems(subscription);
+        dto.setEnabled(!enabled.isEmpty());
         dto.setMorningEnabled(enabled.stream().anyMatch(item -> hourOf(item) < 12));
         dto.setEveningEnabled(enabled.stream().anyMatch(item -> hourOf(item) >= 12));
         dto.setMorningTime(ReportWindows.format(firstTimeIn(enabled, 0, 12, LocalTime.of(8, 15))));

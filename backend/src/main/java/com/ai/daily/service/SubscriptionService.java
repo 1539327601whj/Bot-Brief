@@ -40,7 +40,7 @@ public interface SubscriptionService extends IService<Subscription> {
     List<Subscription> findDueThrough(LocalTime nowFloor, LocalDate date, Duration maxLateness);
 
     /**
-     * 总开关打开的订阅。
+     * 至少有一个主题开关打开的订阅。
      */
     List<Subscription> listEnabled();
 }

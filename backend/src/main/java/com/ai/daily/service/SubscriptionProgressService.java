@@ -60,7 +60,7 @@ public class SubscriptionProgressService {
         }
 
         Subscription subscription = subscriptionService.getOrCreateForUser(userId);
-        if (subscription == null || !Boolean.TRUE.equals(subscription.getEnabled())) {
+        if (subscription == null || !subscriptionPreferences.hasActiveTopics(subscription)) {
             return dto;
         }
         for (SubscriptionDTO.TopicScheduleItemDTO item : subscriptionPreferences.enabledTopicItemsOn(subscription, today)) {

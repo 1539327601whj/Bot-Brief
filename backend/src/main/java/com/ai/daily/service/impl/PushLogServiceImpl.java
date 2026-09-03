@@ -30,9 +30,18 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
     @Override
     public void record(Long userId, Long reportId, Long channelId, String channelType,
                        boolean success, String errorMessage) {
+        record(userId, reportId, channelId, channelType, success, errorMessage, null);
+    }
+
+    @Override
+    public void record(Long userId, Long reportId, Long channelId, String channelType,
+                       boolean success, String errorMessage, String dispatchKey) {
         PushLog log = newLog(userId, reportId, channelId, channelType);
         log.setStatus(success ? "success" : "failed");
         log.setErrorMessage(sanitizeError(errorMessage));
+        if (dispatchKey != null && !dispatchKey.isBlank()) {
+            log.setDispatchKey(dispatchKey);
+        }
         this.save(log);
     }
 

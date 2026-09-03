@@ -59,6 +59,7 @@
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
   color: #e6edf3;
   font-size: 14px;
 }
@@ -69,6 +70,28 @@
   border-radius: 8px;
   font-size: 12px;
   text-transform: uppercase;
+}
+.log-kind {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.log-kind.test {
+  background: rgba(240, 195, 109, 0.16);
+  color: #f0c36d;
+}
+.log-kind.scheduled {
+  background: rgba(0, 212, 170, 0.14);
+  color: #7ee0c7;
+}
+.log-kind.ops {
+  background: rgba(88, 166, 255, 0.16);
+  color: #79b8ff;
+}
+.log-kind.unknown {
+  background: rgba(255, 255, 255, 0.06);
+  color: #8b949e;
 }
 .log-status.success { color: #00d4aa; font-size: 13px; }
 .log-status.failed { color: #ff8080; font-size: 13px; }
