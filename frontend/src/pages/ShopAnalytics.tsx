@@ -252,7 +252,7 @@ export default function ShopAnalytics() {
     try {
       const res = await fetchShopStores()
       if (res?.code !== 200) throw new Error(res?.message || '加载店铺失败')
-      const nextStores = res.data || []
+      const nextStores: ShopStore[] = res.data || []
       setStores(nextStores)
       setStoreId(current => {
         if (current && nextStores.some(store => store.id === current)) return current

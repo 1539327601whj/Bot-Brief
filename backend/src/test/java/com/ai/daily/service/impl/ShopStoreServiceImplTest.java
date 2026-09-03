@@ -3,12 +3,15 @@ package com.ai.daily.service.impl;
 import com.ai.daily.entity.ShopStore;
 import com.ai.daily.mapper.ShopStoreMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -80,10 +83,10 @@ class ShopStoreServiceImplTest {
 
     private static ShopStoreServiceImpl serviceWith(ShopStore store, Long enabledCount) {
         ShopStoreMapper mapper = mock(ShopStoreMapper.class);
-        when(mapper.selectOne(any())).thenReturn(store);
-        when(mapper.selectCount(any())).thenReturn(enabledCount);
-        ShopStoreServiceImpl service = new ShopStoreServiceImpl();
-        service.setBaseMapper(mapper);
+        ShopStoreServiceImpl service = spy(new ShopStoreServiceImpl());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        doReturn(store).when(service).getForUser(any(), any());
+        doReturn(enabledCount).when(service).count(any());
         return service;
     }
 }
