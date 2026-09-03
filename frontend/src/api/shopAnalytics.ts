@@ -107,6 +107,11 @@ export async function createShopStore(payload: Partial<ShopStore>) {
   return res.data
 }
 
+export async function disableShopStore(storeId: number) {
+  const res = await api.delete(`/shop/stores/${storeId}`)
+  return res.data
+}
+
 export async function fetchShopOverview(storeId?: number, range = 7) {
   const res = await api.get('/shop/analytics/overview', { params: { storeId, range } })
   return res.data

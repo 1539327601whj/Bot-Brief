@@ -38,6 +38,7 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | GET/POST | `/api/shop/stores` | 列出（空则建默认店）/ 创建 |
+| DELETE | `/api/shop/stores/{id}` | 停用店铺（至少留一家，列表不再显示） |
 | GET | `/api/shop/analytics/overview` | 概览，`range` 只认 7 或 30 |
 | POST | `/api/shop/analytics/demo-data` | 写入近 30 日演示数据 |
 | POST | `/api/shop/analytics/ai-report/generate` | 规则日报，按店+日覆盖 |

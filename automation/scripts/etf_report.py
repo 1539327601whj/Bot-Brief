@@ -112,12 +112,14 @@ PRICE_INGEST_BATCH_SIZE = 250
 VALUATION_HISTORY_LIMIT = 800
 PRICE_MAX_STALENESS_DAYS = 15
 PE_LOOKBACK_DAYS = 15
-NAV_HISTORY_PAGES = 20
-NAV_PAGE_SIZE = 40
-UNADJUSTED_CLOSE_LIMIT = 800
+NAV_HISTORY_PAGES = 50
+NAV_PAGE_SIZE = 50
+NAV_HISTORY_LOOKBACK_DAYS = 365 * 3 + 90
+UNADJUSTED_CLOSE_LIMIT = 1000
 PREMIUM_HISTORY_STALENESS_DAYS = 15
+PREMIUM_LONG_LOOKBACK_STALENESS_DAYS = 40
 SIGNED_CHANGE_TOKEN = re.compile(
-    r"(?<![.\d])(\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点))(?!\d)"
+    r"(?<![.\d])((?:[↑↓]\s*)?(?:\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点)))(?!\d)"
 )
 EASTMONEY_FUND_HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -965,8 +967,16 @@ def normalize_unadjusted_closes(items: list[dict[str, Any]]) -> list[dict[str, A
     return [by_date[key] for key in sorted(by_date)]
 
 
+def nav_history_covers_lookback(navs: list[dict[str, Any]], lookback_days: int = NAV_HISTORY_LOOKBACK_DAYS) -> bool:
+    if not navs:
+        return False
+    oldest = parse_iso_date(navs[0].get("date"))
+    return oldest is not None and (now_beijing().date() - oldest).days >= lookback_days
+
+
 def fetch_etf_nav_history_from_eastmoney(etf: dict[str, str]) -> list[dict[str, Any]]:
     rows: list[Any] = []
+    navs: list[dict[str, Any]] = []
     for page in range(1, NAV_HISTORY_PAGES + 1):
         resp = http_get(
             "https://api.fund.eastmoney.com/f10/lsjz",
@@ -981,7 +991,9 @@ def fetch_etf_nav_history_from_eastmoney(etf: dict[str, str]) -> list[dict[str, 
         if not isinstance(page_rows, list) or not page_rows:
             break
         rows.extend(page_rows)
-    navs = normalize_nav_rows(rows)
+        navs = normalize_nav_rows(rows)
+        if nav_history_covers_lookback(navs):
+            break
     if len(navs) < 5:
         raise RuntimeError("东方财富单位净值数量不足")
     return navs
@@ -1127,7 +1139,9 @@ def enrich_premium_with_history(
             observations, subtract_years(history_anchor, 1), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
         )
         three_year = latest_observation_on_or_before(
-            observations, subtract_years(history_anchor, 3), max_staleness_days=PREMIUM_HISTORY_STALENESS_DAYS
+            observations,
+            subtract_years(history_anchor, 3),
+            max_staleness_days=PREMIUM_LONG_LOOKBACK_STALENESS_DAYS,
         )
         fields.update({
             "display_rate": latest["premium_rate"] if latest else None,
@@ -1545,7 +1559,9 @@ def fmt_compact_pct_change(value: Optional[float]) -> Optional[str]:
         return None
     if abs(value) < 0.005:
         return "0.00%"
-    return f"{value:+.2f}%"
+    if value > 0:
+        return f"↑ {value:+.2f}%"
+    return f"↓ {value:+.2f}%"
 
 
 def fmt_plain_pct(value: Optional[float], digits: int = 2) -> Optional[str]:
@@ -2494,9 +2510,10 @@ def build_fallback_report(snapshots: list[dict[str, Any]], edition: str, reason:
 def colorize_wework_changes(text: str) -> str:
     def paint(match: re.Match[str]) -> str:
         token = match.group(1)
-        if token.startswith("+"):
+        body = token.replace("↑", "").replace("↓", "").strip()
+        if body.startswith("+"):
             return f'<font color="warning">{token}</font>'
-        if token.startswith("-"):
+        if body.startswith("-"):
             return f'<font color="info">{token}</font>'
         return f'<font color="comment">{token}</font>'
     return SIGNED_CHANGE_TOKEN.sub(paint, text)

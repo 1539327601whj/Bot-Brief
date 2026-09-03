@@ -237,11 +237,11 @@ class PremiumHistoryTests(unittest.TestCase):
 
     def test_change_sections_are_one_line_without_dates(self):
         price = "\n".join(report.format_price_change_section([complete_snapshot()]))
-        self.assertIn("今 4.100｜昨 4.000 +2.50%｜周 3.900 +5.13%｜月 3.800 +7.89%｜半年 3.600 +13.89%｜一年 3.400 +20.59%｜三年 3.000 +36.67%", price)
+        self.assertIn("今 4.100｜昨 4.000 ↑ +2.50%｜周 3.900 ↑ +5.13%｜月 3.800 ↑ +7.89%｜半年 3.600 ↑ +13.89%｜一年 3.400 ↑ +20.59%｜三年 3.000 ↑ +36.67%", price)
         self.assertNotIn("08-", price)
         self.assertNotIn("行情价", price)
         pe = "\n".join(report.format_pe_change_section([complete_snapshot()]))
-        self.assertIn("今 45｜昨 40 +5.00%｜三年 30 +15.00%", pe)
+        self.assertIn("今 45｜昨 40 ↑ +5.00%｜三年 30 ↑ +15.00%", pe)
         self.assertNotIn("今 45%", pe)
         self.assertNotIn("pt", pe)
         self.assertNotIn("点", pe)
@@ -254,6 +254,9 @@ class PremiumHistoryTests(unittest.TestCase):
         self.assertIn('<font color="comment">0.00%</font>', colored)
         self.assertIn('<font color="warning">+5.00%</font>', colored)
         self.assertNotIn("4.100</font>", colored)
+        with_arrows = report.colorize_wework_changes("昨 4.000 ↑ +2.50%｜周 3.900 ↓ -1.20%")
+        self.assertIn('<font color="warning">↑ +2.50%</font>', with_arrows)
+        self.assertIn('<font color="info">↓ -1.20%</font>', with_arrows)
 
     def test_sanitize_report_drops_disclaimer(self):
         text = report.sanitize_report(f"## 先看结论\n\n> {report.DISCLAIMER}")
@@ -266,7 +269,7 @@ class PremiumHistoryTests(unittest.TestCase):
             complete_snapshot(report.ETF_LIST[1]),
         ]))
         self.assertEqual(text.count("今 0.20%"), 1)
-        self.assertIn("今 0.20%｜昨 1.00% -0.80%｜周 0.80% -0.60%｜月 0.50% -0.30%｜半年 0.40% -0.20%｜一年 0.30% -0.10%｜三年 0.10% +0.10%", text)
+        self.assertIn("今 0.20%｜昨 1.00% ↓ -0.80%｜周 0.80% ↓ -0.60%｜月 0.50% ↓ -0.30%｜半年 0.40% ↓ -0.20%｜一年 0.30% ↓ -0.10%｜三年 0.10% ↑ +0.10%", text)
         self.assertNotIn("当天溢价", text)
         self.assertNotIn("（07-24）", text)
 
@@ -287,6 +290,47 @@ class PremiumHistoryTests(unittest.TestCase):
         self.assertEqual(get.call_count, 3)
         self.assertEqual(get.call_args_list[0].kwargs["params"]["fundCode"], "513100")
         self.assertEqual(get.call_args_list[1].kwargs["params"]["pageIndex"], 2)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    @patch.object(report, "http_get")
+    def test_nav_history_keeps_paging_until_three_year_lookback(self, get, _):
+        get.side_effect = [
+            response({"Data": {"LSJZList": [
+                {"FSRQ": "2026-07-01", "DWJZ": "2.00"},
+                {"FSRQ": "2026-07-02", "DWJZ": "2.01"},
+            ]}}),
+            response({"Data": {"LSJZList": [
+                {"FSRQ": "2025-07-01", "DWJZ": "1.80"},
+                {"FSRQ": "2025-07-02", "DWJZ": "1.81"},
+            ]}}),
+            response({"Data": {"LSJZList": [
+                {"FSRQ": "2023-01-15", "DWJZ": "1.50"},
+                {"FSRQ": "2023-01-16", "DWJZ": "1.51"},
+            ]}}),
+            response({"Data": {"LSJZList": [{"FSRQ": "2022-01-15", "DWJZ": "1.20"}]}}),
+        ]
+        navs = report.fetch_etf_nav_history_from_eastmoney(report.ETF_LIST[1])
+        self.assertEqual(navs[0]["date"], "2023-01-15")
+        self.assertEqual(navs[-1]["date"], "2026-07-02")
+        self.assertEqual(get.call_count, 3)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_three_year_premium_allows_wider_gap(self, _):
+        observations = [
+            {"date": "2023-06-20", "close": 1.802, "nav": 1.80, "premium_rate": 0.11},
+            {"date": "2026-07-24", "close": 2.02, "nav": 2.00, "premium_rate": 1.0},
+            {"date": "2026-07-27", "close": 2.024, "nav": 2.00, "premium_rate": 1.2},
+        ]
+        premium = {"premium_rate": 0.2, "level": "接近净值", "data_time": "2026-07-27 15:00:00"}
+        quote = {"data_time": "2026-07-27 15:00:00"}
+        with patch.object(report, "fetch_etf_nav_history_from_eastmoney", return_value=[
+            {"date": item["date"], "nav": item["nav"]} for item in observations
+        ]), patch.object(report, "fetch_etf_unadjusted_closes", return_value=[
+            {"date": item["date"], "close": item["close"]} for item in observations
+        ]):
+            result = report.enrich_premium_with_history(report.ETF_LIST[1], premium, quote)
+        self.assertEqual(result["three_year_date"], "2023-06-20")
+        self.assertAlmostEqual(result["three_year_rate"], 0.11, places=2)
 
 
 class HistoryTests(unittest.TestCase):
@@ -510,10 +554,10 @@ class ReportTests(unittest.TestCase):
         for required in (
             "ETF 行情日报", "先看结论", "ETF变化", "PE分位变化",
             "按计划买", "4.100", "PE 12.50", "分位 45",
-            "今 4.100｜昨 4.000 +2.50%",
-            "今 45｜昨 40 +5.00%",
-            "三年 3.000 +36.67%",
-            "三年 30 +15.00%",
+            "今 4.100｜昨 4.000 ↑ +2.50%",
+            "今 45｜昨 40 ↑ +5.00%",
+            "三年 3.000 ↑ +36.67%",
+            "三年 30 ↑ +15.00%",
             "2026-07-27",
             "A股观察候选", "测试股份", "短期更可能维持震荡",
         ):
@@ -538,8 +582,8 @@ class ReportTests(unittest.TestCase):
             "ETF 行情日报", "先看结论", "按计划买",
             "ETF变化", "PE分位变化",
             "4.100", "PE 12.50", "分位 45",
-            "周 3.900 +5.13%", "月 3.800 +7.89%",
-            "三年 3.000 +36.67%",
+            "周 3.900 ↑ +5.13%", "月 3.800 ↑ +7.89%",
+            "三年 3.000 ↑ +36.67%",
             "溢价变化", "今 0.20%",
         ):
             self.assertIn(required, text)
@@ -604,10 +648,10 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ETF变化", text)
         self.assertNotIn("两只ETF变化", text)
         self.assertIn("溢价变化", text)
-        self.assertIn("今 0.20%｜昨 1.00% -0.80%", text)
-        self.assertIn("周 0.80% -0.60%", text)
-        self.assertIn("月 0.50% -0.30%", text)
-        self.assertIn("三年 0.10% +0.10%", text)
+        self.assertIn("今 0.20%｜昨 1.00% ↓ -0.80%", text)
+        self.assertIn("周 0.80% ↓ -0.60%", text)
+        self.assertIn("月 0.50% ↓ -0.30%", text)
+        self.assertIn("三年 0.10% ↑ +0.10%", text)
         self.assertNotIn("pt", text)
         self.assertEqual(text.count("### 纳指100ETF"), 3)
         self.assertEqual(text.count("### 标普500ETF"), 3)

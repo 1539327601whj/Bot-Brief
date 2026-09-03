@@ -13,4 +13,6 @@ public interface ShopStoreService extends IService<ShopStore> {
     ShopStore getForUser(Long userId, Long storeId);
 
     ShopStore getOrCreateDefault(Long userId);
+
+    void disableForUser(Long userId, Long storeId);
 }

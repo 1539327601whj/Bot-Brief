@@ -6,7 +6,11 @@ interface MarketMarkdownProps {
   children: string
 }
 
-const changePattern = /(?<![.\d])(\+[\d.]+(?:%|pt|点)|-[\d.]+(?:%|pt|点)|0(?:\.00)?(?:%|pt|点))(?!\d)/g
+const CHANGE_TOKEN = '((?:[↑↓]\\s*)?(?:[+＋][\\d.]+(?:%|pt|点)|[-−–][\\d.]+(?:%|pt|点)|0(?:\\.00)?(?:%|pt|点)))'
+
+function changeTokenPattern() {
+  return new RegExp(`(?<![.\\d])${CHANGE_TOKEN}(?!\\d)`, 'g')
+}
 
 function restyleLegacyChangeUnits(markdown: string) {
   return markdown
@@ -22,29 +26,59 @@ function restyleLegacyChangeUnits(markdown: string) {
     })
 }
 
+function decorateSignedChanges(markdown: string) {
+  return markdown.replace(changeTokenPattern(), token => formatChangeToken(token))
+}
+
+function formatChangeToken(token: string) {
+  const normalized = token
+    .replace(/＋/g, '+')
+    .replace(/[−–]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const body = normalized.replace(/[↑↓]/g, '').trim()
+  if (body.startsWith('+')) return normalized.startsWith('↑') ? normalized : `↑ ${body}`
+  if (body.startsWith('-')) return normalized.startsWith('↓') ? normalized : `↓ ${body}`
+  return body
+}
+
+function changeKind(token: string) {
+  if (token.includes('↑') || token.includes('+')) return 'up'
+  if (token.includes('↓') || token.includes('-')) return 'down'
+  return 'flat'
+}
+
 function stripNonReportMeta(markdown: string) {
-  return restyleLegacyChangeUnits(markdown)
+  return decorateSignedChanges(restyleLegacyChangeUnits(markdown))
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(?:^|\n)>\s*数据说明：[^\n]*/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd()
 }
 
-function renderMarketChanges(node: ReactNode): ReactNode {
-  if (typeof node === 'string') {
-    return node.split(changePattern).map((part, index) => {
-      if (/^\+\d/.test(part)) {
-        return <span key={index} className="market-change market-change-up">{part}</span>
-      }
-      if (/^-\d/.test(part)) {
-        return <span key={index} className="market-change market-change-down">{part}</span>
-      }
-      if (/^0(?:\.00)?(?:%|pt|点)$/.test(part)) {
-        return <span key={index} className="market-change market-change-flat">{part}</span>
-      }
-      return part
-    })
+function paintChangeText(text: string): ReactNode {
+  const pattern = changeTokenPattern()
+  const nodes: ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index))
+    const token = formatChangeToken(match[1])
+    nodes.push(
+      <span key={`${match.index}-${token}`} className={`market-change market-change-${changeKind(token)}`}>
+        {token}
+      </span>
+    )
+    lastIndex = match.index + match[0].length
   }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
+  if (nodes.length === 0) return text
+  if (nodes.length === 1) return nodes[0]
+  return nodes
+}
+
+function renderMarketChanges(node: ReactNode): ReactNode {
+  if (typeof node === 'string') return paintChangeText(node)
 
   if (Array.isArray(node)) {
     return Children.map(node, renderMarketChanges)

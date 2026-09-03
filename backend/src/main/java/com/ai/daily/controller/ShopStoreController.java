@@ -39,6 +39,18 @@ public class ShopStoreController {
         }
     }
 
+    @DeleteMapping("/{id}")
+    public Result<String> disableStore(@PathVariable Long id) {
+        Long userId = SecurityUtils.currentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+        try {
+            shopStoreService.disableForUser(userId, id);
+            return Result.ok("店铺已移除", null);
+        } catch (IllegalArgumentException e) {
+            return Result.error("店铺不存在".equals(e.getMessage()) ? 404 : 400, e.getMessage());
+        }
+    }
+
     private ShopStoreDTO toDTO(ShopStore store) {
         ShopStoreDTO dto = new ShopStoreDTO();
         dto.setId(store.getId());

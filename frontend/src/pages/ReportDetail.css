@@ -426,6 +426,18 @@
   font-weight: 650;
 }
 
+.article-content .market-change-up {
+  color: #ff4d4f;
+}
+
+.article-content .market-change-down {
+  color: #14b86a;
+}
+
+.article-content .market-change-flat {
+  color: #8b949e;
+}
+
 .article-content a {
   color: var(--accent-strong);
   text-underline-offset: 2px;

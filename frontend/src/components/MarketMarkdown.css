@@ -58,19 +58,28 @@
 
 .market-change {
   display: inline-block;
-  font-weight: 700;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.market-change-up {
-  color: #e5484d;
+.market-markdown .market-change-up,
+.article-content .market-change-up,
+.today-card-body .market-change-up,
+.overview-card .market-change-up {
+  color: #ff4d4f;
 }
 
-.market-change-down {
-  color: #2f9e64;
+.market-markdown .market-change-down,
+.article-content .market-change-down,
+.today-card-body .market-change-down,
+.overview-card .market-change-down {
+  color: #14b86a;
 }
 
-.market-change-flat {
+.market-markdown .market-change-flat,
+.article-content .market-change-flat,
+.today-card-body .market-change-flat,
+.overview-card .market-change-flat {
   color: #8b949e;
 }

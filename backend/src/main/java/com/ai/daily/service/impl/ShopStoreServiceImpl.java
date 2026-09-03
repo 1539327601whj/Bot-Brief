@@ -21,6 +21,7 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
     public List<ShopStore> listForUser(Long userId) {
         return this.list(new LambdaQueryWrapper<ShopStore>()
                 .eq(ShopStore::getUserId, userId)
+                .eq(ShopStore::getEnabled, true)
                 .orderByDesc(ShopStore::getUpdatedAt));
     }
 
@@ -41,6 +42,7 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
         return this.getOne(new LambdaQueryWrapper<ShopStore>()
                 .eq(ShopStore::getUserId, userId)
                 .eq(ShopStore::getId, storeId)
+                .eq(ShopStore::getEnabled, true)
                 .last("LIMIT 1"));
     }
 
@@ -48,10 +50,23 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
     public ShopStore getOrCreateDefault(Long userId) {
         ShopStore store = this.getOne(new LambdaQueryWrapper<ShopStore>()
                 .eq(ShopStore::getUserId, userId)
+                .eq(ShopStore::getEnabled, true)
                 .orderByAsc(ShopStore::getId)
                 .last("LIMIT 1"));
         if (store != null) return store;
         return createForUser(userId, "manual", "我的店铺");
+    }
+
+    @Override
+    public void disableForUser(Long userId, Long storeId) {
+        ShopStore store = getForUser(userId, storeId);
+        if (store == null) throw new IllegalArgumentException("店铺不存在");
+        long enabled = this.count(new LambdaQueryWrapper<ShopStore>()
+                .eq(ShopStore::getUserId, userId)
+                .eq(ShopStore::getEnabled, true));
+        if (enabled <= 1) throw new IllegalArgumentException("至少保留一家店铺");
+        store.setEnabled(false);
+        this.updateById(store);
     }
 
     static String normalizePlatform(String platform) {
