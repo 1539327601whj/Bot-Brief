@@ -1,13 +1,13 @@
 package com.ai.daily.service;
 
 import com.ai.daily.entity.Report;
+import com.ai.daily.service.push.PushReportFormat;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,9 +53,6 @@ public class WeChatPushService {
     }
 
     private String buildMarkdownContent(Report report) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("📋 **").append(report.getTitle()).append("**\n\n");
-        sb.append(report.getContent());
-        return sb.toString();
+        return PushReportFormat.wecomMarkdown(report.getTitle(), report.getContent());
     }
 }

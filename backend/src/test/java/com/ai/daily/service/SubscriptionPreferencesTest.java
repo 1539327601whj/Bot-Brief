@@ -71,6 +71,7 @@ class SubscriptionPreferencesTest {
 
         assertThat(normalized.schedules().getItems().get(0).getIntent()).isEqualTo("只要芯片和航天");
         assertThat(normalized.schedulesJson()).contains("只要芯片和航天");
+        assertThat(normalized.schedules().getItems().get(0).getSiteVisible()).isTrue();
 
         item.setIntent("长".repeat(121));
         assertThatThrownBy(() -> preferences.normalize(dto))
@@ -200,6 +201,39 @@ class SubscriptionPreferencesTest {
 
         assertThat(preferences.isDueThrough(
                 subscription, LocalTime.of(9, 0), Duration.ZERO, LocalDate.of(2026, 8, 30))).isTrue();
+    }
+
+    @Test
+    void defaultsSiteVisibleForDigestAndKeepsCustomPrivate() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO digest = item("AI科技", true, "08:00");
+        SubscriptionDTO.TopicScheduleItemDTO custom = item("AI大模型", true, "08:15");
+        custom.setSiteVisible(true);
+        schedules.setItems(List.of(digest, custom));
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+        assertThat(normalized.schedules().getItems().get(0).getSiteVisible()).isTrue();
+        assertThat(normalized.schedules().getItems().get(1).getSiteVisible()).isTrue();
+
+        preferences.restrictSiteVisibility(normalized.schedules(), false);
+        assertThat(normalized.schedules().getItems().get(0).getSiteVisible()).isTrue();
+        assertThat(normalized.schedules().getItems().get(1).getSiteVisible()).isFalse();
+    }
+
+    @Test
+    void adminKeepsCustomTopicSiteVisible() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO custom = item("Web开发", true, "08:15");
+        custom.setSiteVisible(true);
+        schedules.setItems(List.of(custom));
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+        preferences.restrictSiteVisibility(normalized.schedules(), true);
+        assertThat(normalized.schedules().getItems().get(0).getSiteVisible()).isTrue();
     }
 
     private SubscriptionDTO dtoWithTopics(int count) {

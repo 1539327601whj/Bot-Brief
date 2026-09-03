@@ -72,6 +72,29 @@
   color: #00d4aa;
 }
 
+.site-visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9aa4b5;
+  font-size: 12px;
+}
+
+.site-visibility-select {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #111620;
+  color: #f4f7fb;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.topic-switch-row em {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .subscription-pane .pane-intro {
   margin-bottom: 18px;
 }
@@ -82,76 +105,9 @@
   font-size: 18px;
 }
 
-.public-preview-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: 8px 0 16px;
-}
-
-.public-preview-card {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(13, 17, 27, 0.55);
-}
-
-.public-preview-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 10px;
-  color: #e6edf3;
-  font-size: 13px;
-}
-
-.public-preview-meta small {
-  color: #8b949e;
-}
-
-.public-preview-card strong {
-  display: block;
-  margin-bottom: 8px;
-  color: #f4f7fb;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.public-preview-card p {
-  margin: 0;
-  color: #9aa4b5;
-  font-size: 13px;
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.public-preview-empty {
-  color: #8b949e;
-}
-
-.public-preview-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 12px;
-  color: #8b949e;
-  font-size: 12px;
-}
-
-.public-preview-footer a,
 a.ghost-link {
   color: #8b9cff;
   text-decoration: none;
-}
-
-@media (max-width: 900px) {
-  .public-preview-list {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* 返回按钮 */

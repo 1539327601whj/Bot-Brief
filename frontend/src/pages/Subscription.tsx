@@ -4,24 +4,14 @@ import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
 import api, { TOKEN_KEY } from '../utils/api'
-import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf } from '../utils/weekdays'
 import { MAX_INTENT_LENGTH, normalizeIntent, topicIntentHint, topicOverview } from '../utils/topicOverview'
+import { defaultSiteVisible, topicSiteVisible } from '../utils/topicVisibility'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import { earliestOnTimeLabel, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Subscription.css'
-
-interface PublicReportPreview {
-  id: number
-  edition: string
-  title: string
-  summary: string
-  createdAt: string
-  displayTime?: string
-  reportDate?: string
-}
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
 
@@ -40,6 +30,7 @@ interface TopicScheduleItem {
   weekdayTo: number
   channelIds: number[]
   intent: string
+  siteVisible: boolean
 }
 
 interface SubscriptionData {
@@ -146,6 +137,7 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
       channelIds: (Array.isArray(row?.channelIds) ? row.channelIds : [])
         .filter((id: unknown): id is number => Number.isInteger(id) && Number(id) > 0),
       intent: normalizeIntent(row?.intent),
+      siteVisible: typeof row?.siteVisible === 'boolean' ? row.siteVisible : defaultSiteVisible(topic),
     })
   })
   return items
@@ -167,30 +159,12 @@ const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
   return detail ? `${fallback}：${detail}` : fallback
 }
 
-const PUBLIC_PREVIEWS: Array<{ edition: 'morning' | 'evening' | 'market_watch_evening'; hint: string }> = [
-  { edition: 'morning', hint: '勾选「AI科技」后按早报原文生成' },
-  { edition: 'evening', hint: '勾选「AI科技」后按晚报原文生成' },
-  { edition: 'market_watch_evening', hint: '勾选 ETF 主题后按原文生成，仅管理员和 Demo 可见' },
-]
-
-async function loadPublicPreview(edition: string): Promise<PublicReportPreview | null> {
-  try {
-    const latest = await api.get('/reports/latest', { params: { edition } })
-    if (latest.data?.code === 200 && latest.data.data) return latest.data.data
-    const page = await api.get('/reports', { params: { edition, page: 1, size: 1 } })
-    return page.data?.data?.records?.[0] || null
-  } catch {
-    return null
-  }
-}
-
 export default function Subscription() {
   const { user, authReady, logout } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
   const isAdmin = user?.role === 'ADMIN'
   const [data, setData] = useState<SubscriptionData>(normalizeSubscription({}))
   const [channels, setChannels] = useState<Channel[]>([])
-  const [publicReports, setPublicReports] = useState<Partial<Record<string, PublicReportPreview | null>>>({})
   const [customInput, setCustomInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -258,14 +232,6 @@ export default function Subscription() {
         }
       } catch {
         setTodayStatus({ items: [] })
-      }
-      if (user?.role === 'ADMIN') {
-        const [morning, evening, market] = await Promise.all([
-          loadPublicPreview('morning'),
-          loadPublicPreview('evening'),
-          loadPublicPreview('market_watch_evening'),
-        ])
-        setPublicReports({ morning, evening, market_watch_evening: market })
       }
     }
     load().finally(() => setLoading(false))
@@ -359,9 +325,21 @@ export default function Subscription() {
     }))
   }
 
+  const oneChannelPerType = (ids: number[]) => {
+    const seen = new Set<ChannelType>()
+    const picked: number[] = []
+    ids.forEach(id => {
+      const channel = channels.find(item => item.id === id)
+      if (!channel || seen.has(channel.channelType)) return
+      seen.add(channel.channelType)
+      picked.push(id)
+    })
+    return picked
+  }
+
   const defaultChannelIdsFrom = (current: TopicScheduleItem[]) => {
-    const used = current.flatMap(item => item.channelIds || [])
-    if (used.length) return [...new Set(used)]
+    const inherited = oneChannelPerType(current.flatMap(item => item.channelIds || []))
+    if (inherited.length) return inherited
     const picked: number[] = []
     ;(Object.keys(CHANNEL_META) as ChannelType[]).forEach(type => {
       const enabled = (channelsByType[type] || []).filter(channel => channel.enabled)
@@ -403,16 +381,16 @@ export default function Subscription() {
         if (isAiTechDigest(name)) {
           next = [
             ...next,
-            { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '' },
-            { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '' },
+            { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true },
+            { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true },
           ]
           return
         }
         if (isEtfDigest(name)) {
-          next = [...next, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds, intent: '' }]
+          next = [...next, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds, intent: '', siteVisible: true }]
           return
         }
-        next = [...next, { topic: name, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds, intent: '' }]
+        next = [...next, { topic: name, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds, intent: '', siteVisible: false }]
       })
       return {
         ...prev,
@@ -439,6 +417,11 @@ export default function Subscription() {
 
   const updateSlot = (index: number, patch: Partial<TopicScheduleItem>) => {
     updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+  }
+
+  const setTopicSiteVisible = (topic: string, siteVisible: boolean) => {
+    if (isDemo || !isAdmin) return
+    updateItems(items.map(item => sameTopic(item.topic, topic) ? { ...item, siteVisible } : item))
   }
 
   const updateTopicIntent = (topic: string, intent: string) => {
@@ -477,6 +460,7 @@ export default function Subscription() {
       weekdayTo: DEFAULT_WEEKDAY_TO,
       channelIds: defaultChannelIds(),
       intent: topicItems(topic)[0]?.intent || '',
+      siteVisible: topicSiteVisible(topic, items),
     }])
   }
 
@@ -530,7 +514,7 @@ export default function Subscription() {
       const payload = {
         enabled: items.some(item => item.enabled),
         preferenceFields: subscribedTopics,
-        topicSchedules: { items },
+        topicSchedules: { items: items.map(item => ({ ...item, channelIds: oneChannelPerType(item.channelIds || []) })) },
       }
       const res = await api.put('/subscription', payload)
       if (res.data?.code === 200) {
@@ -587,6 +571,21 @@ export default function Subscription() {
             <strong>{topic}</strong>
             {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
             {!isPreset(topic) && <small>自定义</small>}
+            {isAdmin && (
+              <label className="site-visibility">
+                <span>展示</span>
+                <select
+                  className="site-visibility-select"
+                  value={topicSiteVisible(topic, items) ? 'site' : 'personal'}
+                  disabled={isDemo}
+                  aria-label={`${topic}展示范围`}
+                  onChange={event => setTopicSiteVisible(topic, event.target.value === 'site')}
+                >
+                  <option value="site">全站日报</option>
+                  <option value="personal">仅个人</option>
+                </select>
+              </label>
+            )}
             <label className="topic-switch" title={active ? '关闭后这个主题不再生成和推送，时刻和渠道会保留' : '开启后按下面的时刻生成并推送'}>
               <input type="checkbox" checked={active} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
               <span className="slider compact"></span>
@@ -705,47 +704,8 @@ export default function Subscription() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>订阅管理</h2>
-        <p className="page-desc">{isAdmin ? '科技日报和 ETF 也请在下面勾选、设时刻并绑渠道。每个主题可写「我想看」，优先按这个角度检索；当天没有这个角度时，会用主题相近内容写一版，不会编造。不填就按系统默认生成。' : '勾选兴趣，再选星期、时刻，并可写「我想看」。想法优先，找不到就写主题相近内容；同一主题在同一 6 小时时段只生成一次。'}</p>
+        <p className="page-desc">{isAdmin ? '这里只改你自己的订阅。每个已勾选主题可设「全站日报」或「仅个人」；全站预览在首页上看。科技日报和 ETF 默认进全站，其他兴趣默认只自己看。' : '勾选兴趣，再选星期、时刻，并可写「我想看」。想法优先，找不到就写主题相近内容；同一主题在同一 6 小时时段只生成一次。'}</p>
       </div>
-
-      {isAdmin && (
-        <section className="subscription-pane">
-          <div className="section-title-row">
-            <div>
-              <p className="subscription-pane-kicker">公共内容</p>
-              <h3>全站日报</h3>
-              <p className="section-sub">管理员和 Demo 仍可在这里预览最近一期。要继续生成和推送，请在下面勾选「AI科技」和 ETF，并绑渠道。</p>
-            </div>
-            <Link to="/reports" className="ghost-link">历史日报 →</Link>
-          </div>
-          <div className="public-preview-list">
-            {PUBLIC_PREVIEWS.map(item => {
-              const report = publicReports[item.edition]
-              const info = getReportEditionInfo(item.edition)
-              return (
-                <div key={item.edition} className="public-preview-card">
-                  <div className="public-preview-meta">
-                    <span>{info.icon} {info.shortLabel}</span>
-                    <small>{item.hint}</small>
-                  </div>
-                  {report ? (
-                    <>
-                      <strong>{report.title}</strong>
-                      <p>{report.summary}</p>
-                      <div className="public-preview-footer">
-                        <span>{reportSlotStamp(report)}</span>
-                        <Link to={`/report/${report.id}`}>查看 →</Link>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="public-preview-empty">暂无最近一期，生成后会显示在这里</p>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
 
       <section className={isAdmin ? 'subscription-pane personal' : undefined}>
       {isAdmin && todayStatus.poller && !todayStatus.poller.healthy && (
@@ -756,7 +716,7 @@ export default function Subscription() {
           <div>
             <p className="subscription-pane-kicker">个人内容</p>
             <h3>我的个人订阅</h3>
-            <p className="section-sub">勾选主题、设时刻并绑渠道。科技日报和 ETF 走原来的全文，其他兴趣走短段落。</p>
+            <p className="section-sub">勾选主题、设时刻并绑渠道。科技日报和 ETF 走原来的全文，其他兴趣走短段落。已勾选的主题可单独设成全站显示或只在个人内容里。</p>
           </div>
         </div>
       )}
@@ -825,6 +785,18 @@ export default function Subscription() {
                   {!isPreset(topic) && <small>自定义</small>}
                 </span>
                 <em>
+                  {isAdmin && (
+                    <select
+                      className="site-visibility-select"
+                      value={topicSiteVisible(topic, items) ? 'site' : 'personal'}
+                      disabled={isDemo}
+                      aria-label={`${topic}展示范围`}
+                      onChange={event => setTopicSiteVisible(topic, event.target.value === 'site')}
+                    >
+                      <option value="site">全站日报</option>
+                      <option value="personal">仅个人</option>
+                    </select>
+                  )}
                   <input type="checkbox" checked={topicEnabled(topic)} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
                   <span className="slider compact"></span>
                   {topicEnabled(topic) ? '推送中' : '已暂停'}
@@ -869,7 +841,7 @@ export default function Subscription() {
         <div className="channel-preview">
           <div>
             {channels.length === 0 && <span style={{ color: '#8b949e' }}>还没有账号。不绑定也可以，简报只出现在网页。</span>}
-            {channels.length > 0 && <span>已保存 <b style={{ color: '#00d4aa' }}>{channels.length}</b> 个账号，每个主题每种方式最多绑一个</span>}
+            {channels.length > 0 && <span>已保存 <b style={{ color: '#00d4aa' }}>{channels.length}</b> 个账号。同一个主题每种方式只绑一个；马斯克和黄仁勋这类不同主题可以共用同一个企业微信</span>}
           </div>
           <Link to="/channels" className="back-btn" style={{ marginBottom: 0 }}>管理通讯录 →</Link>
         </div>

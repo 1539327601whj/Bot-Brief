@@ -218,12 +218,13 @@
 
 .article-header h1 {
   margin: 0;
-  max-width: 18em;
+  max-width: 22em;
   color: var(--text);
-  font-size: clamp(26px, 3.1vw, 38px);
-  font-weight: 740;
-  line-height: 1.22;
-  letter-spacing: -0.045em;
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: clamp(28px, 3.4vw, 40px);
+  font-weight: 780;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
   background: linear-gradient(135deg, #ffffff 0%, #e8ecff 42%, #b7c0ff 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -233,38 +234,48 @@
 .article-content {
   counter-reset: report-section;
   padding: 8px 34px 8px;
-  color: var(--text-muted);
-  line-height: 1.7;
-  font-size: 14.5px;
+  color: #8b95a6;
+  line-height: 1.8;
+  font-size: 15px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
+.article-content .md-title,
+.article-content .md-section,
+.article-content .md-subtitle,
 .article-content h1,
 .article-content h2,
-.article-content h3 {
+.article-content h3,
+.article-content h4 {
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   letter-spacing: -0.02em;
 }
 
-.article-content h1 {
+.article-content h1,
+.article-content .md-title {
   display: none;
 }
 
-.article-content h2 {
+.article-content h2,
+.article-content .md-section {
   counter-increment: report-section;
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin: 32px 0 14px;
-  padding: 0;
+  margin: 34px 0 14px;
+  padding: 0 0 10px;
   border: none;
+  border-bottom: 1px solid rgba(168, 178, 255, 0.22);
   background: none;
-  color: #f4f7fb;
-  font-size: 20px;
-  font-weight: 740;
-  line-height: 1.3;
+  color: #cfd6ff;
+  font-size: 22px;
+  font-weight: 780;
+  line-height: 1.28;
 }
 
-.article-content h2::before {
+.article-content h2::before,
+.article-content .md-section::before {
   content: counter(report-section, decimal-leading-zero);
   flex: 0 0 auto;
   color: var(--accent-strong);
@@ -272,55 +283,74 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .article-content h2:first-child,
-.article-content .market-markdown > h2:first-child {
+.article-content .market-markdown > h2:first-child,
+.article-content .market-markdown > .md-section:first-child {
   margin-top: 12px;
 }
 
-.article-content h3 {
+.article-content h3,
+.article-content h4,
+.article-content .md-subtitle {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 22px 0 10px;
-  padding: 0;
+  margin: 22px 0 8px;
+  padding: 0 0 0 10px;
   border: none;
-  color: #d7def0;
-  font-size: 14px;
-  font-weight: 700;
+  border-left: 3px solid #5eead4;
+  color: #7ee7d4;
+  font-size: 16.5px;
+  font-weight: 720;
+  line-height: 1.4;
 }
 
-.article-content h3::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent-strong);
-  box-shadow: 0 0 10px rgba(139, 156, 255, 0.55);
+.article-content h3::before,
+.article-content h4::before,
+.article-content .md-subtitle::before {
+  display: none;
 }
 
-.report-article.tone-morning .article-content h2 { color: #fff6d8; }
-.report-article.tone-morning .article-content h2::before { color: #f7d88a; }
-.report-article.tone-morning .article-content h3::before { background-color: #f7d88a; }
+.report-article.tone-morning .article-content h2,
+.report-article.tone-morning .article-content .md-section { color: #ffe7a3; border-bottom-color: rgba(247, 216, 138, 0.28); }
+.report-article.tone-morning .article-content h2::before,
+.report-article.tone-morning .article-content .md-section::before { color: #f7d88a; }
+.report-article.tone-morning .article-content h3,
+.report-article.tone-morning .article-content h4,
+.report-article.tone-morning .article-content .md-subtitle { color: #f3d48a; border-left-color: #f7d88a; }
 
-.report-article.tone-evening .article-content h2 { color: #eef0ff; }
-.report-article.tone-evening .article-content h2::before { color: #cfd6ff; }
-.report-article.tone-evening .article-content h3::before { background-color: #cfd6ff; }
+.report-article.tone-evening .article-content h2,
+.report-article.tone-evening .article-content .md-section { color: #d5dbff; border-bottom-color: rgba(168, 178, 255, 0.28); }
+.report-article.tone-evening .article-content h2::before,
+.report-article.tone-evening .article-content .md-section::before { color: #cfd6ff; }
+.report-article.tone-evening .article-content h3,
+.report-article.tone-evening .article-content h4,
+.report-article.tone-evening .article-content .md-subtitle { color: #b7c0ff; border-left-color: #a8b2ff; }
 
-.report-article.tone-etf .article-content h2 { color: #e9fff6; }
-.report-article.tone-etf .article-content h2::before { color: #9debc5; }
-.report-article.tone-etf .article-content h3::before { background-color: #9debc5; }
+.report-article.tone-etf .article-content h2,
+.report-article.tone-etf .article-content .md-section { color: #c8ffe8; border-bottom-color: rgba(157, 235, 197, 0.28); }
+.report-article.tone-etf .article-content h2::before,
+.report-article.tone-etf .article-content .md-section::before { color: #9debc5; }
+.report-article.tone-etf .article-content h3,
+.report-article.tone-etf .article-content h4,
+.report-article.tone-etf .article-content .md-subtitle { color: #7ee0b4; border-left-color: #3dd68c; }
 
-.report-article.tone-etf-evening .article-content h2 { color: #eaf7ff; }
-.report-article.tone-etf-evening .article-content h2::before { color: #7dd3fc; }
-.report-article.tone-etf-evening .article-content h3::before { background-color: #7dd3fc; }
+.report-article.tone-etf-evening .article-content h2,
+.report-article.tone-etf-evening .article-content .md-section { color: #ccebff; border-bottom-color: rgba(125, 211, 252, 0.28); }
+.report-article.tone-etf-evening .article-content h2::before,
+.report-article.tone-etf-evening .article-content .md-section::before { color: #7dd3fc; }
+.report-article.tone-etf-evening .article-content h3,
+.report-article.tone-etf-evening .article-content h4,
+.report-article.tone-etf-evening .article-content .md-subtitle { color: #7dd3fc; border-left-color: #38bdf8; }
 
 .article-content p {
   margin: 0 0 12px;
-  color: #b4becc;
+  color: #8b95a6;
   font-size: 15px;
+  font-weight: 400;
   line-height: 1.85;
 }
 
@@ -346,8 +376,9 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 0;
   background: transparent;
-  color: #9aa4b5;
-  font-size: 14px;
+  color: #8b95a6;
+  font-size: 14.5px;
+  font-weight: 400;
   line-height: 1.7;
 }
 
@@ -391,8 +422,8 @@
 }
 
 .article-content strong {
-  color: #e8eef7;
-  font-weight: 680;
+  color: #c5cdd8;
+  font-weight: 650;
 }
 
 .article-content a {
@@ -495,8 +526,14 @@
     font-size: 24px;
   }
 
-  .article-content h2 {
-    font-size: 18px;
+  .article-content h2,
+  .article-content .md-section {
+    font-size: 19px;
+  }
+
+  .article-content h3,
+  .article-content .md-subtitle {
+    font-size: 15.5px;
   }
 }
 

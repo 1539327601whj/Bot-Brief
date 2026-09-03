@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -68,9 +69,10 @@ public class SubscriptionController {
         try {
             SubscriptionPreferences.NormalizedPreferences preferences = subscriptionPreferences.normalize(dto);
             List<PushChannelResponse> channels = pushChannelService.listResponsesByUser(userId);
-            validateOneChannelPerType(preferences.schedules(), channels);
+            collapseToOneChannelPerType(preferences.schedules(), channels);
             var ownedChannelIds = channels.stream().map(PushChannelResponse::getId).collect(Collectors.toSet());
             var filteredSchedules = subscriptionPreferences.filterChannelIds(preferences.schedules(), ownedChannelIds);
+            subscriptionPreferences.restrictSiteVisibility(filteredSchedules, SecurityUtils.isAdmin());
             String schedulesJson = subscriptionPreferences.writeSchedules(filteredSchedules);
             List<SubscriptionDTO.TopicScheduleItemDTO> enabled = filteredSchedules.getItems() == null
                     ? List.of()
@@ -101,7 +103,11 @@ public class SubscriptionController {
         }
     }
 
-    private void validateOneChannelPerType(
+    /**
+     * 每个主题时段：同一种方式只留一个账号。不同主题可以共用同一个企业微信。
+     * 旧数据可能被前端把多个微信账号抄到同一条上，这里收成一个，避免误伤自定义主题。
+     */
+    private void collapseToOneChannelPerType(
             SubscriptionDTO.TopicSchedulesDTO schedules, List<PushChannelResponse> channels) {
         Map<Long, String> typeById = channels.stream()
                 .collect(Collectors.toMap(PushChannelResponse::getId, PushChannelResponse::getChannelType, (a, b) -> a));
@@ -109,13 +115,13 @@ public class SubscriptionController {
         for (SubscriptionDTO.TopicScheduleItemDTO item : schedules.getItems()) {
             if (item.getChannelIds() == null || item.getChannelIds().isEmpty()) continue;
             Set<String> types = new HashSet<>();
+            List<Long> kept = new ArrayList<>();
             for (Long channelId : item.getChannelIds()) {
                 String type = typeById.get(channelId);
                 if (type == null) continue;
-                if (!types.add(type)) {
-                    throw new IllegalArgumentException("同一主题每种推送方式只能绑定一个账号");
-                }
+                if (types.add(type)) kept.add(channelId);
             }
+            item.setChannelIds(kept);
         }
     }
 

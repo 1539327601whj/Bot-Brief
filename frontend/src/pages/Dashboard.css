@@ -184,10 +184,13 @@
 }
 
 .today-card-report-title {
-  font-size: 15px;
-  color: #e6edf3;
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 16px;
+  font-weight: 750;
+  color: #e8ecff;
   margin: 8px 0 12px;
-  line-height: 1.4;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
 }
 
 .today-card-stale-hint {
@@ -233,15 +236,33 @@
 }
 
 .today-card-body h1,
+.today-card-body .md-title {
+  margin: 12px 0 6px;
+  color: #e8ecff;
+  font-size: 16px;
+  font-weight: 750;
+}
+
 .today-card-body h2,
-.today-card-body h3 {
-  color: #00f5d4;
-  font-size: 14px;
-  margin: 10px 0 6px;
+.today-card-body .md-section {
+  margin: 12px 0 6px;
+  color: #a8b2ff;
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.today-card-body h3,
+.today-card-body .md-subtitle {
+  margin: 10px 0 5px;
+  color: #5eead4;
+  font-size: 13.5px;
+  font-weight: 700;
 }
 
 .today-card-body p {
   margin: 6px 0;
+  color: #8b95a6;
+  font-weight: 400;
 }
 
 .today-card-body a {
@@ -950,17 +971,21 @@
 
 .focus-title,
 .overview-report-title {
-  color: #e6edf3;
-  line-height: 1.45;
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #e8ecff;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
   margin: 10px 0 12px;
 }
 
 .focus-title {
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 780;
 }
 
 .overview-report-title {
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 750;
 }
 
 .focus-summary {
@@ -1469,12 +1494,24 @@
   background: linear-gradient(180deg, transparent 0%, rgba(11, 15, 24, 0.96) 100%);
 }
 
-.today-card-body h1,
-.today-card-body h2,
-.today-card-body h3,
 .today-card-body a,
 .today-card-body code {
   color: var(--accent-strong);
+}
+
+.today-card-body h1,
+.today-card-body .md-title {
+  color: #e8ecff;
+}
+
+.today-card-body h2,
+.today-card-body .md-section {
+  color: #a8b2ff;
+}
+
+.today-card-body h3,
+.today-card-body .md-subtitle {
+  color: #5eead4;
 }
 
 .today-card-body code {

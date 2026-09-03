@@ -56,5 +56,7 @@ public class SubscriptionDTO {
         private List<Long> channelIds;
         /** 用户对这个主题想看的范围；空着走系统默认 */
         private String intent;
+        /** 管理员：是否出现在全站日报；普通用户忽略 */
+        private Boolean siteVisible;
     }
 }

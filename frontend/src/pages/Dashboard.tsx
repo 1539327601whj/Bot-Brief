@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import { dispatchKeyOf, pushKindFromDispatchKey, slotEmptyHint, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
 import './Dashboard.css'
 
 interface Report {
@@ -36,6 +37,7 @@ interface TopicScheduleItem {
   weekdayFrom?: number
   weekdayTo?: number
   channelIds?: number[]
+  siteVisible?: boolean
 }
 
 interface Subscription {
@@ -333,10 +335,6 @@ function SuggestionCard({ suggestions }: { suggestions: string[] }) {
   )
 }
 
-function isPublicEdition(edition?: string) {
-  return edition === 'morning' || edition === 'evening' || Boolean(edition?.startsWith('market_watch')) || Boolean(edition?.startsWith('etf_'))
-}
-
 function RecentReportList({ reports }: { reports: Report[] }) {
   if (reports.length === 0) {
     return <div className="empty">暂无报告</div>
@@ -449,7 +447,20 @@ export default function Dashboard() {
     }
   }, [isDemo])
 
-  const slotTimes = uniqueTimes(itemsDueToday(subscriptionItems(subscription)))
+  const scheduleItems = allScheduleItems(subscription)
+  const showAiDigest = !isAdmin || topicSiteVisible(AI_TECH_DIGEST, scheduleItems)
+  const showEtfDigest = !isAdmin || topicSiteVisible(ETF_DIGEST, scheduleItems)
+  const dueItems = itemsDueToday(subscriptionItems(subscription))
+  const personalDueItems = isAdmin
+    ? dueItems.filter(item => !isDigestTopic(item.topic) && !topicSiteVisible(item.topic, scheduleItems))
+    : dueItems
+  const siteCustomDue = isAdmin
+    ? dueItems.filter(item => !isDigestTopic(item.topic) && topicSiteVisible(item.topic, scheduleItems))
+    : []
+  const slotTimes = uniqueTimes(personalDueItems)
+  const siteCustomTimes = uniqueTimes(siteCustomDue)
+  const siteOnlyTimes = new Set(siteCustomTimes.filter(time => !slotTimes.includes(time)))
+  const personalPaneReports = personalReports.filter(report => !siteOnlyTimes.has(toHHmm(report.displayTime)))
   const personalByTime = useMemo(() => {
     const map = new Map<string, Report>()
     personalReports.forEach(report => {
@@ -478,7 +489,7 @@ export default function Dashboard() {
     if ((stats?.todayCount ?? todayReports.length) === 0) {
       items.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
     }
-    if (canSeePublicDigest) {
+    if (canSeePublicDigest && showAiDigest) {
       if (now.hour() >= 9 && !reportIsOnDate(morning)) items.push('今日早间简报尚未生成')
       if (now.hour() >= 21 && !reportIsOnDate(evening)) items.push('今日晚间简报尚未生成')
     }
@@ -493,7 +504,7 @@ export default function Dashboard() {
         items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
       }
     }
-    if (now.hour() >= 18 && !reportIsOnDate(marketWatch)) items.push('ETF/A股日报尚未生成')
+    if (showEtfDigest && now.hour() >= 18 && !reportIsOnDate(marketWatch)) items.push('ETF/A股日报尚未生成')
     if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
     if (subscriptionItems(subscription).length > 0 && todayLogs.length === 0 && now.hour() >= 9) {
@@ -502,7 +513,7 @@ export default function Dashboard() {
         : '订阅已开启，但今日暂无推送记录')
     }
     return [...new Set(items)]
-  }, [stats, todayReports, morning, evening, marketWatch, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest, todayProgress, isAdmin])
+  }, [stats, todayReports, morning, evening, marketWatch, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest, todayProgress, isAdmin, showAiDigest, showEtfDigest])
 
   const suggestions = useMemo(() => {
     if (failedLogs.length > 0) return ['检查推送渠道配置，优先处理今日失败记录。']
@@ -529,7 +540,7 @@ export default function Dashboard() {
         <div>
           <span className="overview-kicker">{dayjs().format('YYYY年M月D日 dddd')}</span>
           <h1 className="welcome-title">今日概览</h1>
-          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '上半部分是全站公共日报，下半部分是你自己的个人订阅。两边互不影响。' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
+          <p className="welcome-subtitle">{isDemo ? '集中查看 AI 简报、ETF/A股观察、订阅和推送状态' : isAdmin ? '全站日报只显示你在订阅管理里设为「全站日报」的主题；其余只出现在个人内容。' : 'AI 简报只展示你勾选的兴趣；ETF/A股观察仍是公共内容'}</p>
         </div>
         <div className="overview-hero-stats">
           <div><strong>{stats?.todayCount ?? todayReports.length}</strong><span>今日报告</span></div>
@@ -545,22 +556,50 @@ export default function Dashboard() {
               <div>
                 <p className="overview-pane-kicker">公共内容</p>
                 <h2>全站日报</h2>
-                <p className="overview-pane-desc">所有人都能看到的早报、晚报和 ETF 日报。今天没生成时显示最近一期。</p>
+                <p className="overview-pane-desc">只显示你在订阅管理里设为「全站日报」的主题。今天没生成时显示最近一期。</p>
               </div>
               <Link to="/reports" className="section-link">历史日报 →</Link>
             </div>
-            <div className="overview-two-grid">
-              <ReportMiniCard report={morning} edition="morning" />
-              <ReportMiniCard report={evening} edition="evening" />
-            </div>
-            <div className="overview-single-grid">
-              <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
-            </div>
+            {showAiDigest || showEtfDigest || siteCustomTimes.length > 0 ? (
+              <>
+                {showAiDigest && (
+                  <div className="overview-two-grid">
+                    <ReportMiniCard report={morning} edition="morning" />
+                    <ReportMiniCard report={evening} edition="evening" />
+                  </div>
+                )}
+                {showEtfDigest && (
+                  <div className="overview-single-grid">
+                    <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
+                  </div>
+                )}
+                {siteCustomTimes.length > 0 && (
+                  <div className={siteCustomTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
+                    {siteCustomTimes.map(time => (
+                      <ReportMiniCard
+                        key={`site-${time}`}
+                        report={personalByTime.get(time) || null}
+                        edition="personal"
+                        displayTime={time}
+                        emptyHint={`预计 ${time} 按全站主题生成`}
+                        topics={siteCustomDue.filter(item => toHHmm(item.time) === time).map(item => item.topic)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="overview-muted">还没有放到全站的日报。到订阅管理把主题设为「全站日报」。</p>
+            )}
             <div className="overview-section-header">
               <h2>最近公共日报</h2>
               <Link to="/reports" className="section-link">查看全部 →</Link>
             </div>
-            <RecentReportList reports={recentReports.filter(report => isPublicEdition(report.edition))} />
+            <RecentReportList reports={recentReports.filter(report => {
+              if (report.edition === 'morning' || report.edition === 'evening') return showAiDigest
+              if (String(report.edition).startsWith('market_watch')) return showEtfDigest
+              return false
+            })} />
           </section>
 
           <section className="overview-pane personal">
@@ -568,31 +607,50 @@ export default function Dashboard() {
               <div>
                 <p className="overview-pane-kicker">个人内容</p>
                 <h2>我的订阅简报</h2>
-                <p className="overview-pane-desc">只按你在订阅管理里勾选的兴趣、星期和时刻生成，和上面的公共日报分开。</p>
+                <p className="overview-pane-desc">只显示设为「仅个人」的主题。全站主题不会出现在这一栏。</p>
               </div>
               <Link to="/subscription" className="section-link">设置个人订阅 →</Link>
             </div>
+            {(!showAiDigest || !showEtfDigest) && (
+              <>
+                {!showAiDigest && (
+                  <div className="overview-two-grid">
+                    <ReportMiniCard report={morning} edition="morning" />
+                    <ReportMiniCard report={evening} edition="evening" />
+                  </div>
+                )}
+                {!showEtfDigest && (
+                  <div className="overview-single-grid">
+                    <ReportMiniCard report={marketWatch} edition="market_watch_evening" />
+                  </div>
+                )}
+              </>
+            )}
             <div className="overview-main-grid">
-              <FocusCard report={personalReports[0] || null} />
+              <FocusCard report={personalPaneReports[0] || null} />
               <SuggestionCard suggestions={suggestions} />
               <AlertsCard alerts={alerts} />
             </div>
-            <div className={slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
-              {slotTimes.length === 0 ? (
-                <ReportMiniCard report={null} edition="personal" emptyHint="还没有个人订阅。点右上角去勾选兴趣并设定星期、时刻" />
-              ) : (
-                slotTimes.map(time => (
-                  <ReportMiniCard
-                    key={time}
-                    report={personalByTime.get(time) || null}
-                    edition="personal"
-                    displayTime={time}
-                    emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
-                    topics={todayProgress.items.filter(item => item.time === time).map(item => item.topic)}
-                  />
-                ))
-              )}
-            </div>
+            {(slotTimes.length > 0 || (showAiDigest && showEtfDigest)) && (
+              <div className={slotTimes.length > 1 ? 'overview-two-grid' : 'overview-single-grid'}>
+                {slotTimes.length === 0 ? (
+                  <ReportMiniCard report={null} edition="personal" emptyHint="还没有个人订阅。点右上角去勾选兴趣并设定星期、时刻" />
+                ) : (
+                  slotTimes.map(time => (
+                    <ReportMiniCard
+                      key={time}
+                      report={personalByTime.get(time) || null}
+                      edition="personal"
+                      displayTime={time}
+                      emptyHint={slotEmptyHint(todayProgress.items, time, `预计 ${time} 按你勾选的主题生成`)}
+                      topics={todayProgress.items
+                        .filter(item => item.time === time && !topicSiteVisible(item.topic, scheduleItems))
+                        .map(item => item.topic)}
+                    />
+                  ))
+                )}
+              </div>
+            )}
             <div className="overview-main-grid">
               <SubscriptionCard subscription={subscription} progress={todayProgress.items} />
               <PushStatusCard logs={pushLogs} todayReports={todayReports} />
@@ -608,7 +666,11 @@ export default function Dashboard() {
               <h2>最近个人简报</h2>
               <Link to="/reports" className="section-link">查看全部 →</Link>
             </div>
-            <RecentReportList reports={recentReports.filter(report => report.edition === 'personal')} />
+            <RecentReportList reports={[
+              ...(!showAiDigest ? recentReports.filter(report => report.edition === 'morning' || report.edition === 'evening') : []),
+              ...(!showEtfDigest ? recentReports.filter(report => String(report.edition).startsWith('market_watch')) : []),
+              ...recentReports.filter(report => report.edition === 'personal'),
+            ]} />
           </section>
         </>
       ) : (

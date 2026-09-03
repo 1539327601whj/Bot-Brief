@@ -63,6 +63,10 @@ export default function MarketMarkdown({ children }: MarketMarkdownProps) {
     <div className="market-markdown">
       <ReactMarkdown
         components={{
+          h1: ({ children: content, ...props }) => <h1 className="md-title" {...props}>{renderMarketChanges(content)}</h1>,
+          h2: ({ children: content, ...props }) => <h2 className="md-section" {...props}>{renderMarketChanges(content)}</h2>,
+          h3: ({ children: content, ...props }) => <h3 className="md-subtitle" {...props}>{renderMarketChanges(content)}</h3>,
+          h4: ({ children: content, ...props }) => <h4 className="md-subtitle" {...props}>{renderMarketChanges(content)}</h4>,
           p: ({ children: content, ...props }) => <p {...props}>{renderMarketChanges(content)}</p>,
           li: ({ children: content, ...props }) => <li {...props}>{renderMarketChanges(content)}</li>,
           blockquote: ({ children: content, ...props }) => (

@@ -15,6 +15,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,10 +52,8 @@ public class FeishuChannelSender implements ChannelSender {
             body.put("timestamp", String.valueOf(ts));
             body.put("sign", sign(ts, channel.getSecret()));
         }
-        body.put("msg_type", "text");
-        Map<String, Object> content = new HashMap<>();
-        content.put("text", truncate(report.getTitle() + "\n\n" + report.getContent(), TEXT_MAX));
-        body.put("content", content);
+        body.put("msg_type", "interactive");
+        body.put("card", buildCard(report));
 
         ResponseEntity<String> response;
         try {
@@ -72,6 +71,29 @@ public class FeishuChannelSender implements ChannelSender {
         mac.init(new SecretKeySpec(stringToSign.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         byte[] data = mac.doFinal(new byte[]{});
         return Base64.getEncoder().encodeToString(data);
+    }
+
+    private Map<String, Object> buildCard(Report report) {
+        String title = report.getTitle() == null ? "BriefMind 日报" : report.getTitle();
+        Map<String, Object> headerTitle = new HashMap<>();
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", truncate(title, 80));
+        Map<String, Object> header = new HashMap<>();
+        header.put("title", headerTitle);
+        header.put("template", PushReportFormat.feishuHeaderTemplate(report.getEdition()));
+
+        Map<String, Object> text = new HashMap<>();
+        text.put("tag", "lark_md");
+        text.put("content", truncate(PushReportFormat.feishuMarkdown(title, report.getContent()), TEXT_MAX));
+        Map<String, Object> section = new HashMap<>();
+        section.put("tag", "div");
+        section.put("text", text);
+
+        Map<String, Object> card = new HashMap<>();
+        card.put("config", Map.of("wide_screen_mode", true));
+        card.put("header", header);
+        card.put("elements", List.of(section));
+        return card;
     }
 
     private String truncate(String s, int max) {

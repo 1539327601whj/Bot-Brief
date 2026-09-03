@@ -40,14 +40,21 @@ public class EmailPushService implements ChannelSender {
         h.setFrom(from, fromName);
         h.setTo(channel.getTarget());
         h.setSubject(report.getTitle());
-        String body = MarkdownUtils.toSimpleHtml(report.getContent());
+        String body = MarkdownUtils.toSimpleHtml(
+                PushReportFormat.bodyWithoutLeadTitle(report.getTitle(), report.getContent()));
         if (body.isBlank()) {
-            body = "<p>" + escape(report.getSummary()) + "</p>";
+            body = "<p style=\"margin:0 0 12px;color:#4b5563;font-size:15px;line-height:1.8;\">"
+                    + escape(report.getSummary()) + "</p>";
         }
-        String html = "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;color:#1f2937;max-width:720px;\">"
-                + "<h1 style=\"font-size:20px;margin:0 0 16px;\">" + escape(report.getTitle()) + "</h1>"
+        String html = "<div style=\"margin:0;padding:0;background:#f3f4f8;\">"
+                + "<div style=\"max-width:680px;margin:0 auto;padding:24px 16px;\">"
+                + "<div style=\"background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:28px 28px 32px;"
+                + "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;\">"
+                + "<p style=\"margin:0 0 8px;color:#6366f1;font-size:11px;font-weight:700;letter-spacing:0.16em;\">BRIEFMIND 日报</p>"
+                + "<h1 style=\"margin:0 0 20px;color:#111827;font-size:24px;font-weight:750;line-height:1.25;letter-spacing:-0.03em;\">"
+                + escape(report.getTitle()) + "</h1>"
                 + body
-                + "</div>";
+                + "</div></div></div>";
         h.setText(html, true);
         mailSender.send(msg);
         log.info("邮件推送成功 channel_id={} report_id={}", channel.getId(), report.getId());

@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -84,15 +85,29 @@ class SubscriptionControllerTest {
     }
 
     @Test
-    void rejectsTwoAccountsOfTheSameChannelType() {
+    void collapsesTwoAccountsOfTheSameChannelType() {
         SubscriptionDTO.TopicScheduleItemDTO item = item("AI大模型", "08:15");
         item.setChannelIds(List.of(11L, 12L));
 
-        Result<SubscriptionDTO> result = update(item);
+        assertThat(update(item).getCode()).isEqualTo(200);
 
-        assertThat(result.getCode()).isEqualTo(400);
-        assertThat(result.getMessage()).contains("每种推送方式只能绑定一个账号");
-        verify(subscriptionService, never()).updateForUser(anyLong(), any(), any(), any(), any(), any(), any(), any(), any());
+        ArgumentCaptor<String> schedulesJson = ArgumentCaptor.forClass(String.class);
+        verify(subscriptionService).updateForUser(anyLong(), any(), any(), schedulesJson.capture(), any(), any(), any(), any(), any());
+        assertThat(schedulesJson.getValue()).contains("11").doesNotContain("12");
+    }
+
+    @Test
+    void allowsDifferentCustomTopicsToShareTheSameWechat() {
+        when(pushChannelService.listResponsesByUser(anyLong())).thenReturn(List.of(
+                PushChannelResponse.builder().id(21L).channelType("wechat").targetPreview("测试").secretConfigured(false).enabled(true).build()
+        ));
+        SubscriptionDTO.TopicScheduleItemDTO musk = item("马斯克", "09:00");
+        musk.setChannelIds(List.of(21L));
+        SubscriptionDTO.TopicScheduleItemDTO huang = item("黄仁勋", "16:10");
+        huang.setChannelIds(List.of(21L));
+
+        assertThat(update(musk, huang).getCode()).isEqualTo(200);
+        verify(subscriptionService).updateForUser(anyLong(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -102,6 +117,18 @@ class SubscriptionControllerTest {
         assertThat(result.getCode()).isEqualTo(400);
         assertThat(result.getMessage()).contains("格式无效");
         verify(subscriptionService, never()).updateForUser(anyLong(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void nonAdminCannotPersistCustomSiteVisible() {
+        SubscriptionDTO.TopicScheduleItemDTO custom = item("AI大模型", "08:15");
+        custom.setSiteVisible(true);
+
+        assertThat(update(custom).getCode()).isEqualTo(200);
+
+        ArgumentCaptor<String> schedulesJson = ArgumentCaptor.forClass(String.class);
+        verify(subscriptionService).updateForUser(anyLong(), any(), any(), schedulesJson.capture(), any(), any(), any(), any(), any());
+        assertThat(schedulesJson.getValue()).contains("\"siteVisible\":false");
     }
 
     private Result<SubscriptionDTO> update(SubscriptionDTO.TopicScheduleItemDTO... items) {

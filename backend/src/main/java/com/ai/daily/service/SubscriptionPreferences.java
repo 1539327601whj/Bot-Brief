@@ -248,6 +248,7 @@ public class SubscriptionPreferences {
                 applyWeekdays(normalized, item);
                 normalized.setChannelIds(normalizeChannelIds(item.getChannelIds()));
                 normalized.setIntent(TopicIntents.clip(item.getIntent()));
+                normalized.setSiteVisible(resolveSiteVisible(topic, item.getSiteVisible()));
                 unique.put(key, normalized);
             } else if (!existing.getTime().equals(ReportWindows.format(time))) {
                 throw new IllegalArgumentException("同一主题在同一时间段只能订阅一次");
@@ -257,6 +258,9 @@ public class SubscriptionPreferences {
                 applyWeekdays(existing, item);
                 if (!TopicIntents.isBlank(item.getIntent())) {
                     existing.setIntent(TopicIntents.clip(item.getIntent()));
+                }
+                if (item.getSiteVisible() != null) {
+                    existing.setSiteVisible(item.getSiteVisible());
                 }
             }
         }
@@ -280,6 +284,7 @@ public class SubscriptionPreferences {
             item.setWeekdayTo(SubscriptionWeekdays.DEFAULT_TO);
             item.setChannelIds(List.of());
             item.setIntent("");
+            item.setSiteVisible(DigestTopics.isDigest(field));
             items.add(item);
         }
         schedules.setItems(items);
@@ -360,7 +365,20 @@ public class SubscriptionPreferences {
         copy.setWeekdayTo(item.getWeekdayTo());
         copy.setChannelIds(item.getChannelIds());
         copy.setIntent(TopicIntents.clip(item.getIntent()));
+        copy.setSiteVisible(item.getSiteVisible());
         return copy;
+    }
+
+    public void restrictSiteVisibility(SubscriptionDTO.TopicSchedulesDTO schedules, boolean admin) {
+        if (admin || schedules == null || schedules.getItems() == null) return;
+        for (SubscriptionDTO.TopicScheduleItemDTO item : schedules.getItems()) {
+            if (item == null) continue;
+            item.setSiteVisible(DigestTopics.isDigest(item.getTopic()));
+        }
+    }
+
+    private static boolean resolveSiteVisible(String topic, Boolean requested) {
+        return requested != null ? requested : DigestTopics.isDigest(topic);
     }
 
     private void applyWeekdays(

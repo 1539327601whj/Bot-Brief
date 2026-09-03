@@ -56,7 +56,7 @@ public class WeChatChannelSender implements ChannelSender {
     }
 
     private String buildMarkdown(Report report) {
-        return "📋 **" + report.getTitle() + "**\n\n" + report.getContent();
+        return PushReportFormat.wecomMarkdown(report.getTitle(), report.getContent());
     }
 
 }

@@ -139,9 +139,11 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 650;
+  color: #e8ecff;
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
 }
 
 .market-watch-card-header p,
@@ -230,17 +232,35 @@
 }
 
 .market-watch-markdown h1,
+.market-watch-markdown .md-title {
+  margin: 14px 0 8px;
+  color: #e8ecff;
+  font-size: 18px;
+  font-weight: 750;
+}
+
 .market-watch-markdown h2,
-.market-watch-markdown h3 {
-  margin: 10px 0 6px;
-  color: #dce1ff;
-  font-size: 14px;
+.market-watch-markdown .md-section {
+  margin: 14px 0 8px;
+  color: #7dd3fc;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.market-watch-markdown h3,
+.market-watch-markdown .md-subtitle {
+  margin: 12px 0 6px;
+  color: #5eead4;
+  font-size: 14.5px;
+  font-weight: 700;
 }
 
 .market-watch-markdown p,
 .market-watch-markdown ul,
 .market-watch-markdown ol {
   margin: 6px 0;
+  color: #8b95a6;
+  font-weight: 400;
 }
 
 .market-watch-markdown ul,

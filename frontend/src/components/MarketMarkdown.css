@@ -1,3 +1,50 @@
+.market-markdown {
+  color: #9aa4b5;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.75;
+}
+
+.market-markdown .md-title,
+.market-markdown .md-section,
+.market-markdown .md-subtitle {
+  font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.market-markdown .md-title {
+  margin: 18px 0 10px;
+  color: #e8ecff;
+  font-size: 1.35em;
+  font-weight: 750;
+}
+
+.market-markdown .md-section {
+  margin: 16px 0 8px;
+  color: #a8b2ff;
+  font-size: 1.15em;
+  font-weight: 750;
+}
+
+.market-markdown .md-subtitle {
+  margin: 14px 0 6px;
+  color: #5eead4;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.market-markdown p {
+  margin: 0 0 10px;
+  color: #9aa4b5;
+  font-weight: 400;
+}
+
+.market-markdown strong {
+  color: #d7deea;
+  font-weight: 650;
+}
+
 .market-markdown a {
   color: #8b9cff;
   text-decoration: underline;

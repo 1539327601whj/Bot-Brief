@@ -58,7 +58,8 @@ public class DingTalkChannelSender implements ChannelSender {
         msg.put("msgtype", "markdown");
         Map<String, Object> md = new HashMap<>();
         md.put("title", report.getTitle());
-        md.put("text", PushContentLimits.truncateToBytes("## " + report.getTitle() + "\n\n" + report.getContent(), MARKDOWN_MAX));
+        md.put("text", PushContentLimits.truncateToBytes(
+                PushReportFormat.dingtalkMarkdown(report.getTitle(), report.getContent()), MARKDOWN_MAX));
         msg.put("markdown", md);
 
         ResponseEntity<String> response;

@@ -1,5 +1,8 @@
 package com.ai.daily.util;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class MarkdownUtils {
@@ -41,48 +44,83 @@ public final class MarkdownUtils {
         return s;
     }
 
+    private static final String H1_STYLE = "margin:0 0 16px;color:#111827;font-size:22px;font-weight:750;line-height:1.3;letter-spacing:-0.02em;";
+    private static final String H2_STYLE = "margin:28px 0 10px;padding:0 0 6px;border-bottom:2px solid #e0e7ff;color:#4f46e5;font-size:18px;font-weight:750;line-height:1.35;";
+    private static final String H3_STYLE = "margin:18px 0 6px;padding:0 0 0 10px;border-left:3px solid #0d9488;color:#0f766e;font-size:15px;font-weight:700;line-height:1.4;";
+    private static final String P_STYLE = "margin:0 0 12px;color:#4b5563;font-size:15px;font-weight:400;line-height:1.8;";
+    private static final String LI_STYLE = "margin:0 0 6px;color:#4b5563;font-size:15px;line-height:1.7;";
+    private static final Pattern HEADING_LINE = Pattern.compile("^(#{1,6})\\s+(.+)$");
+    private static final Pattern LIST_LINE = Pattern.compile("^\\s*(?:[-*+]|\\d+\\.)\\s+(.+)$");
+
     public static String toSimpleHtml(String markdown) {
         if (markdown == null || markdown.isBlank()) return "";
-        String[] blocks = markdown.replace("\r\n", "\n").split("\n\n");
+        String[] lines = markdown.replace("\r\n", "\n").split("\n", -1);
         StringBuilder html = new StringBuilder();
-        for (String rawBlock : blocks) {
-            String block = rawBlock.strip();
-            if (block.isEmpty()) continue;
-            if (block.matches("(?s)-{3,}|\\*{3,}|_{3,}")) {
-                html.append("<hr>");
+        List<String> listItems = new ArrayList<>();
+        StringBuilder paragraph = new StringBuilder();
+        for (String raw : lines) {
+            String line = raw.strip();
+            if (line.isEmpty()) {
+                flushList(html, listItems);
+                flushParagraph(html, paragraph);
                 continue;
             }
-            if (block.startsWith("### ")) {
-                html.append("<h3>").append(inline(block.substring(4))).append("</h3>");
+            if (line.matches("-{3,}|\\*{3,}|_{3,}")) {
+                flushList(html, listItems);
+                flushParagraph(html, paragraph);
+                html.append("<hr style=\"border:none;border-top:1px solid #e5e7eb;margin:20px 0;\">");
                 continue;
             }
-            if (block.startsWith("## ")) {
-                html.append("<h2>").append(inline(block.substring(3))).append("</h2>");
+            Matcher heading = HEADING_LINE.matcher(line);
+            if (heading.matches()) {
+                flushList(html, listItems);
+                flushParagraph(html, paragraph);
+                int level = Math.min(heading.group(1).length(), 3);
+                html.append("<h").append(level).append(" style=\"").append(headingStyle(level)).append("\">")
+                        .append(inline(heading.group(2))).append("</h").append(level).append(">");
                 continue;
             }
-            if (block.startsWith("# ")) {
-                html.append("<h1>").append(inline(block.substring(2))).append("</h1>");
+            Matcher list = LIST_LINE.matcher(line);
+            if (list.matches()) {
+                flushParagraph(html, paragraph);
+                listItems.add(list.group(1));
                 continue;
             }
-            String[] lines = block.split("\n");
-            boolean list = lines.length > 0 && lines[0].matches("\\s*(?:[-*+]|\\d+\\.)\\s+.*");
-            if (list) {
-                html.append("<ul>");
-                for (String line : lines) {
-                    html.append("<li>").append(inline(line.replaceFirst("\\s*(?:[-*+]|\\d+\\.)\\s+", ""))).append("</li>");
-                }
-                html.append("</ul>");
-                continue;
-            }
-            html.append("<p>").append(inline(block.replace("\n", "<br>"))).append("</p>");
+            flushList(html, listItems);
+            if (!paragraph.isEmpty()) paragraph.append("<br>");
+            paragraph.append(inline(line));
         }
+        flushList(html, listItems);
+        flushParagraph(html, paragraph);
         return html.toString();
+    }
+
+    private static String headingStyle(int level) {
+        if (level <= 1) return H1_STYLE;
+        if (level == 2) return H2_STYLE;
+        return H3_STYLE;
+    }
+
+    private static void flushList(StringBuilder html, List<String> items) {
+        if (items.isEmpty()) return;
+        html.append("<ul style=\"margin:0 0 14px;padding-left:20px;\">");
+        for (String item : items) {
+            html.append("<li style=\"").append(LI_STYLE).append("\">").append(inline(item)).append("</li>");
+        }
+        html.append("</ul>");
+        items.clear();
+    }
+
+    private static void flushParagraph(StringBuilder html, StringBuilder paragraph) {
+        if (paragraph.isEmpty()) return;
+        html.append("<p style=\"").append(P_STYLE).append("\">").append(paragraph).append("</p>");
+        paragraph.setLength(0);
     }
 
     private static String inline(String text) {
         String escaped = escape(text);
-        escaped = escaped.replaceAll("\\*\\*(.+?)\\*\\*", "<strong>$1</strong>");
-        escaped = escaped.replaceAll("__(.+?)__", "<strong>$1</strong>");
+        escaped = escaped.replaceAll("\\*\\*(.+?)\\*\\*", "<strong style=\"color:#1f2937;font-weight:700;\">$1</strong>");
+        escaped = escaped.replaceAll("__(.+?)__", "<strong style=\"color:#1f2937;font-weight:700;\">$1</strong>");
         escaped = escaped.replaceAll("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", "<em>$1</em>");
         escaped = escaped.replaceAll("`([^`]+)`", "<code>$1</code>");
         escaped = escaped.replaceAll(
