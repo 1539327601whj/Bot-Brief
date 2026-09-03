@@ -210,6 +210,11 @@ public class ReportController {
                     summary,
                     dto.getRunId()
             );
+            try {
+                scheduledPushTask.catchUpToday(dto.getReportDate());
+            } catch (Exception e) {
+                log.warn("公共简报入库后补推失败 edition={} date={}", dto.getEdition(), dto.getReportDate(), e);
+            }
             return Result.ok(created ? "简报已保存" : "简报已存在", created);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());

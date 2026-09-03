@@ -79,6 +79,20 @@ class SubscriptionPreferencesTest {
     }
 
     @Test
+    void boundChannelIdsUnionsEnabledSlots() {
+        Subscription subscription = new Subscription();
+        subscription.setTopicSchedules("""
+                {"items":[
+                  {"topic":"马斯克","enabled":true,"time":"15:10","weekdayFrom":1,"weekdayTo":5,"channelIds":[11,12]},
+                  {"topic":"AI科技","enabled":true,"time":"08:00","weekdayFrom":1,"weekdayTo":7,"channelIds":[]}
+                ]}
+                """);
+
+        assertThat(preferences.boundChannelIds(subscription, LocalDate.of(2026, 9, 3)))
+                .containsExactly(11L, 12L);
+    }
+
+    @Test
     void emptyChannelAssignmentsMeanWebOnly() {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();

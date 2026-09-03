@@ -102,6 +102,13 @@ public class SubscriptionPreferences {
                 .toList();
     }
 
+    /** 这个订阅里已经绑过的渠道；某个主题没选渠道时沿用，避免只上网页。 */
+    public List<Long> boundChannelIds(Subscription subscription, LocalDate date) {
+        return ChannelIds.coerceAll(enabledTopicItemsOn(subscription, date).stream()
+                .flatMap(item -> ChannelIds.coerceAll(item.getChannelIds()).stream())
+                .toList());
+    }
+
     public List<LocalTime> displayTimes(Subscription subscription) {
         return displayTimesOn(subscription, null);
     }

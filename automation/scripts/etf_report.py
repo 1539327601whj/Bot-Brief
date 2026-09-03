@@ -2751,6 +2751,7 @@ def main() -> None:
     print(f"{'=' * 50}\n")
 
     webhook_url = os.environ.get("ETF_WECHAT_WEBHOOK", "")
+    backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
     dry_run = env_enabled("ETF_DRY_RUN")
     sync_only = env_enabled("ETF_SYNC_ONLY")
     if sync_only:
@@ -2762,8 +2763,8 @@ def main() -> None:
     if should_skip_weekend_report(current_time, dry_run):
         print("ℹ️ 周末无交易，默认跳过 ETF 日报抓取与推送")
         return
-    if not webhook_url and not dry_run:
-        print("❌ 缺少 ETF_WECHAT_WEBHOOK 环境变量")
+    if not webhook_url and not backend_configured and not dry_run:
+        print("❌ 缺少 ETF_WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
     print("📡 正在抓取 ETF 行情...")
@@ -2807,11 +2808,22 @@ def main() -> None:
         if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
             print("❌ ETF 报告同步到后端失败，本次不继续推送")
             sys.exit(1)
-        if not push_to_wechat(wx_content, webhook_url):
+        if backend_configured:
+            print("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
+        elif not push_to_wechat(wx_content, webhook_url):
             print("❌ ETF 企业微信推送失败，报告已入库")
             sys.exit(1)
 
     print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
+
+
+def generate_and_ingest() -> bool:
+    """poller 入口：生成并入库公共 ETF 报。有后端时不直推企业微信。"""
+    try:
+        main()
+    except SystemExit as exc:
+        return exc.code in (0, None)
+    return True
 
 
 if __name__ == "__main__":

@@ -41,7 +41,6 @@ import java.util.stream.Collectors;
 public class ScheduledPushTask {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
-    private static final Duration TICK_CATCH_UP_WINDOW = Duration.ofHours(3);
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
@@ -70,7 +69,7 @@ public class ScheduledPushTask {
     @Scheduled(cron = "0 * * * * *", zone = "Asia/Shanghai")
     public void tick() {
         ZonedDateTime now = ZonedDateTime.now(ZONE);
-        dispatchDue(now.toLocalTime().withSecond(0).withNano(0), now.toLocalDate(), TICK_CATCH_UP_WINDOW);
+        dispatchDue(now.toLocalTime().withSecond(0).withNano(0), now.toLocalDate(), null);
     }
 
     public void catchUpToday(LocalDate date) {
@@ -81,7 +80,7 @@ public class ScheduledPushTask {
     }
 
     void dispatchDue(LocalTime now, LocalDate date) {
-        dispatchDue(now, date, TICK_CATCH_UP_WINDOW);
+        dispatchDue(now, date, null);
     }
 
     public void catchUpUser(Subscription subscription, LocalDate date, LocalTime displayTime) {
@@ -140,10 +139,13 @@ public class ScheduledPushTask {
             }
 
             List<PushChannel> channels = pushChannelService.listEnabledByUser(subscription.getUserId());
+            List<Long> inheritedIds = ChannelIds.coerceAll(
+                    subscriptionPreferences.boundChannelIds(subscription, date));
             Map<Long, List<SubscriptionDTO.TopicScheduleItemDTO>> itemsByChannel = new LinkedHashMap<>();
             List<Long> boundIds = new ArrayList<>();
             for (SubscriptionDTO.TopicScheduleItemDTO item : items) {
                 List<Long> channelIds = ChannelIds.coerceAll(item.getChannelIds());
+                if (channelIds.isEmpty()) channelIds = inheritedIds;
                 boundIds.addAll(channelIds);
                 for (Long channelId : channelIds) {
                     PushChannel matched = ChannelIds.find(channels, channelId);

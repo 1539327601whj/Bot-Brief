@@ -296,22 +296,33 @@ export default function Subscription() {
     setData(prev => ({ ...prev, topicSchedules: { items: next } }))
   }
 
+  const defaultChannelIds = () => {
+    const used = items.flatMap(item => item.channelIds || [])
+    if (used.length) return [...new Set(used)]
+    const picked: number[] = []
+    ;(Object.keys(CHANNEL_META) as ChannelType[]).forEach(type => {
+      const enabled = (channelsByType[type] || []).filter(channel => channel.enabled)
+      if (enabled[0]) picked.push(enabled[0].id)
+    })
+    return picked
+  }
+
   const toggleTopic = (topic: string, enabled: boolean) => {
     const existing = topicItems(topic)
     if (enabled && existing.length === 0) {
       if (isAiTechDigest(topic)) {
         updateItems([
           ...items,
-          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [], intent: '' },
-          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: [], intent: '' },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds: defaultChannelIds(), intent: '' },
+          { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds: defaultChannelIds(), intent: '' },
         ])
         return
       }
       if (isEtfDigest(topic)) {
-        updateItems([...items, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds: [], intent: '' }])
+        updateItems([...items, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds: defaultChannelIds(), intent: '' }])
         return
       }
-      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [], intent: '' }])
+      updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: defaultChannelIds(), intent: '' }])
       return
     }
     updateItems(items.map(item => interestKey(item.topic) === interestKey(topic) ? { ...item, enabled } : item))
@@ -355,7 +366,7 @@ export default function Subscription() {
       time: WINDOW_DEFAULTS[nextWindow],
       weekdayFrom: DEFAULT_WEEKDAY_FROM,
       weekdayTo: DEFAULT_WEEKDAY_TO,
-      channelIds: [],
+      channelIds: defaultChannelIds(),
       intent: topicItems(topic)[0]?.intent || '',
     }])
   }
@@ -392,7 +403,7 @@ export default function Subscription() {
       } else if (isEtfDigest(topic)) {
         toggleTopic(ETF_DIGEST, true)
       } else {
-        updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: [], intent: '' }])
+        updateItems([...items, { topic, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds: defaultChannelIds(), intent: '' }])
       }
     } else {
       toggleTopic(topic, true)
@@ -564,7 +575,7 @@ export default function Subscription() {
             <p className="section-sub">
               每个主题选星期和时刻，并可写「我想看」。现在保存即可，不用提前半小时勾选。
               准点推送请选 {todayStatus.earliestOnTime || earliestOnTimeLabel(dayjs.tz(), todayStatus.onTimeLeadMinutes || 5)} 及以后；
-              更近的时刻也会生成，可能晚 1–2 分钟补推到企业微信。没绑渠道就只在网页看。
+              更近的时刻也会生成，可能晚 1–2 分钟补推。某个主题没选渠道时，会沿用你在其他主题绑过的账号；全都没绑才只上网页。
             </p>
           </div>
           <span className="section-count">{enabledSlots.length} 个时刻</span>

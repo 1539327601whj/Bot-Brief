@@ -14,7 +14,6 @@ import com.ai.daily.service.push.PushDispatcher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -23,6 +22,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,10 +45,10 @@ class ScheduledPushTaskTest {
         Subscription second = subscription(2L);
         LocalTime now = LocalTime.of(8, 15);
         LocalDate date = LocalDate.of(2026, 7, 24);
-        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(first, second));
+        when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(first, second));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L), user(2L)));
-        when(preferences.dueDisplayTimes(first, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
-        when(preferences.dueDisplayTimes(second, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(eq(first), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(eq(second), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(first, now, date)).thenReturn(List.of(topic("数据库", List.of(11L))));
         when(preferences.enabledTopicItemsAt(second, now, date)).thenReturn(List.of(topic("移动端", List.of(12L))));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
@@ -83,10 +84,10 @@ class ScheduledPushTaskTest {
         Report persisted = report("拼装简报");
         Report databaseReport = report("数据库内容");
         Report mobileReport = report("移动端内容");
-        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
-        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(
                 topic("数据库", List.of(11L)), topic("移动端", List.of(12L))));
         when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
@@ -114,7 +115,7 @@ class ScheduledPushTaskTest {
 
         Subscription demo = subscription(1L);
         Subscription disabled = subscription(2L);
-        when(subscriptions.findDueThrough(any(), any(), any())).thenReturn(List.of(demo, disabled));
+        when(subscriptions.findDueThrough(any(), any(), nullable(java.time.Duration.class))).thenReturn(List.of(demo, disabled));
         User demoUser = user(1L);
         demoUser.setAccountType(User.ACCOUNT_DEMO);
         User disabledUser = user(2L);
@@ -140,16 +141,49 @@ class ScheduledPushTaskTest {
         Subscription subscription = subscription(1L);
         LocalDate date = LocalDate.of(2026, 8, 25);
         LocalTime now = LocalTime.of(8, 20);
-        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
-        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("数据库", List.of())));
+        when(preferences.boundChannelIds(subscription, date)).thenReturn(List.of());
         when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(report("网页简报"));
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
 
         task.dispatchDue(now, date);
 
         verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
+    }
+
+    @Test
+    void inheritsChannelsFromOtherTopicsWhenSlotHasNone() {
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        ReportAssemblyService assembly = mock(ReportAssemblyService.class);
+        PushDispatcher dispatcher = mock(PushDispatcher.class);
+        PushChannelService channels = mock(PushChannelService.class);
+        UserMapper users = mock(UserMapper.class);
+        ScheduledPushTask task = task(subscriptions, preferences, channels, assembly, dispatcher, users);
+
+        Subscription subscription = subscription(1L);
+        LocalDate date = LocalDate.of(2026, 9, 3);
+        LocalTime now = LocalTime.of(8, 0);
+        Report persisted = report("科技日报");
+        when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(subscription));
+        when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
+        when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
+        when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("AI科技", List.of())));
+        when(preferences.boundChannelIds(subscription, date)).thenReturn(List.of(11L, 12L));
+        when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
+        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(persisted);
+        when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
+        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
+                .thenReturn(new PushDispatcher.DispatchResult(2, 2, 0));
+
+        task.dispatchDue(now, date);
+
+        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
+        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("08:00"), eq(date));
+        assertThat(reportsByChannel.getValue()).containsKeys(11L, 12L);
     }
 
     @Test
@@ -166,9 +200,9 @@ class ScheduledPushTaskTest {
         LocalDate date = LocalDate.of(2026, 9, 2);
         LocalTime now = LocalTime.of(15, 10);
         Report persisted = report("网页简报");
-        when(subscriptions.findDueThrough(eq(now), eq(date), any())).thenReturn(List.of(subscription));
+        when(subscriptions.findDueThrough(eq(now), eq(date), isNull())).thenReturn(List.of(subscription));
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
-        when(preferences.dueDisplayTimes(subscription, now, Duration.ofHours(3), date)).thenReturn(List.of(now));
+        when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("马斯克", List.of(11L))));
         when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
         when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(null);
