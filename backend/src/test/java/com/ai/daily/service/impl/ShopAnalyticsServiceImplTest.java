@@ -89,6 +89,17 @@ class ShopAnalyticsServiceImplTest {
     }
 
     @Test
+    void generateDemoDataRefusesToOverwriteExistingSales() {
+        when(sales.selectCount(any())).thenReturn(4L);
+
+        assertThatThrownBy(() -> service.generateDemoData(7L, 3L, false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已有经营数据");
+        verify(products, never()).insert(any());
+        verify(sales, never()).insert(any());
+    }
+
+    @Test
     void generateAiReportWithoutSalesDoesNotWriteAFakeDaily() {
         when(sales.selectOne(any())).thenReturn(null);
         when(sales.selectList(any())).thenReturn(List.of());

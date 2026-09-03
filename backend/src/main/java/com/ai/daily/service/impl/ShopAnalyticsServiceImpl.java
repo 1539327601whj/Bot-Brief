@@ -36,8 +36,14 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
 
     @Override
     @Transactional
-    public void generateDemoData(Long userId, Long storeId) {
+    public void generateDemoData(Long userId, Long storeId, boolean overwrite) {
         ShopStore store = requireStore(userId, storeId);
+        Long existingDays = salesDailyMapper.selectCount(new LambdaQueryWrapper<ShopSalesDaily>()
+                .eq(ShopSalesDaily::getUserId, userId)
+                .eq(ShopSalesDaily::getStoreId, store.getId()));
+        if ((existingDays == null ? 0L : existingDays) > 0 && !overwrite) {
+            throw new IllegalArgumentException("该店铺已有经营数据，生成演示数据会覆盖近 30 日记录");
+        }
         List<ShopProduct> products = ensureDemoProducts(userId, store);
         LocalDate today = LocalDate.now();
 

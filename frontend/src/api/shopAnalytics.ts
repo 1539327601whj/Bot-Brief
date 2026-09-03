@@ -112,8 +112,8 @@ export async function fetchShopOverview(storeId?: number, range = 7) {
   return res.data
 }
 
-export async function generateShopDemoData(storeId?: number) {
-  const res = await api.post('/shop/analytics/demo-data', null, { params: { storeId } })
+export async function generateShopDemoData(storeId?: number, overwrite = false) {
+  const res = await api.post('/shop/analytics/demo-data', null, { params: { storeId, overwrite } })
   return res.data
 }
 

@@ -6,7 +6,7 @@ import com.ai.daily.dto.ShopOverviewDTO;
 import java.util.Map;
 
 public interface ShopAnalyticsService {
-    void generateDemoData(Long userId, Long storeId);
+    void generateDemoData(Long userId, Long storeId, boolean overwrite);
 
     ShopOverviewDTO getOverview(Long userId, Long storeId, int range);
 

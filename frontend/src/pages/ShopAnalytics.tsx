@@ -287,12 +287,16 @@ export default function ShopAnalytics() {
 
   const handleDemoData = async () => {
     if (isDemo) return
+    const storeName = selectedStore?.storeName || '我的店铺'
+    const hasData = (overview?.effectiveDays ?? 0) > 0
+    const overwrite = hasData && window.confirm(`「${storeName}」已有经营数据。生成演示数据会覆盖近 30 日销售记录，确定继续？`)
+    if (hasData && !overwrite) return
     setActing(true); setNotice(null)
     try {
-      const res = await generateShopDemoData(storeId)
+      const res = await generateShopDemoData(storeId, overwrite)
       if (res?.code !== 200) throw new Error(res?.message || '生成模拟数据失败')
       await loadStores(); await loadOverview(storeId, range)
-      setNotice({ type: 'success', text: '演示模拟数据已生成' })
+      setNotice({ type: 'success', text: overwrite ? '演示数据已覆盖近 30 日记录' : '演示模拟数据已生成' })
     } catch (e) { setNotice({ type: 'error', text: errorText(e, '生成模拟数据失败') }) } finally { setActing(false) }
   }
   const handleAiReport = async () => {

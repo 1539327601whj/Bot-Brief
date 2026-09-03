@@ -30,14 +30,15 @@ public class ShopAnalyticsController {
     }
 
     @PostMapping("/demo-data")
-    public Result<String> generateDemoData(@RequestParam(required = false) Long storeId) {
+    public Result<String> generateDemoData(@RequestParam(required = false) Long storeId,
+                                           @RequestParam(defaultValue = "false") boolean overwrite) {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
         try {
-            shopAnalyticsService.generateDemoData(userId, storeId);
+            shopAnalyticsService.generateDemoData(userId, storeId, overwrite);
             return Result.ok("模拟数据已生成", null);
         } catch (IllegalArgumentException e) {
-            return Result.error(404, e.getMessage());
+            return Result.error("店铺不存在".equals(e.getMessage()) ? 404 : 400, e.getMessage());
         }
     }
 
