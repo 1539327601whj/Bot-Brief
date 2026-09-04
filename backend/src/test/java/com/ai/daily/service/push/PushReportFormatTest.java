@@ -58,6 +58,23 @@ class PushReportFormatTest {
     }
 
     @Test
+    void wecomColorsUpRedAndDownGreen() {
+        String markdown = PushReportFormat.wecomMarkdown(
+                "ETF 行情日报 · 2026-09-03（晚间）",
+                """
+                ## ETF变化
+
+                ### 沪深300ETF
+                - 今 4.100｜昨 4.000 ↑ +2.50%｜周 3.900 ↓ -1.20%｜月 3.800 0.00%
+                """);
+
+        assertThat(markdown).contains("<font color=\"warning\">↑ +2.50%</font>");
+        assertThat(markdown).contains("<font color=\"info\">↓ -1.20%</font>");
+        assertThat(markdown).contains("<font color=\"comment\">0.00%</font>");
+        assertThat(markdown).doesNotContain("<font color=\"warning\">4.100");
+    }
+
+    @Test
     void wecomDropsRefreshMarkerAndResearchDisclaimer() {
         String markdown = PushReportFormat.wecomMarkdown(
                 "ETF 行情日报 · 2026-09-03（晚间）",

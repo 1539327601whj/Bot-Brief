@@ -3,6 +3,8 @@ package com.ai.daily.service.push;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 把简报标题和章节标题改成各渠道能看清的层级，避免标题和正文长得一样。
@@ -12,6 +14,9 @@ public final class PushReportFormat {
     enum Kind { H1, H2, H3, HR, OTHER }
 
     record Line(Kind kind, String text, String raw) {}
+
+    private static final Pattern CHANGE_TOKEN = Pattern.compile(
+            "(?<![.\\d])((?:[↑↓]\\s*)?(?:\\+[\\d.]+(?:%|pt|点)|-[\\d.]+(?:%|pt|点)|0(?:\\.00)?(?:%|pt|点)))(?!\\d)");
 
     private PushReportFormat() {}
 
@@ -41,7 +46,7 @@ public final class PushReportFormat {
                 case H1, H2 -> out.append("\n> <font color=\"warning\">**").append(plain(line.text)).append("**</font>\n");
                 case H3 -> out.append("\n<font color=\"info\">**").append(plain(line.text)).append("**</font>\n");
                 case HR -> out.append('\n');
-                case OTHER -> out.append(line.raw).append('\n');
+                case OTHER -> out.append(colorizeWecomChanges(line.raw)).append('\n');
             }
         }
         return compact(out.toString());
@@ -122,6 +127,20 @@ public final class PushReportFormat {
             lines.add(new Line(Kind.OTHER, raw, raw));
         }
         return lines;
+    }
+
+    static String colorizeWecomChanges(String text) {
+        if (text == null || text.isEmpty()) return text;
+        Matcher matcher = CHANGE_TOKEN.matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            String token = matcher.group(1);
+            String body = token.replace("↑", "").replace("↓", "").replace(" ", "");
+            String color = body.startsWith("+") ? "warning" : body.startsWith("-") ? "info" : "comment";
+            matcher.appendReplacement(out, Matcher.quoteReplacement("<font color=\"" + color + "\">" + token + "</font>"));
+        }
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     static boolean isNonReportMeta(String text) {
