@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ConfigProvider, TimePicker, theme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
@@ -10,7 +10,7 @@ import { defaultSiteVisible, topicSiteVisible } from '../utils/topicVisibility'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { earliestOnTimeLabel, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { earliestOnTimeLabel, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Subscription.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -244,6 +244,37 @@ export default function Subscription() {
     }
     load().finally(() => setLoading(false))
   }, [isDemo, authReady, user?.role])
+
+  const refreshTodayStatus = useCallback(async () => {
+    if (isDemo) return
+    try {
+      const statusRes = await api.get('/subscription/today-status')
+      if (statusRes.data?.code === 200) {
+        setTodayStatus(statusRes.data.data || { items: [] })
+      }
+    } catch {
+      /* 保留上次进度，下一轮再拉 */
+    }
+  }, [isDemo])
+  const todayStatusRef = useRef(todayStatus)
+  todayStatusRef.current = todayStatus
+
+  useEffect(() => {
+    if (!authReady || isDemo) return
+    const pullIfVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!todayStatusNeedsLiveRefresh(todayStatusRef.current)) return
+      void refreshTodayStatus()
+    }
+    const timer = window.setInterval(pullIfVisible, 30_000)
+    document.addEventListener('visibilitychange', pullIfVisible)
+    window.addEventListener('focus', pullIfVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', pullIfVisible)
+      window.removeEventListener('focus', pullIfVisible)
+    }
+  }, [authReady, isDemo, refreshTodayStatus])
 
   const items = data.topicSchedules.items
   const topics = useMemo(() => {
@@ -523,6 +554,7 @@ export default function Subscription() {
       const res = await api.put('/subscription', payload)
       if (res.data?.code === 200) {
         setData(normalizeSubscription(res.data.data || payload))
+        await refreshTodayStatus()
         showMessage('设置已保存。到点后按你选的时刻展示和推送')
       } else if (isUnauthorized(undefined, res.data)) {
         showMessage('登录已过期，请退出后重新登录再保存', 'error')

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs, { parseBeijing } from '../utils/dayjs'
@@ -8,7 +8,7 @@ import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { dispatchKeyOf, pushKindFromDispatchKey, slotEmptyHint, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { dispatchKeyOf, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
 import './Dashboard.css'
 
@@ -429,6 +429,9 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [isDemo, canSeePublicDigest])
 
+  const todayProgressRef = useRef(todayProgress)
+  todayProgressRef.current = todayProgress
+
   useEffect(() => {
     if (isDemo) return
     const refreshLogs = () => {
@@ -436,13 +439,25 @@ export default function Dashboard() {
         if (data) setPushLogs(data)
       })
     }
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshLogs()
+    const refreshProgress = () => {
+      if (!todayStatusNeedsLiveRefresh(todayProgressRef.current)) return
+      safeGet<TodayProgress>('/subscription/today-status').then(data => {
+        if (data) setTodayProgress(data)
+      })
     }
-    window.addEventListener('focus', refreshLogs)
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      refreshLogs()
+      refreshProgress()
+    }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshProgress()
+    }, 30_000)
+    window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      window.removeEventListener('focus', refreshLogs)
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [isDemo])

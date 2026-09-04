@@ -80,6 +80,14 @@ export interface TodayProgress {
   items: TopicProgressItem[]
 }
 
+const SETTLED_TODAY_STATUS = new Set<TopicProgressStatus>(['pushed', 'delivered'])
+
+/** 还有生成、补推或生成器异常时，订阅页/首页应继续拉今日进度。 */
+export function todayStatusNeedsLiveRefresh(progress: TodayProgress) {
+  if (progress.poller && progress.poller.healthy === false) return true
+  return progress.items.some(item => !SETTLED_TODAY_STATUS.has(item.status))
+}
+
 export function earliestOnTimeLabel(now: { startOf: (unit: 'minute') => { add: (value: number, unit: 'minute') => { format: (fmt: string) => string } } }, leadMinutes = 5) {
   const lead = Math.max(1, leadMinutes)
   return now.startOf('minute').add(lead, 'minute').format('HH:mm')
