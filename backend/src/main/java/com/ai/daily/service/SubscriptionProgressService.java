@@ -3,7 +3,6 @@ package com.ai.daily.service;
 import com.ai.daily.dto.SubscriptionDTO;
 import com.ai.daily.dto.SubscriptionTodayStatusDTO;
 import com.ai.daily.entity.OpsHeartbeat;
-import com.ai.daily.entity.PushChannel;
 import com.ai.daily.entity.PushLog;
 import com.ai.daily.entity.Report;
 import com.ai.daily.entity.Subscription;
@@ -34,7 +33,6 @@ public class SubscriptionProgressService {
     private final OpsHeartbeatService heartbeatService;
     private final SubscribedTopicService subscribedTopicService;
     private final PushLogService pushLogService;
-    private final PushChannelService pushChannelService;
     private final ReportQueryService reportQueryService;
 
     @Value("${report.generation-lead-minutes:30}")
@@ -89,7 +87,7 @@ public class SubscriptionProgressService {
         TopicGenerationStatus recorded = generationStatusService.find(today, window, topic);
 
         if (assembled != null) {
-            applyDeliveryStatus(row, userId, today, subscription, item);
+            applyDeliveryStatus(row, userId, today, item);
             return row;
         }
         if (hasSection || (recorded != null && TopicGenerationStatus.READY.equals(recorded.getStatus()))) {
@@ -133,13 +131,12 @@ public class SubscriptionProgressService {
             SubscriptionTodayStatusDTO.ItemStatusDTO row,
             Long userId,
             LocalDate today,
-            Subscription subscription,
             SubscriptionDTO.TopicScheduleItemDTO item) {
-        List<Long> bound = effectiveChannelIds(userId, today, subscription, item);
+        List<Long> bound = ChannelIds.coerceAll(item.getChannelIds());
         if (bound.isEmpty()) {
             row.setStatus("delivered");
             row.setLabel("已生成");
-            row.setMessage("网页已可查看（没有可用推送账号，不会外推）");
+            row.setMessage("网页已可查看（这个时刻没绑渠道，只出网页）");
             return;
         }
         String prefix = "scheduled:" + today + ":" + row.getTime() + ":" + userId + ":";
@@ -192,19 +189,6 @@ public class SubscriptionProgressService {
         row.setStatus("web_ready");
         row.setLabel("网页已出");
         row.setMessage("网页已可查看，绑定渠道还没投递成功；打开本页或下一分钟会补推");
-    }
-
-    private List<Long> effectiveChannelIds(
-            Long userId, LocalDate today, Subscription subscription, SubscriptionDTO.TopicScheduleItemDTO item) {
-        List<Long> bound = ChannelIds.coerceAll(item.getChannelIds());
-        if (!bound.isEmpty()) return bound;
-        bound = subscriptionPreferences.boundChannelIds(subscription, today);
-        if (!bound.isEmpty()) return bound;
-        return pushChannelService.listEnabledByUser(userId).stream()
-                .map(PushChannel::getId)
-                .filter(id -> id != null && id > 0)
-                .distinct()
-                .toList();
     }
 
     private static String retryableFailureMessage(String recorded, String fallback) {

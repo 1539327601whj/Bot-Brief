@@ -337,18 +337,6 @@ export default function Subscription() {
     return picked
   }
 
-  const defaultChannelIdsFrom = (current: TopicScheduleItem[]) => {
-    const inherited = oneChannelPerType(current.flatMap(item => item.channelIds || []))
-    if (inherited.length) return inherited
-    const picked: number[] = []
-    ;(Object.keys(CHANNEL_META) as ChannelType[]).forEach(type => {
-      const enabled = (channelsByType[type] || []).filter(channel => channel.enabled)
-      if (enabled[0]) picked.push(enabled[0].id)
-    })
-    return picked
-  }
-  const defaultChannelIds = () => defaultChannelIdsFrom(items)
-
   const setTopicsEnabled = (topics: string[], enabled: boolean) => {
     if (isDemo || topics.length === 0) return
     setData(prev => {
@@ -377,7 +365,7 @@ export default function Subscription() {
           next = next.map(item => sameTopic(name, item.topic) ? { ...item, enabled: true } : item)
           return
         }
-        const channelIds = defaultChannelIdsFrom(next)
+        const channelIds: number[] = []
         if (isAiTechDigest(name)) {
           next = [
             ...next,
@@ -458,7 +446,7 @@ export default function Subscription() {
       time: WINDOW_DEFAULTS[nextWindow],
       weekdayFrom: DEFAULT_WEEKDAY_FROM,
       weekdayTo: DEFAULT_WEEKDAY_TO,
-      channelIds: defaultChannelIds(),
+      channelIds: [],
       intent: topicItems(topic)[0]?.intent || '',
       siteVisible: topicSiteVisible(topic, items),
     }])
@@ -847,7 +835,7 @@ export default function Subscription() {
         </div>
       </div>
 
-      <p className="interest-help">科技日报和 ETF 在「其他订阅」里勾选。推送渠道里有已启用账号就会投递；主题上再选一次只是指定用哪个。</p>
+      <p className="interest-help">科技日报和 ETF 在「其他订阅」里勾选。每个时刻要自己选渠道；不选就只出网页，不会沿用其他主题或通讯录里的全部账号。</p>
       <div className="subscription-save-bar">
         <button className="save-btn" onClick={handleSave} disabled={isDemo || saving}>{saving ? '保存中...' : '保存设置'}</button>
         {message && <div className={`message ${messageType}`}>{message}</div>}

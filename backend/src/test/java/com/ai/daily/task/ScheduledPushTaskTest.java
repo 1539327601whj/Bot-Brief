@@ -129,7 +129,7 @@ class ScheduledPushTaskTest {
     }
 
     @Test
-    void usesEnabledChannelsWhenTopicsDidNotPickAny() {
+    void keepsWebOnlyWhenSlotDidNotPickChannels() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         ReportAssemblyService assembly = mock(ReportAssemblyService.class);
@@ -146,22 +146,17 @@ class ScheduledPushTaskTest {
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("数据库", List.of())));
-        when(preferences.boundChannelIds(subscription, date)).thenReturn(List.of());
         when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
-        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(persisted);
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L)));
-        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
-                .thenReturn(new PushDispatcher.DispatchResult(1, 1, 0));
 
         task.dispatchDue(now, date);
 
-        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
-        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("08:20"), eq(date));
-        assertThat(reportsByChannel.getValue()).containsKey(11L);
+        verify(assembly).assembleAndPersistItems(eq(1L), eq(date), eq(now), any());
+        verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
     }
 
     @Test
-    void inheritsChannelsFromOtherTopicsWhenSlotHasNone() {
+    void doesNotInheritChannelsFromOtherTopicsWhenSlotHasNone() {
         SubscriptionService subscriptions = mock(SubscriptionService.class);
         SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
         ReportAssemblyService assembly = mock(ReportAssemblyService.class);
@@ -178,18 +173,13 @@ class ScheduledPushTaskTest {
         when(users.selectBatchIds(any())).thenReturn(List.of(user(1L)));
         when(preferences.dueDisplayTimes(eq(subscription), eq(now), isNull(), eq(date))).thenReturn(List.of(now));
         when(preferences.enabledTopicItemsAt(subscription, now, date)).thenReturn(List.of(topic("AI科技", List.of())));
-        when(preferences.boundChannelIds(subscription, date)).thenReturn(List.of(11L, 12L));
         when(assembly.assembleAndPersistItems(eq(1L), eq(date), eq(now), any())).thenReturn(persisted);
-        when(assembly.assembleEphemeralItems(eq(10L), eq(date), eq(now), any())).thenReturn(persisted);
         when(channels.listEnabledByUser(1L)).thenReturn(List.of(channel(11L), channel(12L)));
-        when(dispatcher.dispatchScheduledByChannel(any(), any(), any(), any()))
-                .thenReturn(new PushDispatcher.DispatchResult(2, 2, 0));
 
         task.dispatchDue(now, date);
 
-        ArgumentCaptor<Map<Long, Report>> reportsByChannel = ArgumentCaptor.forClass(Map.class);
-        verify(dispatcher).dispatchScheduledByChannel(eq(1L), reportsByChannel.capture(), eq("08:00"), eq(date));
-        assertThat(reportsByChannel.getValue()).containsKeys(11L, 12L);
+        verify(assembly).assembleAndPersistItems(eq(1L), eq(date), eq(now), any());
+        verify(dispatcher, never()).dispatchScheduledByChannel(any(), any(), any(), any());
     }
 
     @Test

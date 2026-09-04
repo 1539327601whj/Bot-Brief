@@ -20,6 +20,7 @@
 - 改隔离策略必须用户明确要求，不要当 youhua 默认项
 - 短视频账号绑定 / 内容增长交给 **shipin** skill，不要在 youhua 里顺手大改
 - 店铺分析交给 **dianpu** skill，不要在 youhua 里顺手大改
+- 订阅 / 渠道绑定 / 准时推送交给 **dingyue** skill，不要在 youhua 里顺手大改
 
 ## 自测命令
 

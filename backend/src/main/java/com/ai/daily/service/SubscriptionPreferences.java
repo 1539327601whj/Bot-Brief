@@ -107,7 +107,7 @@ public class SubscriptionPreferences {
                 .toList();
     }
 
-    /** 这个订阅里已经绑过的渠道；某个主题没选渠道时沿用，避免只上网页。 */
+    /** 当天已启用时刻里点选过的渠道，仅作汇总；空绑定不再沿用这里的结果去外推。 */
     public List<Long> boundChannelIds(Subscription subscription, LocalDate date) {
         return ChannelIds.coerceAll(enabledTopicItemsOn(subscription, date).stream()
                 .flatMap(item -> ChannelIds.coerceAll(item.getChannelIds()).stream())

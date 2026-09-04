@@ -14,6 +14,8 @@ disable-model-invocation: true
 
 状态记在 [youhua-state.md](../../youhua-state.md)（没有就创建）。项目细节见 [reference.md](reference.md)。
 
+订阅 / 渠道 / 准时推送交给 **dingyue**。店铺分析交给 **dianpu**。短视频交给 **shipin**。不要在 youhua 里顺手大改那些。
+
 ## 每次启动
 
 1. 读 `youhua-state.md`（有则接着做，不要推倒重来）。

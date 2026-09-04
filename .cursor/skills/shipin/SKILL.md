@@ -14,7 +14,7 @@ disable-model-invocation: true
 
 状态记在 [shipin-state.md](../../shipin-state.md)（没有就创建）。模块细节见 [reference.md](reference.md)。
 
-日报、ETF、订阅推送不归本 skill。那些用 youhua。
+公共日报版式 / ETF 行情用 **youhua**。订阅推送用 **dingyue**。不要在本 skill 里顺手改那些。
 
 ## 每次启动
 
