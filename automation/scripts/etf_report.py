@@ -2447,7 +2447,6 @@ def format_a_share_section(stock_observations: Optional[AShareObservationResult]
     else:
         error = summarize_a_share_error(observation_result.get("error") or "候选数据源不可用")
         lines.append(f"- 候选数据源异常，本次无法确认股票观察名单：{error}。")
-    lines.append("- 候选基于公开量价与估值机械筛选，仅作研究线索，不代表推荐或确定性预测。")
     return lines
 
 

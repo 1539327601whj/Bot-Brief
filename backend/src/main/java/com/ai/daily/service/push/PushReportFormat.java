@@ -99,6 +99,9 @@ public final class PushReportFormat {
         if (content == null || content.isBlank()) return lines;
         for (String raw : content.replace("\r\n", "\n").split("\n", -1)) {
             String stripped = raw.strip();
+            if (isNonReportMeta(stripped)) {
+                continue;
+            }
             if (stripped.matches("-{3,}|\\*{3,}|_{3,}")) {
                 lines.add(new Line(Kind.HR, "", raw));
                 continue;
@@ -119,6 +122,13 @@ public final class PushReportFormat {
             lines.add(new Line(Kind.OTHER, raw, raw));
         }
         return lines;
+    }
+
+    static boolean isNonReportMeta(String text) {
+        if (text == null || text.isBlank()) return false;
+        if (text.contains("ETF_DATA_REFRESH") || text.contains("<!--")) return true;
+        if (text.contains("仅作研究线索") || text.contains("候选基于公开量价")) return true;
+        return text.contains("数据说明：") && text.contains("不构成投资建议");
     }
 
     private static boolean isLeadTitle(Line line, String title) {

@@ -58,6 +58,24 @@ class PushReportFormatTest {
     }
 
     @Test
+    void wecomDropsRefreshMarkerAndResearchDisclaimer() {
+        String markdown = PushReportFormat.wecomMarkdown(
+                "ETF 行情日报 · 2026-09-03（晚间）",
+                """
+                ## 先看结论
+
+                - 按计划买
+                - 候选基于公开量价与估值机械筛选，仅作研究线索，不代表推荐或确定性预测。
+                <!-- ETF_DATA_REFRESH:IOPV -->
+                """);
+
+        assertThat(markdown).contains("按计划买");
+        assertThat(markdown).doesNotContain("ETF_DATA_REFRESH");
+        assertThat(markdown).doesNotContain("仅作研究线索");
+        assertThat(markdown).doesNotContain("候选基于公开量价");
+    }
+
+    @Test
     void feishuHeaderFollowsEditionTone() {
         assertThat(PushReportFormat.feishuHeaderTemplate("morning")).isEqualTo("orange");
         assertThat(PushReportFormat.feishuHeaderTemplate("market_watch_evening")).isEqualTo("turquoise");

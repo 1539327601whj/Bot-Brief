@@ -52,6 +52,8 @@ function stripNonReportMeta(markdown: string) {
   return decorateSignedChanges(restyleLegacyChangeUnits(markdown))
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(?:^|\n)>\s*数据说明：[^\n]*/g, '')
+    .replace(/(?:^|\n)[-*]\s*候选基于公开量价[^\n]*/g, '')
+    .replace(/(?:^|\n)[-*]\s*[^\n]*仅作研究线索[^\n]*/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd()
 }
