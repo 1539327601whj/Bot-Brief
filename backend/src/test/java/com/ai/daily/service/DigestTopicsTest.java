@@ -19,5 +19,11 @@ class DigestTopicsTest {
         assertThat(DigestTopics.publicEditionFor("AI科技", LocalTime.of(20, 0))).isEqualTo("evening");
         assertThat(DigestTopics.publicEditionFor("纳指标普沪深300ETF", LocalTime.of(18, 0)))
                 .isEqualTo("market_watch_evening");
+        assertThat(DigestTopics.clampDisplayTime("纳指标普沪深300ETF", LocalTime.of(8, 15)))
+                .isEqualTo(LocalTime.of(18, 0));
+        assertThat(DigestTopics.clampDisplayTime("ETF", LocalTime.of(20, 30)))
+                .isEqualTo(LocalTime.of(20, 30));
+        assertThat(DigestTopics.clampDisplayTime("AI科技", LocalTime.of(8, 0)))
+                .isEqualTo(LocalTime.of(8, 0));
     }
 }

@@ -103,7 +103,7 @@ const isEtfDigest = (topic: string) => {
 }
 const digestBadge = (topic: string) => {
   if (isAiTechDigest(topic)) return '早晚报原文'
-  if (isEtfDigest(topic)) return 'ETF原文'
+  if (isEtfDigest(topic)) return 'ETF原文 · 仅傍晚'
   return ''
 }
 const isPreset = (topic: string) => FIELD_OPTIONS.some(option => interestKey(option) === interestKey(topic))
@@ -125,9 +125,17 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
   rows.forEach((row: any) => {
     const topic = normalizeInterest(row?.topic || '')
     if (!topic) return
-    const time = toHHmm(row?.time)
+    const rawTime = toHHmm(row?.time)
+    const etfClamped = isEtfDigest(topic) && windowOf(rawTime) !== 'w18_24'
+    const time = etfClamped ? '18:00' : rawTime
     const key = `${interestKey(topic)}|${windowOf(time)}`
-    if (used.has(key)) return
+    if (used.has(key)) {
+      if (isEtfDigest(topic) && !etfClamped) {
+        const existing = items.find(item => `${interestKey(item.topic)}|${windowOf(item.time)}` === key)
+        if (existing) existing.time = time
+      }
+      return
+    }
     used.add(key)
     items.push({
       topic,
@@ -428,11 +436,19 @@ export default function Subscription() {
       showMessage('同一主题在同一时间段只能订阅一次', 'error')
       return
     }
+    if (isEtfDigest(current.topic) && windowOf(time) !== 'w18_24') {
+      showMessage('ETF 只能订傍晚（18:00 及以后）', 'error')
+      return
+    }
     setMessage('')
     updateSlot(index, { time })
   }
 
   const addSlot = (topic: string) => {
+    if (isEtfDigest(topic)) {
+      showMessage('ETF 只能订傍晚，不能再加其他时段', 'error')
+      return
+    }
     const used = new Set(topicItems(topic).map(item => windowOf(item.time)))
     const nextWindow = WINDOWS.find(window => !used.has(window))
     if (!nextWindow) {
@@ -620,6 +636,9 @@ export default function Subscription() {
                 showNow={false}
                 inputReadOnly
                 disabled={isDemo}
+                disabledTime={() => isEtfDigest(item.topic) ? {
+                  disabledHours: () => Array.from({ length: 18 }, (_, hour) => hour),
+                } : {}}
                 onChange={value => { if (value) changeSlotTime(index, value.format('HH:mm')) }}
               />
             </div>
@@ -632,7 +651,7 @@ export default function Subscription() {
               </span>
             )}
             <div className="schedule-actions">
-              {slotIndex === 0 && (
+              {slotIndex === 0 && !isEtfDigest(topic) && (
                 <button type="button" className="ghost-link" disabled={isDemo || slots.length >= 4} onClick={() => addSlot(topic)}>再加时段</button>
               )}
               {slots.length > 1 && (

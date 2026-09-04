@@ -10,6 +10,7 @@ public final class DigestTopics {
 
     public static final String AI_TECH = "AI科技";
     public static final String ETF = "纳指标普沪深300ETF";
+    public static final LocalTime ETF_DISPLAY_TIME = LocalTime.of(18, 0);
 
     private DigestTopics() {
     }
@@ -34,6 +35,13 @@ public final class DigestTopics {
         if (isEtf(topic)) return "market_watch_evening";
         if (isAiTech(topic)) return ReportWindows.digestStyle(ReportWindows.of(time));
         return null;
+    }
+
+    /** ETF 只能订傍晚窗口；更早的时刻收到 18:00。已在傍晚的时刻原样保留。 */
+    public static LocalTime clampDisplayTime(String topic, LocalTime time) {
+        if (!isEtf(topic)) return time;
+        if (time != null && ReportWindows.W18_24.equals(ReportWindows.of(time))) return time;
+        return ETF_DISPLAY_TIME;
     }
 
     private static String normalize(String topic) {

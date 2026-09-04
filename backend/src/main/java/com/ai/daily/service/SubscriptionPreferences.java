@@ -235,9 +235,12 @@ public class SubscriptionPreferences {
             if (item == null) continue;
             String topic = normalizeName(item.getTopic());
             if (topic.isEmpty()) continue;
-            LocalTime time = item.getTime() == null || item.getTime().isBlank()
+            LocalTime parsed = item.getTime() == null || item.getTime().isBlank()
                     ? DEFAULT_TIME
                     : ReportWindows.parse(item.getTime());
+            boolean etfClamped = DigestTopics.isEtf(topic)
+                    && !ReportWindows.W18_24.equals(ReportWindows.of(parsed));
+            LocalTime time = DigestTopics.clampDisplayTime(topic, parsed);
             String key = topic.toLowerCase(Locale.ROOT) + "|" + ReportWindows.of(time);
             SubscriptionDTO.TopicScheduleItemDTO existing = unique.get(key);
             if (existing == null) {
@@ -251,6 +254,19 @@ public class SubscriptionPreferences {
                 normalized.setSiteVisible(resolveSiteVisible(topic, item.getSiteVisible()));
                 unique.put(key, normalized);
             } else if (!existing.getTime().equals(ReportWindows.format(time))) {
+                if (DigestTopics.isEtf(topic)) {
+                    if (!etfClamped) existing.setTime(ReportWindows.format(time));
+                    if (Boolean.TRUE.equals(item.getEnabled())) existing.setEnabled(true);
+                    if (item.getChannelIds() != null) existing.setChannelIds(normalizeChannelIds(item.getChannelIds()));
+                    applyWeekdays(existing, item);
+                    if (!TopicIntents.isBlank(item.getIntent())) {
+                        existing.setIntent(TopicIntents.clip(item.getIntent()));
+                    }
+                    if (item.getSiteVisible() != null) {
+                        existing.setSiteVisible(item.getSiteVisible());
+                    }
+                    continue;
+                }
                 throw new IllegalArgumentException("同一主题在同一时间段只能订阅一次");
             } else {
                 if (Boolean.TRUE.equals(item.getEnabled())) existing.setEnabled(true);
@@ -279,7 +295,7 @@ public class SubscriptionPreferences {
             SubscriptionDTO.TopicScheduleItemDTO item = new SubscriptionDTO.TopicScheduleItemDTO();
             item.setTopic(field);
             item.setEnabled(true);
-            item.setTime(ReportWindows.format(DEFAULT_TIME));
+            item.setTime(ReportWindows.format(DigestTopics.isEtf(field) ? DigestTopics.ETF_DISPLAY_TIME : DEFAULT_TIME));
             item.setWeekdayFrom(SubscriptionWeekdays.DEFAULT_FROM);
             item.setWeekdayTo(SubscriptionWeekdays.DEFAULT_TO);
             item.setChannelIds(List.of());

@@ -94,6 +94,43 @@ class SubscriptionPreferencesTest {
     }
 
     @Test
+    void etfSlotsOutsideEveningMoveToEighteen() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        schedules.setItems(List.of(
+                item("纳指标普沪深300ETF", true, "08:15"),
+                item("市场观察", true, "09:00"),
+                item("AI大模型", true, "08:15")));
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+
+        assertThat(normalized.schedules().getItems())
+                .filteredOn(item -> DigestTopics.isEtf(item.getTopic()))
+                .extracting(SubscriptionDTO.TopicScheduleItemDTO::getTime)
+                .containsOnly("18:00");
+        assertThat(normalized.schedules().getItems())
+                .filteredOn(item -> "AI大模型".equals(item.getTopic()))
+                .extracting(SubscriptionDTO.TopicScheduleItemDTO::getTime)
+                .containsExactly("08:15");
+    }
+
+    @Test
+    void etfMorningAndEveningMergeToOneEveningSlot() {
+        SubscriptionDTO dto = new SubscriptionDTO();
+        SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
+        schedules.setItems(List.of(
+                item("纳指标普沪深300ETF", true, "08:00"),
+                item("纳指标普沪深300ETF", true, "20:00")));
+        dto.setTopicSchedules(schedules);
+
+        SubscriptionPreferences.NormalizedPreferences normalized = preferences.normalize(dto);
+
+        assertThat(normalized.schedules().getItems()).hasSize(1);
+        assertThat(normalized.schedules().getItems().get(0).getTime()).isEqualTo("20:00");
+    }
+
+    @Test
     void emptyChannelAssignmentsMeanWebOnly() {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();
