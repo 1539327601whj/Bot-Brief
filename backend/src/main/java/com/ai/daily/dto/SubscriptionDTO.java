@@ -58,5 +58,7 @@ public class SubscriptionDTO {
         private String intent;
         /** 管理员：是否出现在全站日报；普通用户忽略 */
         private Boolean siteVisible;
+        /** 这个时刻首次保存的日期，yyyy-MM-dd。未生成只从这天起算。 */
+        private String subscribedAt;
     }
 }

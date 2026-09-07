@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -27,6 +29,7 @@ public class SubscriptionPreferences {
 
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final LocalTime DEFAULT_TIME = LocalTime.of(8, 15);
+    private static final ZoneId BEIJING = ZoneId.of("Asia/Shanghai");
 
     private final ObjectMapper objectMapper;
 
@@ -64,6 +67,9 @@ public class SubscriptionPreferences {
     }
 
     public SubscriptionDTO.TopicSchedulesDTO readSchedules(Subscription subscription) {
+        if (subscription == null) {
+            return schedulesFromFields(List.of());
+        }
         String raw = subscription.getTopicSchedules();
         if (raw != null && !raw.isBlank()) {
             try {
@@ -252,6 +258,7 @@ public class SubscriptionPreferences {
                 normalized.setChannelIds(normalizeChannelIds(item.getChannelIds()));
                 normalized.setIntent(TopicIntents.clip(item.getIntent()));
                 normalized.setSiteVisible(resolveSiteVisible(topic, item.getSiteVisible()));
+                normalized.setSubscribedAt(resolveSubscribedAt(item.getSubscribedAt(), null));
                 unique.put(key, normalized);
             } else if (!existing.getTime().equals(ReportWindows.format(time))) {
                 if (DigestTopics.isEtf(topic)) {
@@ -265,6 +272,7 @@ public class SubscriptionPreferences {
                     if (item.getSiteVisible() != null) {
                         existing.setSiteVisible(item.getSiteVisible());
                     }
+                    existing.setSubscribedAt(resolveSubscribedAt(item.getSubscribedAt(), existing.getSubscribedAt()));
                     continue;
                 }
                 throw new IllegalArgumentException("同一主题在同一时间段只能订阅一次");
@@ -278,6 +286,7 @@ public class SubscriptionPreferences {
                 if (item.getSiteVisible() != null) {
                     existing.setSiteVisible(item.getSiteVisible());
                 }
+                existing.setSubscribedAt(resolveSubscribedAt(item.getSubscribedAt(), existing.getSubscribedAt()));
             }
         }
         return new ArrayList<>(unique.values());
@@ -301,6 +310,7 @@ public class SubscriptionPreferences {
             item.setChannelIds(List.of());
             item.setIntent("");
             item.setSiteVisible(DigestTopics.isDigest(field));
+            item.setSubscribedAt(LocalDate.now(BEIJING).toString());
             items.add(item);
         }
         schedules.setItems(items);
@@ -382,7 +392,62 @@ public class SubscriptionPreferences {
         copy.setChannelIds(item.getChannelIds());
         copy.setIntent(TopicIntents.clip(item.getIntent()));
         copy.setSiteVisible(item.getSiteVisible());
+        copy.setSubscribedAt(item.getSubscribedAt());
         return copy;
+    }
+
+    public static LocalDate subscribedOn(SubscriptionDTO.TopicScheduleItemDTO item) {
+        return parseSubscribedAt(item == null ? null : item.getSubscribedAt());
+    }
+
+    private static String resolveSubscribedAt(String incoming, String previous) {
+        LocalDate first = parseSubscribedAt(incoming);
+        LocalDate second = parseSubscribedAt(previous);
+        if (first == null && second == null) return null;
+        if (first == null) return second.toString();
+        if (second == null) return first.toString();
+        return (first.isBefore(second) ? first : second).toString();
+    }
+
+    private static LocalDate parseSubscribedAt(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.trim();
+        if (value.length() >= 10) value = value.substring(0, 10);
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException ignored) {
+            return null;
+        }
+    }
+
+    public void rememberSubscriptionStart(
+            SubscriptionDTO.TopicSchedulesDTO next, SubscriptionDTO.TopicSchedulesDTO previous) {
+        Map<String, String> previousStarts = new LinkedHashMap<>();
+        Set<String> previousKeys = new LinkedHashSet<>();
+        for (SubscriptionDTO.TopicScheduleItemDTO item : itemsOf(previous)) {
+            String key = slotKey(item);
+            if (key == null) continue;
+            previousKeys.add(key);
+            LocalDate start = parseSubscribedAt(item.getSubscribedAt());
+            if (start != null) previousStarts.put(key, start.toString());
+        }
+        String today = LocalDate.now(BEIJING).toString();
+        for (SubscriptionDTO.TopicScheduleItemDTO item : itemsOf(next)) {
+            if (item == null) continue;
+            String key = slotKey(item);
+            item.setSubscribedAt(resolveSubscribedAt(
+                    item.getSubscribedAt(), key == null ? null : previousStarts.get(key)));
+            if (item.getSubscribedAt() == null && (key == null || !previousKeys.contains(key))) {
+                item.setSubscribedAt(today);
+            }
+        }
+    }
+
+    private static String slotKey(SubscriptionDTO.TopicScheduleItemDTO item) {
+        if (item == null || item.getTopic() == null || item.getTopic().isBlank() || item.getTime() == null) {
+            return null;
+        }
+        return item.getTopic().toLowerCase(Locale.ROOT) + "|" + ReportWindows.of(ReportWindows.parse(item.getTime()));
     }
 
     public void restrictSiteVisibility(SubscriptionDTO.TopicSchedulesDTO schedules, boolean admin) {

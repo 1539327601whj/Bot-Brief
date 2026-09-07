@@ -273,6 +273,26 @@ class SubscriptionPreferencesTest {
         assertThat(normalized.schedules().getItems().get(0).getSiteVisible()).isTrue();
     }
 
+    @Test
+    void rememberSubscriptionStartKeepsOldSlotsAndStampsNewOnes() {
+        SubscriptionDTO.TopicSchedulesDTO previous = new SubscriptionDTO.TopicSchedulesDTO();
+        SubscriptionDTO.TopicScheduleItemDTO musk = item("马斯克", true, "09:00");
+        musk.setSubscribedAt("2026-08-20");
+        previous.setItems(List.of(musk, item("区块链", true, "14:30")));
+
+        SubscriptionDTO.TopicSchedulesDTO next = new SubscriptionDTO.TopicSchedulesDTO();
+        next.setItems(List.of(
+                item("马斯克", true, "09:00"),
+                item("区块链", true, "14:30"),
+                item("安全", true, "20:15")));
+
+        preferences.rememberSubscriptionStart(next, previous);
+
+        assertThat(next.getItems().get(0).getSubscribedAt()).isEqualTo("2026-08-20");
+        assertThat(next.getItems().get(1).getSubscribedAt()).isNull();
+        assertThat(next.getItems().get(2).getSubscribedAt()).isEqualTo(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).toString());
+    }
+
     private SubscriptionDTO dtoWithTopics(int count) {
         SubscriptionDTO dto = new SubscriptionDTO();
         SubscriptionDTO.TopicSchedulesDTO schedules = new SubscriptionDTO.TopicSchedulesDTO();

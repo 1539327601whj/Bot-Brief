@@ -83,7 +83,7 @@ class SubscriptionProgressServiceTest {
         when(subscriptions.getOrCreateForUser(3L)).thenReturn(subscription);
         when(preferences.hasActiveTopics(subscription)).thenReturn(true);
         when(preferences.enabledTopicItemsOn(eq(subscription), any())).thenAnswer(invocation ->
-                yesterday.equals(invocation.getArgument(1)) ? List.of(item("黄仁勋", "16:10")) : List.of());
+                yesterday.equals(invocation.getArgument(1)) ? List.of(item("黄仁勋", "16:10", "2026-09-01")) : List.of());
         when(sections.findId(any(), any(), any())).thenReturn(null);
         when(reports.getByUserEditionDateAndTime(any(), any(), any(), any())).thenReturn(null);
         when(statuses.find(any(), any(), any())).thenReturn(null);
@@ -96,6 +96,91 @@ class SubscriptionProgressServiceTest {
         assertThat(dto.getRecentMisses())
                 .extracting(SubscriptionTodayStatusDTO.ItemStatusDTO::getMessage)
                 .containsExactly("到点后没有写成日报，也没有留下生成记录");
+    }
+
+    @Test
+    void recentMissesIgnoreDaysBeforeTopicWasSubscribed() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        Subscription subscription = subscription(8L);
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        ReportService reports = mock(ReportService.class);
+        when(subscriptions.getOrCreateForUser(8L)).thenReturn(subscription);
+        when(preferences.hasActiveTopics(subscription)).thenReturn(true);
+        when(preferences.enabledTopicItemsOn(eq(subscription), any())).thenReturn(
+                List.of(item("区块链", "14:30", today.toString())));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(reports.getByUserEditionDateAndTime(any(), any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), any())).thenReturn(null);
+        SubscribedTopicService topics = mock(SubscribedTopicService.class);
+        when(topics.startAt(any(), any())).thenAnswer(invocation ->
+                ((LocalTime) invocation.getArgument(0)).minusMinutes(30));
+
+        SubscriptionTodayStatusDTO dto = serviceOf(
+                subscriptions, preferences, sections, statuses, reports, topics)
+                .todayStatus(8L, today, LocalTime.of(14, 20));
+
+        assertThat(dto.getRecentMisses()).isEmpty();
+    }
+
+    @Test
+    void recentMissesIgnoreRecordedSkipBeforeSubscribeDate() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        LocalDate yesterday = today.minusDays(1);
+        Subscription subscription = subscription(10L);
+        TopicGenerationStatus skipped = new TopicGenerationStatus();
+        skipped.setStatus(TopicGenerationStatus.SKIPPED_NO_NEWS);
+        skipped.setMessage("当天没有抓到与该主题直接相关的资讯");
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        ReportService reports = mock(ReportService.class);
+        when(subscriptions.getOrCreateForUser(10L)).thenReturn(subscription);
+        when(preferences.hasActiveTopics(subscription)).thenReturn(true);
+        when(preferences.enabledTopicItemsOn(eq(subscription), any())).thenReturn(
+                List.of(item("区块链", "14:30", today.toString())));
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(reports.getByUserEditionDateAndTime(any(), any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), any())).thenReturn(null);
+        when(statuses.find(eq(yesterday), eq(ReportWindows.W12_18), eq("区块链"))).thenReturn(skipped);
+        SubscribedTopicService topics = mock(SubscribedTopicService.class);
+        when(topics.startAt(any(), any())).thenAnswer(invocation ->
+                ((LocalTime) invocation.getArgument(0)).minusMinutes(30));
+
+        SubscriptionTodayStatusDTO dto = serviceOf(
+                subscriptions, preferences, sections, statuses, reports, topics)
+                .todayStatus(10L, today, LocalTime.of(14, 20));
+
+        assertThat(dto.getRecentMisses()).isEmpty();
+    }
+
+    @Test
+    void recentMissesDoNotInventHistoryWhenSubscribeDateIsUnknown() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        Subscription subscription = subscription(9L);
+        SubscriptionService subscriptions = mock(SubscriptionService.class);
+        SubscriptionPreferences preferences = mock(SubscriptionPreferences.class);
+        TopicSectionMapper sections = mock(TopicSectionMapper.class);
+        TopicGenerationStatusService statuses = mock(TopicGenerationStatusService.class);
+        ReportService reports = mock(ReportService.class);
+        when(subscriptions.getOrCreateForUser(9L)).thenReturn(subscription);
+        when(preferences.hasActiveTopics(subscription)).thenReturn(true);
+        when(preferences.enabledTopicItemsOn(eq(subscription), any())).thenAnswer(invocation ->
+                today.minusDays(1).equals(invocation.getArgument(1))
+                        ? List.of(item("区块链", "14:30")) : List.of());
+        when(sections.findId(any(), any(), any())).thenReturn(null);
+        when(reports.getByUserEditionDateAndTime(any(), any(), any(), any())).thenReturn(null);
+        when(statuses.find(any(), any(), any())).thenReturn(null);
+
+        SubscriptionTodayStatusDTO dto = serviceOf(
+                subscriptions, preferences, sections, statuses, reports,
+                mock(SubscribedTopicService.class))
+                .todayStatus(9L, today, LocalTime.of(14, 20));
+
+        assertThat(dto.getRecentMisses()).isEmpty();
     }
 
     @Test
@@ -128,10 +213,15 @@ class SubscriptionProgressServiceTest {
     }
 
     private static SubscriptionDTO.TopicScheduleItemDTO item(String topic, String time) {
+        return item(topic, time, null);
+    }
+
+    private static SubscriptionDTO.TopicScheduleItemDTO item(String topic, String time, String subscribedAt) {
         SubscriptionDTO.TopicScheduleItemDTO item = new SubscriptionDTO.TopicScheduleItemDTO();
         item.setTopic(topic);
         item.setEnabled(true);
         item.setTime(time);
+        item.setSubscribedAt(subscribedAt);
         return item;
     }
 

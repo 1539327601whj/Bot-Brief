@@ -49,6 +49,7 @@ class SubscriptionControllerTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
 
+        when(subscriptionService.getOrCreateForUser(anyLong())).thenReturn(new Subscription());
         when(pushChannelService.listResponsesByUser(anyLong())).thenReturn(List.of(
                 PushChannelResponse.builder().id(11L).channelType("email").targetPreview("a@b.c").secretConfigured(false).enabled(true).build(),
                 PushChannelResponse.builder().id(12L).channelType("email").targetPreview("c@d.e").secretConfigured(false).enabled(true).build()

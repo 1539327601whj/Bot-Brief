@@ -1158,6 +1158,63 @@
   font-size: 14px;
 }
 
+.alert-history-btn,
+.generation-miss-more {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #8b9cff;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.alert-history-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 7, 13, 0.72);
+}
+
+.alert-history-dialog {
+  width: min(560px, 100%);
+  max-height: min(72vh, 640px);
+  overflow: auto;
+  padding: 20px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: #111620;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+}
+
+.alert-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.alert-history-head h3 {
+  margin: 0 0 6px;
+  color: #f4f7fb;
+  font-size: 18px;
+}
+
+.alert-history-head p {
+  margin: 0;
+  color: #8b949e;
+  font-size: 13px;
+}
+
+.alert-history-list {
+  margin: 12px 0 16px;
+}
+
 .tag-etf {
   background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(34, 197, 94, 0.14) 100%);
   color: #00f5d4;

@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import GenerationMissList from '../components/GenerationMissList'
-import { dispatchKeyOf, HOME_MISS_PREVIEW, progressTone, previewGenerationMisses, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { dispatchKeyOf, HOME_ALERT_PREVIEW, HOME_MISS_PREVIEW, progressTone, previewGenerationMisses, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
 import './Dashboard.css'
 
@@ -374,15 +374,51 @@ function RecentReportList({ reports }: { reports: Report[] }) {
 }
 
 function AlertsCard({ alerts }: { alerts: string[] }) {
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const preview = alerts.slice(0, HOME_ALERT_PREVIEW)
+  const hidden = Math.max(0, alerts.length - preview.length)
   return (
     <div className={`overview-card ${alerts.length > 0 ? 'alert-card' : 'ok-card'}`}>
-      <div className="overview-card-title">🧭 数据异常提醒</div>
+      <div className="overview-card-header">
+        <div className="overview-card-title">🧭 数据异常提醒</div>
+        {alerts.length > 0 && (
+          <button type="button" className="section-link alert-history-btn" onClick={() => setHistoryOpen(true)}>
+            历史异常
+          </button>
+        )}
+      </div>
       {alerts.length > 0 ? (
-        <ul className="suggestion-list">
-          {alerts.map(item => <li key={item}>{item}</li>)}
-        </ul>
+        <>
+          <ul className="suggestion-list">
+            {preview.map(item => <li key={item}>{item}</li>)}
+          </ul>
+          {hidden > 0 && (
+            <button type="button" className="generation-miss-more" onClick={() => setHistoryOpen(true)}>
+              还有 {hidden} 条，查看历史异常
+            </button>
+          )}
+        </>
       ) : (
         <div className="overview-empty">今日关键数据暂未发现异常</div>
+      )}
+      {historyOpen && (
+        <div className="alert-history-mask" onClick={() => setHistoryOpen(false)}>
+          <div className="alert-history-dialog" onClick={event => event.stopPropagation()} role="dialog" aria-label="历史数据异常">
+            <div className="alert-history-head">
+              <div>
+                <h3>历史数据异常</h3>
+                <p>只列出订阅之后、到点却没写成或投递失败的记录。共 {alerts.length} 条。</p>
+              </div>
+              <button type="button" className="section-link" onClick={() => setHistoryOpen(false)}>关闭</button>
+            </div>
+            <ul className="suggestion-list alert-history-list">
+              {alerts.map(item => <li key={item}>{item}</li>)}
+            </ul>
+            <Link to="/notifications?filter=unwritten" className="generation-miss-more" onClick={() => setHistoryOpen(false)}>
+              去通知记录看未生成 →
+            </Link>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -511,39 +547,40 @@ export default function Dashboard() {
 
   const alerts = useMemo(() => {
     const now = dayjs.tz()
-    const items: string[] = []
+    const recent: string[] = []
+    const extras: string[] = []
     if ((stats?.todayCount ?? todayReports.length) === 0) {
-      items.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
+      extras.push(isDemo ? '今日暂无任何报告入库' : canSeePublicDigest ? '今日暂无公共简报或你的简报' : '今日暂无属于你的简报')
     }
     if (canSeePublicDigest && showAiDigest) {
-      if (now.hour() >= 9 && !reportIsOnDate(morning)) items.push('今日早间简报尚未生成')
-      if (now.hour() >= 21 && !reportIsOnDate(evening)) items.push('今日晚间简报尚未生成')
+      if (now.hour() >= 9 && !reportIsOnDate(morning)) extras.push('今日早间简报尚未生成')
+      if (now.hour() >= 21 && !reportIsOnDate(evening)) extras.push('今日晚间简报尚未生成')
     }
     if (!isDemo) {
       todayProgress.items.forEach(item => {
-        if (item.status === 'failed') items.push(`${item.time} 「${item.topic}」生成失败`)
-        if (item.status === 'skipped') items.push(`${item.time} 「${item.topic}」没有匹配资讯`)
-        if (item.status === 'push_failed') items.push(`${item.time} 「${item.topic}」网页已出，渠道推送失败`)
-        if (item.status === 'web_ready') items.push(`${item.time} 「${item.topic}」网页已出，渠道还没推到`)
+        if (item.status === 'failed') recent.push(`${item.time} 「${item.topic}」生成失败`)
+        if (item.status === 'skipped') recent.push(`${item.time} 「${item.topic}」没有匹配资讯`)
+        if (item.status === 'push_failed') recent.push(`${item.time} 「${item.topic}」网页已出，渠道推送失败`)
+        if (item.status === 'web_ready') recent.push(`${item.time} 「${item.topic}」网页已出，渠道还没推到`)
       })
       visibleGenerationMisses(todayProgress).forEach(item => {
         if (item.date && item.date !== todayProgress.date) {
-          items.push(`${item.date} ${item.time} 「${item.topic}」未生成：${item.message}`)
+          recent.push(`${item.date} ${item.time} 「${item.topic}」未生成：${item.message}`)
         }
       })
       if (isAdmin && todayProgress.poller && !todayProgress.poller.healthy) {
-        items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
+        extras.push('订阅生成器心跳超时，个人简报可能不会自动生成')
       }
     }
-    if (showEtfDigest && now.hour() >= 18 && !reportIsOnDate(marketWatch)) items.push('ETF/A股日报尚未生成')
-    if (failedLogs.length > 0) items.push(`今日有 ${failedLogs.length} 条推送失败`)
+    if (showEtfDigest && now.hour() >= 18 && !reportIsOnDate(marketWatch)) extras.push('ETF/A股日报尚未生成')
+    if (failedLogs.length > 0) extras.push(`今日有 ${failedLogs.length} 条推送失败`)
     const hasSystemBrief = todayReports.some(report => isSystemBriefEdition(report.edition))
     if (subscriptionItems(subscription).length > 0 && todayLogs.length === 0 && now.hour() >= 9) {
-      items.push(hasSystemBrief
+      extras.push(hasSystemBrief
         ? '你的简报已生成，但个人渠道今天还没有投递记录'
         : '订阅已开启，但今日暂无推送记录')
     }
-    return [...new Set(items)]
+    return [...new Set([...recent, ...extras])]
   }, [stats, todayReports, morning, evening, marketWatch, failedLogs.length, subscription, todayLogs.length, isDemo, canSeePublicDigest, todayProgress, isAdmin, showAiDigest, showEtfDigest])
 
   const suggestions = useMemo(() => {

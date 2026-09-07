@@ -73,6 +73,9 @@ public class SubscriptionController {
             var ownedChannelIds = channels.stream().map(PushChannelResponse::getId).collect(Collectors.toSet());
             var filteredSchedules = subscriptionPreferences.filterChannelIds(preferences.schedules(), ownedChannelIds);
             subscriptionPreferences.restrictSiteVisibility(filteredSchedules, SecurityUtils.isAdmin());
+            Subscription existing = subscriptionService.getOrCreateForUser(userId);
+            subscriptionPreferences.rememberSubscriptionStart(
+                    filteredSchedules, subscriptionPreferences.readSchedules(existing));
             String schedulesJson = subscriptionPreferences.writeSchedules(filteredSchedules);
             List<SubscriptionDTO.TopicScheduleItemDTO> enabled = filteredSchedules.getItems() == null
                     ? List.of()

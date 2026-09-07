@@ -217,6 +217,8 @@ public class SubscriptionProgressService {
 
     private SubscriptionTodayStatusDTO.ItemStatusDTO missIfUnwritten(
             Long userId, LocalDate date, SubscriptionDTO.TopicScheduleItemDTO item, LocalDateTime current) {
+        LocalDate since = SubscriptionPreferences.subscribedOn(item);
+        if (since != null && date.isBefore(since)) return null;
         LocalTime readyAt = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
         String window = ReportWindows.of(readyAt);
         String topic = item.getTopic().trim();
@@ -242,7 +244,8 @@ public class SubscriptionProgressService {
             return missRow(date, topic, readyAt, window, "failed", "未生成",
                     settledReason(recorded.getMessage(), "当天生成失败"));
         }
-        if (pastRetryDeadline(date, window, readyAt, current)) {
+        if (pastRetryDeadline(date, window, readyAt, current)
+                && (since != null || date.equals(current.toLocalDate()))) {
             return missRow(date, topic, readyAt, window, "failed", "未生成",
                     "到点后没有写成日报，也没有留下生成记录");
         }

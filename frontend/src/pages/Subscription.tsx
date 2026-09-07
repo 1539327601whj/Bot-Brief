@@ -31,6 +31,7 @@ interface TopicScheduleItem {
   channelIds: number[]
   intent: string
   siteVisible: boolean
+  subscribedAt?: string
 }
 
 interface SubscriptionData {
@@ -146,6 +147,9 @@ const flattenItems = (source: any): TopicScheduleItem[] => {
         .filter((id: unknown): id is number => Number.isInteger(id) && Number(id) > 0),
       intent: normalizeIntent(row?.intent),
       siteVisible: typeof row?.siteVisible === 'boolean' ? row.siteVisible : defaultSiteVisible(topic),
+      subscribedAt: typeof row?.subscribedAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(row.subscribedAt)
+        ? row.subscribedAt.slice(0, 10)
+        : undefined,
     })
   })
   return items
@@ -405,19 +409,20 @@ export default function Subscription() {
           return
         }
         const channelIds: number[] = []
+        const subscribedAt = dayjs.tz().format('YYYY-MM-DD')
         if (isAiTechDigest(name)) {
           next = [
             ...next,
-            { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true },
-            { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true },
+            { topic: AI_TECH_DIGEST, enabled: true, time: '08:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true, subscribedAt },
+            { topic: AI_TECH_DIGEST, enabled: true, time: '20:00', weekdayFrom: 1, weekdayTo: 7, channelIds, intent: '', siteVisible: true, subscribedAt },
           ]
           return
         }
         if (isEtfDigest(name)) {
-          next = [...next, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds, intent: '', siteVisible: true }]
+          next = [...next, { topic: ETF_DIGEST, enabled: true, time: '18:00', weekdayFrom: 1, weekdayTo: 5, channelIds, intent: '', siteVisible: true, subscribedAt }]
           return
         }
-        next = [...next, { topic: name, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds, intent: '', siteVisible: false }]
+        next = [...next, { topic: name, enabled: true, time: DEFAULT_TIME, weekdayFrom: DEFAULT_WEEKDAY_FROM, weekdayTo: DEFAULT_WEEKDAY_TO, channelIds, intent: '', siteVisible: false, subscribedAt }]
       })
       return {
         ...prev,
@@ -496,6 +501,7 @@ export default function Subscription() {
       channelIds: [],
       intent: topicItems(topic)[0]?.intent || '',
       siteVisible: topicSiteVisible(topic, items),
+      subscribedAt: dayjs.tz().format('YYYY-MM-DD'),
     }])
   }
 

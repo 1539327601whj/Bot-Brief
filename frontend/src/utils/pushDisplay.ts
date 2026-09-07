@@ -141,6 +141,7 @@ export function missStamp(item: TopicProgressItem) {
 }
 
 export const HOME_MISS_PREVIEW = 4
+export const HOME_ALERT_PREVIEW = 6
 
 export function previewGenerationMisses(progress: TodayProgress, limit = HOME_MISS_PREVIEW) {
   return visibleGenerationMisses(progress).slice(0, Math.max(0, limit))
