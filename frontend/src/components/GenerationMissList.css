@@ -1,0 +1,56 @@
+.generation-miss-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.generation-miss-title {
+  color: #c5d0dc;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.generation-miss-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.generation-miss-list .topic-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 197, 66, 0.06);
+  border: 1px solid rgba(255, 197, 66, 0.16);
+}
+
+.generation-miss-list .topic-progress span {
+  color: #c5d0dc;
+  font-size: 13px;
+}
+
+.generation-miss-list .topic-progress strong {
+  font-size: 12px;
+}
+
+.generation-miss-list .topic-progress small {
+  color: #8b949e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.generation-miss-list .topic-progress.warn strong {
+  color: #ffc542;
+}
+
+.generation-miss-list .topic-progress.danger {
+  background: rgba(255, 123, 114, 0.08);
+  border-color: rgba(255, 123, 114, 0.2);
+}
+
+.generation-miss-list .topic-progress.danger strong {
+  color: #ff8080;
+}

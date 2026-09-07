@@ -63,6 +63,7 @@ export type TopicProgressStatus =
   | 'push_partial'
 
 export interface TopicProgressItem {
+  date?: string
   topic: string
   time: string
   window?: string
@@ -78,6 +79,7 @@ export interface TodayProgress {
   earliestOnTime?: string
   poller?: { healthy: boolean; lastSeen?: string; detail?: string }
   items: TopicProgressItem[]
+  recentMisses?: TopicProgressItem[]
 }
 
 const SETTLED_TODAY_STATUS = new Set<TopicProgressStatus>(['pushed', 'delivered'])
@@ -95,6 +97,47 @@ export function earliestOnTimeLabel(now: { startOf: (unit: 'minute') => { add: (
 
 export function progressForSlot(items: TopicProgressItem[], time: string) {
   return items.filter(item => item.time === time)
+}
+
+export function progressTone(status?: string) {
+  if (status === 'failed' || status === 'push_failed') return 'danger'
+  if (status === 'skipped' || status === 'web_ready' || status === 'push_partial') return 'warn'
+  if (status === 'ready' || status === 'delivered' || status === 'pushed') return 'ok'
+  if (status === 'preparing') return 'info'
+  return ''
+}
+
+export function isGenerationMiss(item: TopicProgressItem) {
+  return item.status === 'skipped' || item.status === 'failed'
+}
+
+export function missKey(item: TopicProgressItem, fallbackDate?: string) {
+  return `${item.date || fallbackDate || ''} ${item.time} ${item.topic}`
+}
+
+/** 今日跳过/失败 + 近几日未写成，按日期时刻倒序，去重。 */
+export function visibleGenerationMisses(progress: TodayProgress): TopicProgressItem[] {
+  const seen = new Set<string>()
+  const out: TopicProgressItem[] = []
+  const add = (item: TopicProgressItem) => {
+    if (!isGenerationMiss(item)) return
+    const dated = { ...item, date: item.date || progress.date }
+    const key = missKey(dated)
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(dated)
+  }
+  for (const item of progress.recentMisses || []) add(item)
+  for (const item of progress.items || []) add(item)
+  return out.sort((left, right) => {
+    const byDate = String(right.date || '').localeCompare(String(left.date || ''))
+    if (byDate !== 0) return byDate
+    return String(right.time || '').localeCompare(String(left.time || ''))
+  })
+}
+
+export function missStamp(item: TopicProgressItem) {
+  return item.date ? `${item.date} ${item.time}` : item.time
 }
 
 export function slotEmptyHint(items: TopicProgressItem[], time: string, fallback: string) {

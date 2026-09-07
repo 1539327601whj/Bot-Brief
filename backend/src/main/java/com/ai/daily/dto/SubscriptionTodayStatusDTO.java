@@ -14,6 +14,8 @@ public class SubscriptionTodayStatusDTO {
     private String earliestOnTime;
     private PollerStatusDTO poller;
     private List<ItemStatusDTO> items = new ArrayList<>();
+    /** 近几日已到点但没有写成的订阅，含主题和原因 */
+    private List<ItemStatusDTO> recentMisses = new ArrayList<>();
 
     @Data
     public static class PollerStatusDTO {
@@ -24,6 +26,7 @@ public class SubscriptionTodayStatusDTO {
 
     @Data
     public static class ItemStatusDTO {
+        private String date;
         private String topic;
         private String time;
         private String window;

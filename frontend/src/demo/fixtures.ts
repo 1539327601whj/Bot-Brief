@@ -135,6 +135,9 @@ export const demoTodayStatus = {
     { topic: 'AI大模型', time: '20:15', status: 'ready' as const, label: '已备好', message: '内容已写好，到 20:15 会显示并推送' },
     { topic: '安全', time: '20:15', status: 'skipped' as const, label: '无匹配资讯', message: '今天没有抓到与该主题直接相关的资讯，已跳过' },
   ],
+  recentMisses: [
+    { date: '2026-08-28', topic: '安全', time: '20:15', status: 'skipped' as const, label: '未生成', message: '当天没有抓到与该主题直接相关的资讯' },
+  ],
 }
 
 export const demoChannels = [

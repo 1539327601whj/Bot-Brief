@@ -704,6 +704,10 @@ a.ghost-link {
   margin-bottom: 24px;
 }
 
+.subscription-page .generation-miss-block {
+  margin: -8px 0 24px;
+}
+
 .subscription-summary > div {
   padding: 18px;
   background: rgba(26, 31, 54, 0.6);

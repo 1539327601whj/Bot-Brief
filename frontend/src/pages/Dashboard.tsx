@@ -8,7 +8,8 @@ import { coversWeekday, weekdayRangeLabel, weekdaysOf } from '../utils/weekdays'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { dispatchKeyOf, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import GenerationMissList from '../components/GenerationMissList'
+import { dispatchKeyOf, progressTone, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
 import './Dashboard.css'
 
@@ -211,13 +212,6 @@ function FocusCard({ report }: { report: Report | null }) {
   )
 }
 
-function progressTone(status?: string) {
-  if (status === 'failed' || status === 'push_failed') return 'danger'
-  if (status === 'skipped' || status === 'web_ready' || status === 'push_partial') return 'warn'
-  if (status === 'ready' || status === 'delivered' || status === 'pushed') return 'ok'
-  if (status === 'preparing') return 'info'
-  return ''
-}
 
 function SubscriptionCard({ subscription, progress }: { subscription: Subscription | null; progress: TopicProgressItem[] }) {
   if (!subscription) {
@@ -281,12 +275,13 @@ function SubscriptionCard({ subscription, progress }: { subscription: Subscripti
   )
 }
 
-function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports: Report[] }) {
+function PushStatusCard({ logs, todayReports, progress }: { logs: PushLog[]; todayReports: Report[]; progress: TodayProgress }) {
   const todayLogs = logs.filter(log => isToday(log.pushedAt))
   const failed = todayLogs.filter(log => log.status === 'failed')
   const latest = todayLogs[0]
   const readyBriefs = todayReports.filter(report => isSystemBriefEdition(report.edition))
   const success = todayLogs.length - failed.length
+  const misses = visibleGenerationMisses(progress)
 
   return (
     <div className="overview-card">
@@ -294,10 +289,11 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
         <div className="overview-card-title">🔔 今日推送状态</div>
         <Link to="/notifications" className="section-link">记录 →</Link>
       </div>
-      <div className="push-summary-grid">
+      <div className="push-summary-grid push-summary-grid-4">
         <div><strong>{todayLogs.length}</strong><span>今日投递</span></div>
         <div><strong>{success}</strong><span>成功</span></div>
-        <div className={failed.length > 0 ? 'danger-text' : ''}><strong>{failed.length}</strong><span>失败</span></div>
+        <div className={failed.length > 0 ? 'danger-text' : ''}><strong>{failed.length}</strong><span>投递失败</span></div>
+        <div className={misses.length > 0 ? 'danger-text' : ''}><strong>{misses.length}</strong><span>未生成</span></div>
       </div>
       {readyBriefs.length > 0 && (
         <div className="system-push-list">
@@ -312,6 +308,7 @@ function PushStatusCard({ logs, todayReports }: { logs: PushLog[]; todayReports:
           })}
         </div>
       )}
+      <GenerationMissList items={misses} title={misses.length > 0 ? '哪条没写成' : undefined} />
       {latest ? (
         <p className="overview-muted">最近一次{pushKindFromDispatchKey(dispatchKeyOf(latest)).label}：{parseBeijing(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
       ) : readyBriefs.length > 0 ? (
@@ -515,6 +512,11 @@ export default function Dashboard() {
         if (item.status === 'push_failed') items.push(`${item.time} 「${item.topic}」网页已出，渠道推送失败`)
         if (item.status === 'web_ready') items.push(`${item.time} 「${item.topic}」网页已出，渠道还没推到`)
       })
+      visibleGenerationMisses(todayProgress).forEach(item => {
+        if (item.date && item.date !== todayProgress.date) {
+          items.push(`${item.date} ${item.time} 「${item.topic}」未生成：${item.message}`)
+        }
+      })
       if (isAdmin && todayProgress.poller && !todayProgress.poller.healthy) {
         items.push('订阅生成器心跳超时，个人简报可能不会自动生成')
       }
@@ -668,7 +670,7 @@ export default function Dashboard() {
             )}
             <div className="overview-main-grid">
               <SubscriptionCard subscription={subscription} progress={todayProgress.items} />
-              <PushStatusCard logs={pushLogs} todayReports={todayReports} />
+              <PushStatusCard logs={pushLogs} todayReports={todayReports} progress={todayProgress} />
               <div className="overview-card">
                 <div className="overview-card-title">🔥 近期热点</div>
                 <div className="preference-tags">
@@ -681,6 +683,7 @@ export default function Dashboard() {
               <h2>最近个人简报</h2>
               <Link to="/reports" className="section-link">查看全部 →</Link>
             </div>
+            <GenerationMissList items={visibleGenerationMisses(todayProgress)} title="未生成的订阅" />
             <RecentReportList reports={[
               ...(!showAiDigest ? recentReports.filter(report => report.edition === 'morning' || report.edition === 'evening') : []),
               ...(!showEtfDigest ? recentReports.filter(report => String(report.edition).startsWith('market_watch')) : []),
@@ -731,7 +734,7 @@ export default function Dashboard() {
 
           <div className="overview-main-grid">
             <SubscriptionCard subscription={subscription} progress={todayProgress.items} />
-            <PushStatusCard logs={pushLogs} todayReports={todayReports} />
+            <PushStatusCard logs={pushLogs} todayReports={todayReports} progress={todayProgress} />
             <div className="overview-card">
               <div className="overview-card-title">🔥 近期热点</div>
               <div className="preference-tags">
@@ -749,6 +752,7 @@ export default function Dashboard() {
             <h2 className="section-title">📋 最近报告</h2>
             <Link to="/reports" className="section-link">查看全部 →</Link>
           </div>
+          <GenerationMissList items={visibleGenerationMisses(todayProgress)} title="未生成的订阅" />
           <RecentReportList reports={recentReports} />
         </div>
       )}

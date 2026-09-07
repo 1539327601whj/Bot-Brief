@@ -13,9 +13,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -24,6 +26,8 @@ public class SubscriptionProgressService {
 
     private static final ZoneId BEIJING = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MISS_LOOKBACK_DAYS = 7;
+    private static final int PUSH_CATCH_UP_HOURS = 3;
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionPreferences subscriptionPreferences;
@@ -44,6 +48,10 @@ public class SubscriptionProgressService {
     public SubscriptionTodayStatusDTO todayStatus(Long userId) {
         LocalDate today = LocalDate.now(BEIJING);
         LocalTime now = LocalTime.now(BEIJING).withSecond(0).withNano(0);
+        return todayStatus(userId, today, now);
+    }
+
+    SubscriptionTodayStatusDTO todayStatus(Long userId, LocalDate today, LocalTime now) {
         SubscriptionTodayStatusDTO dto = new SubscriptionTodayStatusDTO();
         dto.setDate(today.toString());
         dto.setLeadMinutes(Math.max(0, leadMinutes));
@@ -64,6 +72,7 @@ public class SubscriptionProgressService {
         for (SubscriptionDTO.TopicScheduleItemDTO item : subscriptionPreferences.enabledTopicItemsOn(subscription, today)) {
             dto.getItems().add(itemStatus(userId, today, now, subscription, item));
         }
+        dto.getRecentMisses().addAll(recentMisses(userId, subscription, today, now));
         return dto;
     }
 
@@ -74,6 +83,7 @@ public class SubscriptionProgressService {
         String window = ReportWindows.of(readyAt);
         String topic = item.getTopic().trim();
         SubscriptionTodayStatusDTO.ItemStatusDTO row = new SubscriptionTodayStatusDTO.ItemStatusDTO();
+        row.setDate(today.toString());
         row.setTopic(topic);
         row.setTime(ReportWindows.format(readyAt));
         row.setWindow(window);
@@ -191,10 +201,99 @@ public class SubscriptionProgressService {
         row.setMessage("网页已可查看，绑定渠道还没投递成功；打开本页或下一分钟会补推");
     }
 
+    private List<SubscriptionTodayStatusDTO.ItemStatusDTO> recentMisses(
+            Long userId, Subscription subscription, LocalDate today, LocalTime now) {
+        List<SubscriptionTodayStatusDTO.ItemStatusDTO> misses = new ArrayList<>();
+        LocalDateTime current = LocalDateTime.of(today, now);
+        for (int offset = 0; offset < MISS_LOOKBACK_DAYS; offset++) {
+            LocalDate date = today.minusDays(offset);
+            for (SubscriptionDTO.TopicScheduleItemDTO item : subscriptionPreferences.enabledTopicItemsOn(subscription, date)) {
+                SubscriptionTodayStatusDTO.ItemStatusDTO miss = missIfUnwritten(userId, date, item, current);
+                if (miss != null) misses.add(miss);
+            }
+        }
+        return misses;
+    }
+
+    private SubscriptionTodayStatusDTO.ItemStatusDTO missIfUnwritten(
+            Long userId, LocalDate date, SubscriptionDTO.TopicScheduleItemDTO item, LocalDateTime current) {
+        LocalTime readyAt = ReportWindows.parse(item.getTime()).withSecond(0).withNano(0);
+        String window = ReportWindows.of(readyAt);
+        String topic = item.getTopic().trim();
+        Report assembled = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, readyAt);
+        if (assembled != null) return null;
+
+        String digestEdition = TopicIntents.usePublicDigest(topic, item.getIntent())
+                ? DigestTopics.publicEditionFor(topic, readyAt)
+                : null;
+        boolean hasSection = topicSectionMapper.findId(date, window, topic) != null
+                || (digestEdition != null && reportService.publicReportExists(digestEdition, date));
+        if (hasSection) return null;
+
+        TopicGenerationStatus recorded = generationStatusService.find(date, window, topic);
+        if (recorded != null && TopicGenerationStatus.READY.equals(recorded.getStatus())) {
+            return null;
+        }
+        if (recorded != null && TopicGenerationStatus.SKIPPED_NO_NEWS.equals(recorded.getStatus())) {
+            return missRow(date, topic, readyAt, window, "skipped", "未生成",
+                    settledReason(recorded.getMessage(), "当天没有抓到与该主题直接相关的资讯"));
+        }
+        if (recorded != null && TopicGenerationStatus.FAILED.equals(recorded.getStatus())) {
+            return missRow(date, topic, readyAt, window, "failed", "未生成",
+                    settledReason(recorded.getMessage(), "当天生成失败"));
+        }
+        if (pastRetryDeadline(date, window, readyAt, current)) {
+            return missRow(date, topic, readyAt, window, "failed", "未生成",
+                    "到点后没有写成日报，也没有留下生成记录");
+        }
+        return null;
+    }
+
+    private static SubscriptionTodayStatusDTO.ItemStatusDTO missRow(
+            LocalDate date, String topic, LocalTime readyAt, String window,
+            String status, String label, String message) {
+        SubscriptionTodayStatusDTO.ItemStatusDTO row = new SubscriptionTodayStatusDTO.ItemStatusDTO();
+        row.setDate(date.toString());
+        row.setTopic(topic);
+        row.setTime(ReportWindows.format(readyAt));
+        row.setWindow(window);
+        row.setStatus(status);
+        row.setLabel(label);
+        row.setMessage(message);
+        return row;
+    }
+
+    private static boolean pastRetryDeadline(
+            LocalDate date, String window, LocalTime generateAt, LocalDateTime current) {
+        LocalDateTime deadline = LocalDateTime.of(date, ReportWindows.windowEnd(window));
+        if (generateAt != null) {
+            LocalDateTime catchUpEnd = LocalDateTime.of(date, generateAt).plusHours(PUSH_CATCH_UP_HOURS);
+            if (catchUpEnd.isAfter(deadline)) deadline = catchUpEnd;
+        }
+        return !current.isBefore(deadline);
+    }
+
     private static String retryableFailureMessage(String recorded, String fallback) {
         if (recorded == null || recorded.isBlank()) return fallback;
         if (recorded.contains("再试") || recorded.contains("重试")) return recorded;
         return recorded + "。约 2 分钟后再试，写成后下一分钟会补网页和推送";
+    }
+
+    static String settledReason(String recorded, String fallback) {
+        if (recorded == null || recorded.isBlank()) return fallback;
+        String text = recorded.trim();
+        int retryAt = indexOfRetryHint(text);
+        if (retryAt > 0) {
+            text = text.substring(0, retryAt).replaceAll("[。；;，,\\s]+$", "");
+        }
+        return text.isBlank() ? fallback : text;
+    }
+
+    private static int indexOfRetryHint(String text) {
+        int retry = text.indexOf("约 2 分钟后再");
+        if (retry >= 0) return retry;
+        retry = text.indexOf("再试");
+        return retry >= 0 ? retry : -1;
     }
 
     private SubscriptionTodayStatusDTO.PollerStatusDTO pollerStatus() {

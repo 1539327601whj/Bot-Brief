@@ -1101,6 +1101,10 @@
   margin-bottom: 12px;
 }
 
+.push-summary-grid-4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .system-push-list {
   display: flex;
   flex-direction: column;
@@ -1210,6 +1214,10 @@
 
   .push-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .push-summary-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
