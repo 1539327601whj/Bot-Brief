@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ConfigProvider, DatePicker, Pagination, Select, theme } from 'antd'
 import type { PaginationProps } from 'antd'
 import type { Dayjs } from 'dayjs'
@@ -7,8 +8,8 @@ import api from '../utils/api'
 import { parseBeijing } from '../utils/dayjs'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
-import { demoPushLogs } from '../demo/fixtures'
-import { CHANNEL_LABEL, channelLabel, dispatchKeyOf, pushKindFromDispatchKey } from '../utils/pushDisplay'
+import { demoPushLogs, demoTodayStatus } from '../demo/fixtures'
+import { CHANNEL_LABEL, channelLabel, dispatchKeyOf, missKey, missStamp, pushKindFromDispatchKey, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Notifications.css'
 
 const { RangePicker } = DatePicker
@@ -34,7 +35,13 @@ const TYPE_ICON: Record<string, string> = {
   email: '✉️', wechat: '💬', dingtalk: '🔔', feishu: '🚀',
 }
 
-type Filter = 'all' | 'scheduled' | 'test' | 'success' | 'failed'
+type Filter = 'all' | 'scheduled' | 'test' | 'success' | 'failed' | 'unwritten'
+
+const FILTERS: Filter[] = ['all', 'scheduled', 'test', 'success', 'failed', 'unwritten']
+
+function parseFilter(value: string | null): Filter {
+  return FILTERS.includes(value as Filter) ? value as Filter : 'all'
+}
 
 const notificationTheme = {
   algorithm: theme.darkAlgorithm,
@@ -55,33 +62,46 @@ const notificationTheme = {
 export default function Notifications() {
   const { user } = useAuth()
   const isDemo = user?.accountType === 'DEMO'
+  const [searchParams, setSearchParams] = useSearchParams()
   const [logs, setLogs] = useState<PushLog[]>([])
+  const [misses, setMisses] = useState<TopicProgressItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>(() => parseFilter(searchParams.get('filter')))
   const [channelType, setChannelType] = useState<string>('')
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [page, setPage] = useState(1)
 
   useEffect(() => {
+    setFilter(parseFilter(searchParams.get('filter')))
+  }, [searchParams])
+
+  useEffect(() => {
     if (isDemo) {
       setLogs(demoPushLogs)
+      setMisses(visibleGenerationMisses(demoTodayStatus))
       setLoading(false)
       return
     }
-    api.get('/push-logs', { params: { limit: 500 } })
-      .then(res => {
-        if (res.data?.code === 200) {
-          setLogs(res.data?.data || [])
+    Promise.allSettled([
+      api.get('/push-logs', { params: { limit: 500 } }),
+      api.get('/subscription/today-status'),
+    ])
+      .then(([logRes, statusRes]) => {
+        if (logRes.status === 'fulfilled' && logRes.value.data?.code === 200) {
+          setLogs(logRes.value.data?.data || [])
           setLoadError('')
-          return
+        } else {
+          setLogs([])
+          setLoadError(logRes.status === 'fulfilled'
+            ? (logRes.value.data?.message || '推送记录加载失败')
+            : '推送记录加载失败')
         }
-        setLogs([])
-        setLoadError(res.data?.message || '推送记录加载失败')
-      })
-      .catch(() => {
-        setLogs([])
-        setLoadError('推送记录加载失败')
+        if (statusRes.status === 'fulfilled' && statusRes.value.data?.code === 200) {
+          setMisses(visibleGenerationMisses((statusRes.value.data.data || { items: [] }) as TodayProgress))
+        } else {
+          setMisses([])
+        }
       })
       .finally(() => setLoading(false))
   }, [isDemo])
@@ -91,8 +111,9 @@ export default function Notifications() {
   const testCount = logs.filter(log => kindOf(log).kind === 'test').length
   const failedCount = logs.filter(log => log.status === 'failed').length
 
-  const visible = useMemo(() => logs.filter(log => {
+  const visibleLogs = useMemo(() => logs.filter(log => {
     const kind = pushKindFromDispatchKey(dispatchKeyOf(log)).kind
+    if (filter === 'unwritten') return false
     if (filter === 'scheduled' && kind !== 'scheduled') return false
     if (filter === 'test' && kind !== 'test') return false
     if ((filter === 'success' || filter === 'failed') && log.status !== filter) return false
@@ -105,14 +126,30 @@ export default function Notifications() {
     return true
   }), [logs, filter, channelType, range])
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const visibleMisses = useMemo(() => misses.filter(item => {
+    if (range?.[0] || range?.[1]) {
+      if (!item.date) return false
+      if (range[0] && item.date < range[0].format('YYYY-MM-DD')) return false
+      if (range[1] && item.date > range[1].format('YYYY-MM-DD')) return false
+    }
+    return true
+  }), [misses, range])
+
+  const showingMisses = filter === 'unwritten'
+  const visibleCount = showingMisses ? visibleMisses.length : visibleLogs.length
+  const totalPages = Math.max(1, Math.ceil(visibleCount / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  const hasExtraFilter = Boolean(channelType || range?.[0] || range?.[1])
+  const pagedLogs = visibleLogs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pagedMisses = visibleMisses.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const hasExtraFilter = Boolean((!showingMisses && channelType) || range?.[0] || range?.[1])
 
   const changeFilter = (next: Filter) => {
     setFilter(next)
     setPage(1)
+    const nextParams = new URLSearchParams(searchParams)
+    if (next === 'all') nextParams.delete('filter')
+    else nextParams.set('filter', next)
+    setSearchParams(nextParams, { replace: true })
   }
   const changeChannel = (value: string | undefined) => {
     setChannelType(value || '')
@@ -141,7 +178,7 @@ export default function Notifications() {
       {isDemo && <DemoNotice />}
       <div className="page-header">
         <h2>🔔 通知记录</h2>
-        <p className="page-desc">测试推送和按订阅时刻投递会分开标注。可按时间段、推送软件筛选，每页 10 条。</p>
+        <p className="page-desc">测试推送、订阅投递和未写成的日报会分开标注。未生成里能看到主题和原因。可按时间段筛选，每页 10 条。</p>
       </div>
 
       <div className="log-toolbar">
@@ -151,6 +188,7 @@ export default function Notifications() {
           <button className={filter === 'test' ? 'active' : ''} onClick={() => changeFilter('test')}>测试推送 {testCount}</button>
           <button className={filter === 'success' ? 'active' : ''} onClick={() => changeFilter('success')}>成功 {logs.length - failedCount}</button>
           <button className={filter === 'failed' ? 'active' : ''} onClick={() => changeFilter('failed')}>失败 {failedCount}</button>
+          <button className={`${filter === 'unwritten' ? 'active' : ''} ${misses.length > 0 ? 'has-miss' : ''}`} onClick={() => changeFilter('unwritten')}>未生成 {misses.length}</button>
         </div>
         <div className="log-query">
           <RangePicker
@@ -160,14 +198,16 @@ export default function Notifications() {
             allowClear
             className="log-range"
           />
-          <Select
-            className="log-channel"
-            value={channelType || undefined}
-            onChange={changeChannel}
-            allowClear
-            placeholder="全部推送软件"
-            options={CHANNEL_OPTIONS}
-          />
+          {!showingMisses && (
+            <Select
+              className="log-channel"
+              value={channelType || undefined}
+              onChange={changeChannel}
+              allowClear
+              placeholder="全部推送软件"
+              options={CHANNEL_OPTIONS}
+            />
+          )}
           {hasExtraFilter && (
             <button type="button" className="log-reset" onClick={resetExtraFilters}>清除条件</button>
           )}
@@ -176,16 +216,33 @@ export default function Notifications() {
 
       {loading ? (
         <div className="loading">加载中...</div>
-      ) : visible.length === 0 ? (
+      ) : visibleCount === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🕊️</div>
           <p>{loadError || emptyHint(filter, hasExtraFilter)}</p>
-          <p className="hint">在「推送渠道」点测试，或等到订阅时刻自动投递后，都会出现在这里。</p>
+          <p className="hint">{showingMisses ? '到点没写成的订阅会出现在这里，首页「哪条没写成」只留最近 4 条。' : '在「推送渠道」点测试，或等到订阅时刻自动投递后，都会出现在这里。'}</p>
         </div>
       ) : (
         <>
           <div className="log-list">
-            {paged.map(l => {
+            {showingMisses ? pagedMisses.map(item => (
+              <div key={missKey(item)} className="log-row unwritten">
+                <div className="log-icon">📭</div>
+                <div className="log-info">
+                  <div className="log-title">
+                    <span className="log-type channel-unknown">{item.topic}</span>
+                    <span className="log-kind unwritten">订阅未生成</span>
+                    <span className="log-status failed">{item.label || '未生成'}</span>
+                    <span className="log-time">{missStamp(item)}</span>
+                  </div>
+                  <div className="log-meta">
+                    预约时刻 {item.time}
+                    {item.date ? ` · ${item.date}` : ''}
+                  </div>
+                  {item.message && <div className="log-error">{item.message}</div>}
+                </div>
+              </div>
+            )) : pagedLogs.map(l => {
               const kind = kindOf(l)
               const channel = l.channelType || 'unknown'
               return (
@@ -215,13 +272,13 @@ export default function Notifications() {
           </div>
           <div className="log-page-bar">
             <span className="log-page-summary">
-              第 {currentPage}/{totalPages} 页，共 {visible.length} 条
+              第 {currentPage}/{totalPages} 页，共 {visibleCount} 条
             </span>
             <Pagination
               className="log-pagination"
               current={currentPage}
               pageSize={PAGE_SIZE}
-              total={visible.length}
+              total={visibleCount}
               showSizeChanger={false}
               showQuickJumper
               itemRender={renderPaginationItem}
@@ -236,6 +293,7 @@ export default function Notifications() {
 }
 
 function emptyHint(filter: Filter, hasExtraFilter: boolean) {
+  if (filter === 'unwritten') return hasExtraFilter ? '当前时间段没有未生成记录' : '近几日没有未写成的订阅'
   if (hasExtraFilter) return '当前时间段或推送软件下没有记录'
   if (filter === 'failed') return '没有失败记录'
   if (filter === 'scheduled') return '还没有按订阅时刻投递的记录'

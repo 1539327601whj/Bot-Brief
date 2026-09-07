@@ -9,9 +9,8 @@ import { MAX_INTENT_LENGTH, normalizeIntent, topicIntentHint, topicOverview } fr
 import { defaultSiteVisible, topicSiteVisible } from '../utils/topicVisibility'
 import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
-import GenerationMissList from '../components/GenerationMissList'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
-import { earliestOnTimeLabel, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { earliestOnTimeLabel, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import './Subscription.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -766,7 +765,6 @@ export default function Subscription() {
         <div><span className="summary-label">推送时刻</span><strong>{new Set(enabledSlots.map(item => item.time)).size}</strong></div>
         <div><span className="summary-label">渠道绑定</span><strong>{enabledSlots.filter(item => item.channelIds.length > 0).length}</strong></div>
       </div>
-      <GenerationMissList items={visibleGenerationMisses(todayStatus)} title="近几日未生成" />
 
       <div className="section">
         <div className="section-title-row">

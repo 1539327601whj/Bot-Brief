@@ -140,6 +140,12 @@ export function missStamp(item: TopicProgressItem) {
   return item.date ? `${item.date} ${item.time}` : item.time
 }
 
+export const HOME_MISS_PREVIEW = 4
+
+export function previewGenerationMisses(progress: TodayProgress, limit = HOME_MISS_PREVIEW) {
+  return visibleGenerationMisses(progress).slice(0, Math.max(0, limit))
+}
+
 export function slotEmptyHint(items: TopicProgressItem[], time: string, fallback: string) {
   const rows = progressForSlot(items, time)
   if (rows.length === 0) return fallback

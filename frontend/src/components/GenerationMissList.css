@@ -54,3 +54,10 @@
 .generation-miss-list .topic-progress.danger strong {
   color: #ff8080;
 }
+
+.generation-miss-more {
+  display: inline-block;
+  margin-top: 2px;
+  color: #8b9cff;
+  font-size: 12px;
+}

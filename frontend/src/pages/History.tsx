@@ -8,9 +8,6 @@ import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { useAuth } from '../context/AuthContext'
-import GenerationMissList from '../components/GenerationMissList'
-import { demoTodayStatus } from '../demo/fixtures'
-import { visibleGenerationMisses, type TodayProgress } from '../utils/pushDisplay'
 import './History.css'
 
 const { RangePicker } = DatePicker
@@ -49,7 +46,6 @@ export default function History() {
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [keyword, setKeyword] = useState('')
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
-  const [todayProgress, setTodayProgress] = useState<TodayProgress>({ items: [] })
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -117,24 +113,6 @@ export default function History() {
 
     return () => controller.abort()
   }, [queryString, retryKey])
-
-  useEffect(() => {
-    if (isDemo) {
-      setTodayProgress(demoTodayStatus)
-      return
-    }
-    let cancelled = false
-    api.get('/subscription/today-status')
-      .then(res => {
-        if (!cancelled && res.data?.code === 200 && res.data.data) {
-          setTodayProgress(res.data.data)
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [isDemo])
 
   const reports = pageData?.records ?? []
   const total = pageData?.total ?? 0
@@ -283,8 +261,6 @@ export default function History() {
             <button className="history-reset" onClick={resetFilters}>清空</button>
           )}
         </div>
-
-        <GenerationMissList items={visibleGenerationMisses(todayProgress)} title="未生成的订阅" />
 
         {loading ? (
           <div className="loading-spinner">

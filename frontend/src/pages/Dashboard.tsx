@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import GenerationMissList from '../components/GenerationMissList'
-import { dispatchKeyOf, progressTone, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { dispatchKeyOf, HOME_MISS_PREVIEW, progressTone, previewGenerationMisses, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
 import './Dashboard.css'
 
@@ -282,12 +282,14 @@ function PushStatusCard({ logs, todayReports, progress }: { logs: PushLog[]; tod
   const readyBriefs = todayReports.filter(report => isSystemBriefEdition(report.edition))
   const success = todayLogs.length - failed.length
   const misses = visibleGenerationMisses(progress)
+  const previewMisses = previewGenerationMisses(progress)
+  const recordsTo = misses.length > 0 ? '/notifications?filter=unwritten' : '/notifications'
 
   return (
     <div className="overview-card">
       <div className="overview-card-header">
         <div className="overview-card-title">🔔 今日推送状态</div>
-        <Link to="/notifications" className="section-link">记录 →</Link>
+        <Link to={recordsTo} className="section-link">记录 →</Link>
       </div>
       <div className="push-summary-grid push-summary-grid-4">
         <div><strong>{todayLogs.length}</strong><span>今日投递</span></div>
@@ -308,7 +310,19 @@ function PushStatusCard({ logs, todayReports, progress }: { logs: PushLog[]; tod
           })}
         </div>
       )}
-      <GenerationMissList items={misses} title={misses.length > 0 ? '哪条没写成' : undefined} />
+      <GenerationMissList
+        items={previewMisses}
+        title={previewMisses.length > 0 ? '哪条没写成' : undefined}
+        footer={misses.length > HOME_MISS_PREVIEW ? (
+          <Link to="/notifications?filter=unwritten" className="generation-miss-more">
+            还有 {misses.length - HOME_MISS_PREVIEW} 条，去通知记录看全部
+          </Link>
+        ) : misses.length > 0 ? (
+          <Link to="/notifications?filter=unwritten" className="generation-miss-more">
+            全部未生成记录 →
+          </Link>
+        ) : null}
+      />
       {latest ? (
         <p className="overview-muted">最近一次{pushKindFromDispatchKey(dispatchKeyOf(latest)).label}：{parseBeijing(latest.pushedAt).tz('Asia/Shanghai').format('HH:mm')} · {latest.channelType}</p>
       ) : readyBriefs.length > 0 ? (
@@ -683,7 +697,6 @@ export default function Dashboard() {
               <h2>最近个人简报</h2>
               <Link to="/reports" className="section-link">查看全部 →</Link>
             </div>
-            <GenerationMissList items={visibleGenerationMisses(todayProgress)} title="未生成的订阅" />
             <RecentReportList reports={[
               ...(!showAiDigest ? recentReports.filter(report => report.edition === 'morning' || report.edition === 'evening') : []),
               ...(!showEtfDigest ? recentReports.filter(report => String(report.edition).startsWith('market_watch')) : []),
@@ -752,7 +765,6 @@ export default function Dashboard() {
             <h2 className="section-title">📋 最近报告</h2>
             <Link to="/reports" className="section-link">查看全部 →</Link>
           </div>
-          <GenerationMissList items={visibleGenerationMisses(todayProgress)} title="未生成的订阅" />
           <RecentReportList reports={recentReports} />
         </div>
       )}
