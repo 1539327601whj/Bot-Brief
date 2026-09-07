@@ -1172,7 +1172,7 @@
 .alert-history-mask {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1396,6 +1396,10 @@
   border-color: rgba(255, 255, 255, 0.16);
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.055);
   transform: translateY(-1px);
+}
+
+.overview-card.alert-card:hover {
+  transform: none;
 }
 
 .focus-card,

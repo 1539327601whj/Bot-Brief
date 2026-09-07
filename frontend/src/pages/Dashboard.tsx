@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import MarketMarkdown from '../components/MarketMarkdown'
 import dayjs, { parseBeijing } from '../utils/dayjs'
@@ -377,6 +378,21 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const preview = alerts.slice(0, HOME_ALERT_PREVIEW)
   const hidden = Math.max(0, alerts.length - preview.length)
+
+  useEffect(() => {
+    if (!historyOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHistoryOpen(false)
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [historyOpen])
+
   return (
     <div className={`overview-card ${alerts.length > 0 ? 'alert-card' : 'ok-card'}`}>
       <div className="overview-card-header">
@@ -401,9 +417,15 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
       ) : (
         <div className="overview-empty">今日关键数据暂未发现异常</div>
       )}
-      {historyOpen && (
-        <div className="alert-history-mask" onClick={() => setHistoryOpen(false)}>
-          <div className="alert-history-dialog" onClick={event => event.stopPropagation()} role="dialog" aria-label="历史数据异常">
+      {historyOpen && createPortal(
+        <div className="alert-history-mask" onMouseDown={() => setHistoryOpen(false)}>
+          <div
+            className="alert-history-dialog"
+            onMouseDown={event => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="历史数据异常"
+          >
             <div className="alert-history-head">
               <div>
                 <h3>历史数据异常</h3>
@@ -418,7 +440,8 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
               去通知记录看未生成 →
             </Link>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
