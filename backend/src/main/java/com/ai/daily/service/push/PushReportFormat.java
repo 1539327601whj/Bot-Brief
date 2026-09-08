@@ -17,6 +17,7 @@ public final class PushReportFormat {
 
     private static final Pattern CHANGE_TOKEN = Pattern.compile(
             "(?<![.\\d])((?:[↑↓]\\s*)?(?:\\+[\\d.]+(?:%|pt|点)|-[\\d.]+(?:%|pt|点)|0(?:\\.00)?(?:%|pt|点)))(?!\\d)");
+    private static final Pattern SECTION_LABEL = Pattern.compile("\\*\\*([^*\\n]{1,20})[：:]\\*\\*");
 
     private PushReportFormat() {}
 
@@ -34,22 +35,84 @@ public final class PushReportFormat {
     }
 
     public static String wecomMarkdown(String title, String content) {
+        return wecomMarkdown(title, content, 0);
+    }
+
+    public static String wecomMarkdown(String title, String content, int maxBytes) {
+        String rendered = renderWecom(title, content, false);
+        if (maxBytes <= 0 || PushContentLimits.utf8Bytes(rendered) <= maxBytes) {
+            return rendered;
+        }
+        rendered = renderWecom(title, content, true);
+        if (PushContentLimits.utf8Bytes(rendered) <= maxBytes) {
+            return rendered;
+        }
+        return PushContentLimits.truncateToBytes(rendered, maxBytes);
+    }
+
+    private static String renderWecom(String title, String content, boolean tightAShare) {
         StringBuilder out = new StringBuilder();
         out.append("<font color=\"warning\">**").append(plain(title)).append("**</font>\n");
         boolean leading = true;
+        String section = "";
         for (Line line : parse(content)) {
-            if (leading && (line.kind == Kind.HR || isBlank(line) || isLeadTitle(line, title))) {
+            if (leading && (line.kind == Kind.HR || isBlank(line) || isLeadTitle(line, title) || line.kind == Kind.H1)) {
                 continue;
             }
             leading = false;
             switch (line.kind) {
-                case H1, H2 -> out.append("\n> <font color=\"warning\">**").append(plain(line.text)).append("**</font>\n");
+                case H1, H2 -> {
+                    section = plain(line.text);
+                    out.append("\n> <font color=\"warning\">**").append(section).append("**</font>\n");
+                }
                 case H3 -> out.append("\n<font color=\"info\">**").append(plain(line.text)).append("**</font>\n");
                 case HR -> out.append('\n');
-                case OTHER -> out.append(colorizeWecomChanges(line.raw)).append('\n');
+                case OTHER -> {
+                    String text = line.raw;
+                    if (section.contains("A股观察")) {
+                        text = compactAShareBullet(text, tightAShare);
+                    }
+                    out.append(colorizeChanges(text, "warning", "info", "comment")).append('\n');
+                }
             }
         }
         return compact(out.toString());
+    }
+
+    static String compactAShareBullet(String line, boolean tight) {
+        if (line == null || line.isBlank()) return line;
+        String text = line
+                .replace("动态PE ", "PE ")
+                .replace("亿元", "亿")
+                .replace("万元", "万")
+                .replace("主力净流入", "主力流入");
+        text = shortenTrendClause(text);
+        text = text.replace("风险：机械筛选未覆盖基本面、公告和行业事件。", "风险：未覆盖基本面与公告。");
+        if (tight) {
+            text = text.replaceAll("趋势：[^。]*。\\s*", "");
+            text = text.replaceAll("风险：.*$", "").stripTrailing();
+        }
+        return text;
+    }
+
+    static String shortenTrendClause(String line) {
+        String label = "趋势：";
+        int start = line.indexOf(label);
+        if (start < 0) return line;
+        int from = start + label.length();
+        int risk = line.indexOf("风险：", from);
+        int end = risk >= 0 ? risk : line.length();
+        String body = line.substring(from, end).strip();
+        int sep = body.indexOf('；');
+        if (sep > 0) {
+            body = body.substring(0, sep) + "。";
+        }
+        StringBuilder out = new StringBuilder(line.substring(0, from)).append(body);
+        if (risk >= 0) {
+            if (!body.endsWith("。") && !body.endsWith(" ")) out.append(' ');
+            out.append(line.substring(risk));
+        }
+        return out.toString();
     }
 
     public static String dingtalkMarkdown(String title, String content) {
@@ -74,16 +137,32 @@ public final class PushReportFormat {
     public static String feishuMarkdown(String title, String content) {
         StringBuilder out = new StringBuilder();
         boolean leading = true;
+        boolean started = false;
         for (Line line : parse(content)) {
             if (leading && (line.kind == Kind.HR || isBlank(line) || isLeadTitle(line, title))) {
                 continue;
             }
             leading = false;
             switch (line.kind) {
-                case H1, H2 -> out.append("\n**▎ ").append(plain(line.text)).append("**\n");
-                case H3 -> out.append("\n**· ").append(plain(line.text)).append("**\n");
+                case H1 -> {
+                    if (started) out.append("\n<hr>\n");
+                    out.append('\n').append(feishuHeading("indigo", "▎ ", line.text)).append('\n');
+                    started = true;
+                }
+                case H2 -> {
+                    if (started) out.append("\n<hr>\n");
+                    out.append('\n').append(feishuHeading("blue", "▎ ", line.text)).append('\n');
+                    started = true;
+                }
+                case H3 -> {
+                    out.append('\n').append(feishuHeading("orange", "", line.text)).append('\n');
+                    started = true;
+                }
                 case HR -> out.append('\n');
-                case OTHER -> out.append(line.raw).append('\n');
+                case OTHER -> {
+                    out.append(colorizeFeishuLine(line.raw)).append('\n');
+                    started = true;
+                }
             }
         }
         return compact(out.toString());
@@ -130,17 +209,34 @@ public final class PushReportFormat {
     }
 
     static String colorizeWecomChanges(String text) {
+        return colorizeChanges(text, "warning", "info", "comment");
+    }
+
+    static String colorizeFeishuLine(String text) {
+        return colorizeChanges(colorizeFeishuLabels(text), "red", "green", "grey");
+    }
+
+    static String colorizeFeishuLabels(String text) {
+        if (text == null || text.isEmpty()) return text;
+        return SECTION_LABEL.matcher(text).replaceAll("<text_tag color='violet'>$1</text_tag>");
+    }
+
+    static String colorizeChanges(String text, String upColor, String downColor, String flatColor) {
         if (text == null || text.isEmpty()) return text;
         Matcher matcher = CHANGE_TOKEN.matcher(text);
         StringBuilder out = new StringBuilder();
         while (matcher.find()) {
             String token = matcher.group(1);
             String body = token.replace("↑", "").replace("↓", "").replace(" ", "");
-            String color = body.startsWith("+") ? "warning" : body.startsWith("-") ? "info" : "comment";
+            String color = body.startsWith("+") ? upColor : body.startsWith("-") ? downColor : flatColor;
             matcher.appendReplacement(out, Matcher.quoteReplacement("<font color=\"" + color + "\">" + token + "</font>"));
         }
         matcher.appendTail(out);
         return out.toString();
+    }
+
+    private static String feishuHeading(String color, String prefix, String text) {
+        return "<font color=\"" + color + "\">**" + prefix + plain(text) + "**</font>";
     }
 
     static boolean isNonReportMeta(String text) {

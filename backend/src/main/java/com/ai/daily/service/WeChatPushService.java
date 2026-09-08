@@ -53,6 +53,6 @@ public class WeChatPushService {
     }
 
     private String buildMarkdownContent(Report report) {
-        return PushReportFormat.wecomMarkdown(report.getTitle(), report.getContent());
+        return PushReportFormat.wecomMarkdown(report.getTitle(), report.getContent(), 4096);
     }
 }

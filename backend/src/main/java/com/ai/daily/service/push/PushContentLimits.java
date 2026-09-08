@@ -6,6 +6,10 @@ final class PushContentLimits {
 
     private PushContentLimits() {}
 
+    static int utf8Bytes(String text) {
+        return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
+    }
+
     static String truncateToBytes(String text, int maxBytes) {
         if (text == null) return "";
         if (maxBytes <= 3) return "...";

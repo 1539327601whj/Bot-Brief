@@ -2201,19 +2201,19 @@ def score_a_share(stock: dict[str, Any]) -> float:
 
 def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
     reasons = [
-        f"成交额 {stock['amount'] / 100_000_000:.1f} 亿元",
-        f"动态PE {stock['pe_dynamic']:.1f}、PB {stock['pb']:.1f}",
+        f"成交额 {stock['amount'] / 100_000_000:.1f} 亿",
+        f"PE {stock['pe_dynamic']:.1f}、PB {stock['pb']:.1f}",
     ]
     if (stock["main_net_inflow"] or 0) > 0:
-        reasons.append(f"主力净流入 {stock['main_net_inflow'] / 10_000:.0f} 万元")
+        reasons.append(f"主力流入 {stock['main_net_inflow'] / 10_000:.0f} 万")
     day_change = stock["pct_change"] or 0
     trend_60d = stock["pct_change_60d"]
     if day_change > 0 and trend_60d is not None and trend_60d > 0:
-        trend = "量价与中期方向偏强；若后续成交额维持且不跌破当日低点，强势可能延续。"
+        trend = "量价偏强，若站稳低点或延续。"
     elif day_change < 0 and trend_60d is not None and trend_60d < 0:
-        trend = "短中期仍偏弱；只有放量企稳并收复当日高点后，趋势才可能改善。"
+        trend = "短中期偏弱，需放量收复高点。"
     else:
-        trend = "短期更可能维持震荡；需观察后续量能和当日高低点突破方向。"
+        trend = "短期偏震荡，看量能与高低点。"
     risks = []
     if stock["pe_dynamic"] > 50 or stock["pb"] > 6:
         risks.append("估值偏高")
@@ -2224,7 +2224,7 @@ def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
     if trend_60d is not None and trend_60d > 30:
         risks.append("近60日涨幅较大")
     if not risks:
-        risks.append("机械筛选未覆盖基本面、公告和行业事件")
+        risks.append("未覆盖基本面与公告")
     return {
         "name": stock["name"],
         "code": stock["code"],
@@ -2440,13 +2440,13 @@ def format_a_share_section(stock_observations: Optional[AShareObservationResult]
         for stock in observation_result.get("items", []):
             lines.append(
                 f"- **{stock['name']}（{stock['code']}）**：{stock['reason']}"
-                f"趋势：{stock['trend']}风险：{stock['risk']}"
+                f" 趋势：{stock['trend']} 风险：{stock['risk']}"
             )
     elif observation_result.get("status") == "empty":
-        lines.append("- 数据源正常，按当前公开量价与估值规则未筛出合格候选。")
+        lines.append("- 数据源正常，未筛出合格候选。")
     else:
         error = summarize_a_share_error(observation_result.get("error") or "候选数据源不可用")
-        lines.append(f"- 候选数据源异常，本次无法确认股票观察名单：{error}。")
+        lines.append(f"- 候选数据源异常：{error}。")
     return lines
 
 
@@ -2480,7 +2480,11 @@ def build_programmatic_report(
     return sanitize_report(body)
 
 
-def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
+def build_wechat_report(
+    snapshots: list[dict[str, Any]],
+    edition: str,
+    stock_observations: Optional[AShareObservationResult] = None,
+) -> str:
     memos = [analyze_snapshot(snapshot) for snapshot in snapshots]
     premium_section = format_premium_change_section(snapshots)
     lines = [
@@ -2494,6 +2498,7 @@ def build_wechat_report(snapshots: list[dict[str, Any]], edition: str) -> str:
     ]
     if premium_section:
         lines.extend(["", *premium_section])
+    lines.extend(["", *format_a_share_section(stock_observations)])
     return sanitize_report("\n".join(lines))
 
 
@@ -2518,28 +2523,86 @@ def colorize_wework_changes(text: str) -> str:
     return SIGNED_CHANGE_TOKEN.sub(paint, text)
 
 
-def convert_to_wework_markdown(md_text: str) -> str:
-    md_text = re.sub(r"<!--.*?-->", "", md_text, flags=re.S)
+def _is_wework_lead_title(stripped: str) -> bool:
+    if stripped.startswith("# "):
+        return True
+    return bool(re.match(r"^>\s*\*\*.+\*\*\s*$", stripped) and ("日报" in stripped or "简报" in stripped))
+
+
+def _shorten_wework_trend_clause(text: str) -> str:
+    label = "趋势："
+    start = text.find(label)
+    if start < 0:
+        return text
+    from_ = start + len(label)
+    risk = text.find("风险：", from_)
+    end = risk if risk >= 0 else len(text)
+    body = text[from_:end].strip()
+    if "；" in body:
+        body = body.split("；", 1)[0] + "。"
+    suffix = text[risk:] if risk >= 0 else ""
+    gap = "" if body.endswith("。") or body.endswith(" ") or not suffix else " "
+    return text[:from_] + body + gap + suffix
+
+
+def compact_wework_a_share_line(line: str, tight: bool = False) -> str:
+    text = (
+        line.replace("动态PE ", "PE ")
+        .replace("亿元", "亿")
+        .replace("万元", "万")
+        .replace("主力净流入", "主力流入")
+    )
+    text = _shorten_wework_trend_clause(text)
+    text = text.replace(
+        "风险：机械筛选未覆盖基本面、公告和行业事件。",
+        "风险：未覆盖基本面与公告。",
+    )
+    if tight:
+        text = re.sub(r"趋势：[^。]*。\s*", "", text)
+        text = re.sub(r"风险：.*$", "", text).rstrip()
+    return text
+
+
+def _render_wework_lines(md_text: str, tight_a_share: bool = False) -> list[str]:
     out = []
+    leading = True
+    section = ""
     for line in md_text.split("\n"):
         stripped = line.strip()
         if not stripped:
-            out.append("")
+            if not leading:
+                out.append("")
             continue
         if stripped.startswith("### "):
             converted = f"**{stripped[4:]}**"
         elif stripped.startswith("## "):
-            converted = f"> **{stripped[3:]}**"
+            section = stripped[3:]
+            converted = f"> **{section}**"
         elif stripped.startswith("# "):
             converted = f"> **{stripped[2:]}**"
         elif stripped.startswith("|") and stripped.endswith("|"):
             continue
         else:
             converted = stripped
+            if "A股观察" in section:
+                converted = compact_wework_a_share_line(converted, tight_a_share)
+        if leading and _is_wework_lead_title(stripped):
+            continue
+        leading = False
         out.append(colorize_wework_changes(converted))
+    return out
 
+
+def convert_to_wework_markdown(md_text: str) -> str:
+    md_text = re.sub(r"<!--.*?-->", "", md_text, flags=re.S)
+    out = _render_wework_lines(md_text, tight_a_share=False)
     result = "\n".join(out)
-    max_bytes = 3800
+    max_bytes = 4096
+    if len(result.encode("utf-8")) <= max_bytes:
+        return result
+
+    out = _render_wework_lines(md_text, tight_a_share=True)
+    result = "\n".join(out)
     if len(result.encode("utf-8")) <= max_bytes:
         return result
 
@@ -2828,7 +2891,7 @@ def main() -> None:
             f.write(report)
         print(f"💾 已保存: {report_file}")
 
-    wx_content = convert_to_wework_markdown(build_wechat_report(snapshots, edition))
+    wx_content = convert_to_wework_markdown(build_wechat_report(snapshots, edition, stock_observations))
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF / 标普500ETF {today}"
     if dry_run:

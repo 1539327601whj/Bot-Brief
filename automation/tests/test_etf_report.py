@@ -588,16 +588,18 @@ class ReportTests(unittest.TestCase):
         ):
             self.assertIn(required, text)
         for forbidden in (
-            "定额配置官", "规则动作", "数据降级", "A股观察候选",
+            "定额配置官", "规则动作", "数据降级",
             "加仓", "减仓", "正常定投", "今日动作",
             "行情源", "估值源", "数据异常", "数据说明", "不构成投资建议",
         ):
             self.assertNotIn(forbidden, text)
+        self.assertIn("A股观察候选", text)
         wx = report.convert_to_wework_markdown(text)
         self.assertNotIn("内容已截断", wx)
-        self.assertLessEqual(len(wx.encode("utf-8")), 3800)
+        self.assertLessEqual(len(wx.encode("utf-8")), 4096)
         self.assertIn("ETF变化", wx)
         self.assertIn("PE分位变化", wx)
+        self.assertIn("A股观察候选", wx)
         self.assertIn("+5.13%", wx)
         self.assertIn('font color="warning"', wx)
 
@@ -615,6 +617,41 @@ class ReportTests(unittest.TestCase):
         self.assertIn("4.100", text)
 
     @patch.object(report, "now_beijing", return_value=NOW)
+    def test_wechat_keeps_compact_a_share_in_one_message(self, _):
+        stocks = {
+            "status": "available",
+            "items": [{
+                "name": "中信证券", "code": "600030",
+                "reason": "成交额 33.4 亿元；动态PE 13.2、PB 1.2。",
+                "trend": "短期更可能维持震荡；需观察后续量能和当日高低点突破方向。",
+                "risk": "机械筛选未覆盖基本面、公告和行业事件。",
+            }, {
+                "name": "紫金矿业", "code": "601899",
+                "reason": "成交额 84.6 亿元；动态PE 18.5、PB 3.1；主力净流入 12000 万元。",
+                "trend": "量价与中期方向偏强；若后续成交额维持且不跌破当日低点，强势可能延续。",
+                "risk": "机械筛选未覆盖基本面、公告和行业事件。",
+            }],
+            "source": "测试源",
+            "error": None,
+        }
+        snapshots = [complete_snapshot(item) for item in report.ETF_LIST]
+        text = report.build_wechat_report(snapshots, "market_watch_evening", stocks)
+        wx = report.convert_to_wework_markdown(text)
+        self.assertLessEqual(len(wx.encode("utf-8")), 4096)
+        self.assertNotIn("内容已截断", wx)
+        self.assertIn("周 3.900", wx)
+        self.assertIn("+5.13%", wx)
+        self.assertIn("一年", wx)
+        self.assertIn("三年 3.000", wx)
+        self.assertIn("+36.67%", wx)
+        self.assertIn("中信证券", wx)
+        self.assertIn("紫金矿业", wx)
+        self.assertIn("PE 18.5", wx)
+        self.assertIn("趋势：", wx)
+        self.assertIn("未覆盖基本面与公告", wx)
+        self.assertNotIn("需观察后续量能", wx)
+
+    @patch.object(report, "now_beijing", return_value=NOW)
     def test_wechat_convert_does_not_keep_a_share_tail_after_truncate(self, _):
         stocks = {
             "status": "provider_error",
@@ -628,7 +665,7 @@ class ReportTests(unittest.TestCase):
             stocks,
         )
         wx = report.convert_to_wework_markdown(full)
-        self.assertLessEqual(len(wx.encode("utf-8")), 3800)
+        self.assertLessEqual(len(wx.encode("utf-8")), 4096)
         self.assertIn("先看结论", wx)
         self.assertNotIn("东方财富候选数据不可用", wx)
 
