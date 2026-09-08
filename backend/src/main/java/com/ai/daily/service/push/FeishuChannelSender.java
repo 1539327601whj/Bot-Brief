@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 飞书群机器人推送（interactive 卡片格式）。
+ * 飞书群机器人推送（卡片 JSON 2.0，富文本标题和涨跌着色）。
  * 支持"签名校验"：channel.secret 存放飞书后台的签名密钥。
  */
 @Slf4j
@@ -73,7 +73,7 @@ public class FeishuChannelSender implements ChannelSender {
         return Base64.getEncoder().encodeToString(data);
     }
 
-    private Map<String, Object> buildCard(Report report) {
+    Map<String, Object> buildCard(Report report) {
         String title = report.getTitle() == null ? "BriefMind 日报" : report.getTitle();
         Map<String, Object> headerTitle = new HashMap<>();
         headerTitle.put("tag", "plain_text");
@@ -82,17 +82,18 @@ public class FeishuChannelSender implements ChannelSender {
         header.put("title", headerTitle);
         header.put("template", PushReportFormat.feishuHeaderTemplate(report.getEdition()));
 
-        Map<String, Object> text = new HashMap<>();
-        text.put("tag", "lark_md");
-        text.put("content", truncate(PushReportFormat.feishuMarkdown(title, report.getContent()), TEXT_MAX));
-        Map<String, Object> section = new HashMap<>();
-        section.put("tag", "div");
-        section.put("text", text);
+        Map<String, Object> markdown = new HashMap<>();
+        markdown.put("tag", "markdown");
+        markdown.put("content", truncate(PushReportFormat.feishuMarkdown(title, report.getContent()), TEXT_MAX));
+
+        Map<String, Object> cardBody = new HashMap<>();
+        cardBody.put("elements", List.of(markdown));
 
         Map<String, Object> card = new HashMap<>();
-        card.put("config", Map.of("wide_screen_mode", true));
+        card.put("schema", "2.0");
+        card.put("config", Map.of("width_mode", "fill"));
         card.put("header", header);
-        card.put("elements", List.of(section));
+        card.put("body", cardBody);
         return card;
     }
 
