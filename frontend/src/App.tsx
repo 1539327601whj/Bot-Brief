@@ -106,9 +106,23 @@ function Sidebar() {
 
 // 顶部栏组件
 function Header() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const showBack = location.pathname !== '/'
+
+  const goBack = () => {
+    if (location.key !== 'default') navigate(-1)
+    else navigate('/')
+  }
+
   return (
     <header className="header-bar">
       <div className="header-left">
+        {showBack && (
+          <button type="button" className="header-back" onClick={goBack} aria-label="返回上一页">
+            ← 返回
+          </button>
+        )}
         <h1 className="header-title">BriefMind</h1>
       </div>
       <div className="header-right">

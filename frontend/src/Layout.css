@@ -225,6 +225,37 @@
   backdrop-filter: blur(22px);
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.header-back {
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(5, 7, 13, 0.55);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.header-back:hover {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.header-back:focus-visible {
+  outline: 2px solid rgba(139, 156, 255, 0.88);
+  outline-offset: 2px;
+}
+
 .header-title {
   font-size: 18px;
   font-weight: 680;
