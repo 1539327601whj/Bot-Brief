@@ -12,6 +12,7 @@ import { demoPushLogs, demoSubscription, demoTodayStatus } from '../demo/fixture
 import GenerationMissList from '../components/GenerationMissList'
 import { dispatchKeyOf, HOME_ALERT_PREVIEW, HOME_MISS_PREVIEW, progressTone, previewGenerationMisses, pushKindFromDispatchKey, slotEmptyHint, todayStatusNeedsLiveRefresh, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
 import { AI_TECH_DIGEST, ETF_DIGEST, isDigestTopic, topicSiteVisible } from '../utils/topicVisibility'
+import { lockBodyScroll } from '../utils/viewScroll'
 import './Dashboard.css'
 
 interface Report {
@@ -384,11 +385,10 @@ function AlertsCard({ alerts }: { alerts: string[] }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setHistoryOpen(false)
     }
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlock = lockBodyScroll()
     document.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = previousOverflow
+      unlock()
       document.removeEventListener('keydown', onKey)
     }
   }, [historyOpen])

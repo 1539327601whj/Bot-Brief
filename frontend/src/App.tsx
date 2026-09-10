@@ -20,6 +20,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
 import BrandLogo from './components/BrandLogo'
 import UserMenu from './components/UserMenu'
+import ViewScrollRestoration from './components/ViewScrollRestoration'
 import './Layout.css'
 
 // 侧边栏导航组件
@@ -136,6 +137,7 @@ function Header() {
 function MainLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
+      <ViewScrollRestoration />
       <div className="app-layout">
         <Sidebar />
         <div className="main-wrapper">

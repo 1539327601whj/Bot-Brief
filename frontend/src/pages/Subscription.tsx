@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import { earliestOnTimeLabel, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
+import { lockBodyScroll } from '../utils/viewScroll'
 import './Subscription.css'
 
 type ChannelType = 'email' | 'wechat' | 'dingtalk' | 'feishu'
@@ -320,11 +321,10 @@ export default function Subscription() {
         setAllSchedulesOpen(false)
       }
     }
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlock = lockBodyScroll()
     window.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = previous
+      unlock()
       window.removeEventListener('keydown', onKey)
     }
   }, [moreTopicsOpen, allSchedulesOpen])
