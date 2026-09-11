@@ -377,6 +377,10 @@ a.ghost-link {
   font-style: normal;
 }
 
+.topic-switch-row .topic-switch {
+  margin-left: 0;
+}
+
 .topic-switch input {
   display: none;
 }

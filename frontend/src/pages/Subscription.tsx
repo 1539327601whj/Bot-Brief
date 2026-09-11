@@ -823,7 +823,7 @@ export default function Subscription() {
         {subscribedTopics.length > 0 && (
           <div className="topic-switch-list">
             {subscribedTopics.map(topic => (
-              <label key={topic} className={`topic-switch-row kind-${topicKind(topic)}${topicEnabled(topic) ? '' : ' paused'}`}>
+              <div key={topic} className={`topic-switch-row kind-${topicKind(topic)}${topicEnabled(topic) ? '' : ' paused'}`}>
                 <span>
                   <strong>{topic}</strong>
                   {digestBadge(topic) && <small>{digestBadge(topic)}</small>}
@@ -836,17 +836,20 @@ export default function Subscription() {
                       value={topicSiteVisible(topic, items) ? 'site' : 'personal'}
                       disabled={isDemo}
                       aria-label={`${topic}展示范围`}
+                      onClick={event => event.stopPropagation()}
                       onChange={event => setTopicSiteVisible(topic, event.target.value === 'site')}
                     >
                       <option value="site">全站日报</option>
                       <option value="personal">仅个人</option>
                     </select>
                   )}
-                  <input type="checkbox" checked={topicEnabled(topic)} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
-                  <span className="slider compact"></span>
-                  {topicEnabled(topic) ? '推送中' : '已暂停'}
+                  <label className="topic-switch" title={topicEnabled(topic) ? '关闭后这个主题不再生成和推送，时刻和渠道会保留' : '开启后按已设时刻生成并推送'}>
+                    <input type="checkbox" checked={topicEnabled(topic)} disabled={isDemo} onChange={event => setTopicsEnabled([topic], event.target.checked)} />
+                    <span className="slider compact"></span>
+                    {topicEnabled(topic) ? '推送中' : '已暂停'}
+                  </label>
                 </em>
-              </label>
+              </div>
             ))}
           </div>
         )}
