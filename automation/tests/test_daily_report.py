@@ -190,13 +190,14 @@ class TopicSectionTests(unittest.TestCase):
             self.assertEqual(report.generation_concurrency(), 1)
 
     def test_skips_preset_topic_generation_when_no_matching_news(self):
-        saved = report.generate_topic_sections(
-            [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
-            "morning",
-            ["数据库"],
-            "2026-08-28",
-            "run-1",
-        )
+        with patch.object(report, "fetch_topic_search_news", return_value=[]):
+            saved = report.generate_topic_sections(
+                [{"title": "Flutter 新版本", "summary": "移动端体验", "score": 9}],
+                "morning",
+                ["数据库"],
+                "2026-08-28",
+                "run-1",
+            )
         self.assertEqual(saved, 0)
 
     def test_custom_search_drops_unrelated_items(self):
@@ -208,6 +209,31 @@ class TopicSectionTests(unittest.TestCase):
     def test_custom_topic_is_not_treated_as_preset(self):
         self.assertTrue(report.is_preset_topic("数据库"))
         self.assertFalse(report.is_preset_topic("具身智能"))
+
+    def test_preset_topic_searches_when_pool_is_empty(self):
+        searched = [{"title": "以太坊完成升级", "summary": "区块链网络", "score": 8, "source": "CoinDesk"}]
+        with patch.object(report, "fetch_topic_search_news", return_value=searched) as search:
+            selected = report.collect_news_for_topic([], "区块链")
+        self.assertEqual(selected, searched)
+        search.assert_called_once_with("区块链")
+
+    def test_preset_topic_skips_search_when_pool_already_hits(self):
+        pool = [{"title": "比特币与区块链", "summary": "加密货币", "score": 9, "link": "https://a.test/chain"}]
+        with patch.object(report, "fetch_topic_search_news") as search:
+            selected = report.collect_news_for_topic(pool, "区块链")
+        search.assert_not_called()
+        self.assertEqual([item["title"] for item in selected], ["比特币与区块链"])
+
+    def test_long_custom_topic_uses_short_terms(self):
+        topic = "短视频最新最火的科技软件相关的"
+        terms = report.topic_keywords(topic)
+        self.assertIn("短视频", terms)
+        queries = report.topic_search_queries(topic)
+        self.assertIn("短视频", queries)
+        self.assertTrue(all(len(query) <= 12 for query in queries))
+        hit = {"title": "剪映上线AI短视频模板", "summary": "视频剪辑软件更新", "score": 8}
+        self.assertTrue(report.news_mentions_topic(hit, topic))
+        self.assertFalse(report.news_mentions_topic({"title": "今日财经综述", "summary": "股市上涨"}, topic))
 
     def test_tech_digest_is_not_generated_as_short_section(self):
         with patch.object(report, "collect_news_for_topic") as collect:
@@ -309,6 +335,8 @@ class TopicSectionTests(unittest.TestCase):
         self.assertIn("TechCrunch", scan_names)
         self.assertIn("IT之家", scan_names)
         self.assertIn("Space.com", scan_names)
+        self.assertIn("36氪", scan_names)
+        self.assertIn("CoinDesk", scan_names)
 
     @patch.dict(os.environ, {
         "BACKEND_API_URL": "https://backend.test",

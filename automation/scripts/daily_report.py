@@ -972,7 +972,11 @@ TOPIC_KEYWORDS = {
     "DevOps": ["devops", "ci/cd", "github actions", "部署", "可观测性"],
     "数据分析": ["数据分析", "数据工程", "bi", "分析平台"],
     "机器学习": ["机器学习", "深度学习", "训练", "推理", "mlops"],
-    "区块链": ["区块链", "web3", "智能合约", "加密货币"],
+    "区块链": [
+        "区块链", "blockchain", "web3", "智能合约", "加密货币", "crypto",
+        "bitcoin", "ethereum", "比特币", "以太坊", "defi", "nft",
+        "稳定币", "公链", "solana", "layer2",
+    ],
 }
 
 # 自定义主题的公开别名，只覆盖常见人名/公司，避免把任意词扩得太宽。
@@ -986,6 +990,7 @@ TOPIC_ALIAS_GROUPS = [
     ["微软", "microsoft", "msft"],
     ["苹果", "apple", "aapl"],
     ["meta", "llama", "扎克伯格", "zuckerberg"],
+    ["区块链", "blockchain", "web3", "crypto", "比特币", "以太坊", "bitcoin", "ethereum"],
 ]
 
 TOPIC_FRESH_HOURS = 48
@@ -998,10 +1003,23 @@ def normalize_intent(intent):
 
 
 INTENT_NOISE = {
-    "只要", "不要", "关注", "例如", "最近", "最火", "最火的", "热点", "相关",
-    "资讯", "新闻", "内容", "方面", "一点", "一些", "一下", "看看", "就行",
+    "只要", "不要", "关注", "例如", "最近", "最新", "最火", "最火的", "热点", "相关",
+    "相关的", "资讯", "新闻", "内容", "方面", "一点", "一些", "一下", "看看", "就行",
     "就好", "即可", "我想看", "的",
 }
+
+# 出现在长主题名里时有用，单独拿来匹配会太宽。
+BROAD_TOPIC_TERMS = {
+    "科技", "软件", "视频", "动态", "资讯", "新闻", "内容", "热点", "领域",
+    "信息", "行业", "市场",
+}
+
+DOMAIN_HINTS = [
+    "短视频", "视频剪辑", "视频生成", "剪映", "capcut",
+    "区块链", "blockchain", "web3", "比特币", "以太坊", "bitcoin", "ethereum",
+    "智能合约", "加密货币", "defi", "nft", "稳定币", "公链",
+    "大模型", "人工智能",
+]
 
 # 「我想看」里的角度词，用来优先检索，不是硬门槛。
 INTENT_FOCUS_ALIASES = {
@@ -1020,7 +1038,11 @@ def intent_terms(intent):
     if not text:
         return []
     cleaned = re.sub(r"^(只要|不要|关注|例如)[:：]?", "", text).strip() or text
-    parts = [part.strip() for part in re.split(r"[，,；;、/|]+|或者|和|与|及|或", cleaned) if part.strip()]
+    parts = [
+        part.strip()
+        for part in re.split(r"[，,；;、/|。！？!\?]+|或者|和|与|及|或", cleaned)
+        if part.strip()
+    ]
     skip = {"只要", "不要", "关注", "例如"}
     terms = []
     for part in parts:
@@ -1032,7 +1054,9 @@ def intent_terms(intent):
         leftover = " ".join(leftover.split()).strip()
         if leftover and leftover not in skip and leftover not in INTENT_NOISE:
             terms.append(leftover)
-    return terms
+            for hint in extract_hint_terms(leftover):
+                terms.append(hint)
+    return compact_match_terms(terms)
 
 
 def alias_terms_for(term):
@@ -1053,6 +1077,53 @@ def alias_terms_for(term):
     return matched
 
 
+def extract_hint_terms(text):
+    blob = str(text or "")
+    lower = blob.lower()
+    found = []
+    for hint in sorted(DOMAIN_HINTS, key=len, reverse=True):
+        if hint.lower() in lower:
+            found.append(hint)
+    return found
+
+
+def compact_match_terms(terms):
+    compact = []
+    seen = set()
+    for term in terms:
+        normalized = " ".join(str(term or "").split())
+        key = normalized.lower()
+        if not normalized or key in seen or key in BROAD_TOPIC_TERMS:
+            continue
+        if len(normalized) > 16:
+            for hint in extract_hint_terms(normalized):
+                hint_key = hint.lower()
+                if hint_key not in seen and hint_key not in BROAD_TOPIC_TERMS:
+                    seen.add(hint_key)
+                    compact.append(hint)
+            continue
+        seen.add(key)
+        compact.append(normalized)
+    return compact
+
+
+def topic_name_terms(topic):
+    text = " ".join(str(topic or "").split())
+    terms = []
+    if 2 <= len(text) <= 12:
+        terms.append(text)
+    leftover = text
+    for noise in sorted(INTENT_NOISE, key=len, reverse=True):
+        leftover = leftover.replace(noise, " ")
+    leftover = re.sub(r"[的了与和及或]", " ", leftover)
+    leftover = " ".join(leftover.split())
+    for chunk in leftover.split():
+        if 2 <= len(chunk) <= 12:
+            terms.append(chunk)
+    terms.extend(extract_hint_terms(text))
+    return compact_match_terms(terms)
+
+
 def expand_topic_terms(topic, intent=None):
     terms = []
     seen = set()
@@ -1066,8 +1137,13 @@ def expand_topic_terms(topic, intent=None):
         terms.append(normalized)
 
     add(topic)
+    for piece in topic_name_terms(topic):
+        add(piece)
     for alias in alias_terms_for(topic):
         add(alias)
+    for piece in topic_name_terms(topic):
+        for alias in alias_terms_for(piece):
+            add(alias)
     for term in intent_terms(intent):
         add(term)
         for alias in alias_terms_for(term):
@@ -1126,14 +1202,19 @@ def topic_search_queries(topic, intent=None):
         seen.add(key)
         queries.append(normalized)
 
-    add(topic_name)
+    short_name = topic_name if 2 <= len(topic_name) <= 12 else ""
+    add(short_name or next(iter(topic_name_terms(topic_name)), topic_name))
     latin = next((term for term in expand_topic_terms(topic_name) if re.search(r"[A-Za-z]", term)), "")
     add(latin)
     focuses = intent_focus_terms(topic_name, intent)
-    if topic_name and focuses:
-        add(f"{topic_name} {focuses[0]}")
+    if short_name and focuses:
+        add(f"{short_name} {focuses[0]}")
     elif focuses:
         add(focuses[0])
+    for piece in topic_name_terms(topic_name):
+        add(piece)
+        if len(queries) >= 3:
+            break
     return queries[:3]
 
 
@@ -1169,6 +1250,9 @@ TOPIC_SCAN_FEEDS = [
     ("IT之家", "https://www.ithome.com/rss/"),
     ("少数派", "https://sspai.com/feed"),
     ("Solidot", "https://www.solidot.org/index.rss"),
+    ("36氪", "https://36kr.com/feed"),
+    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("Decrypt", "https://decrypt.co/feed"),
 ]
 
 
@@ -1238,7 +1322,7 @@ def collect_topic_candidates(news_items, topic, intent=None):
     extra = normalize_intent(intent)
     focuses = intent_focus_terms(topic, extra)
     selected = select_news_for_topic(news_items, topic, intent=extra or None)
-    should_search = (not is_preset_topic(topic)) or bool(extra)
+    should_search = (not is_preset_topic(topic)) or bool(extra) or not selected
     if not should_search:
         return selected, "topic" if selected else "none"
     label = f"{topic}" + (f"（{extra}）" if extra else "")
