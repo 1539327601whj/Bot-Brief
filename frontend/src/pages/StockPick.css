@@ -226,6 +226,36 @@
   margin-bottom: 20px;
 }
 
+/* 「还没问过」的空态。和 .stockpick-empty（问过了、答案是「没有候选」）不是一回事：
+   那是结果，这是还没开始。所以用中性色 + 虚线，不用警示色，也不给按钮——
+   要跑的那个按钮就在上面，这里再放一个是重复。
+
+   .stockpick-forbidden 视觉与它完全相同，但**另起一个类名**：那个的含义是「你没法开始」，
+   不是「还没开始」。两者共用一个规则块是因为它们对读者的分量一致——都不是错误、都不用报警；
+   分成两个类是因为将来只会改其中一个的措辞或颜色。合成一个类名就又分不出来了。 */
+.stockpick-idle,
+.stockpick-forbidden {
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px dashed var(--border-solid);
+  border-radius: 18px;
+  background: var(--bg-soft);
+}
+
+.stockpick-idle h3,
+.stockpick-forbidden h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.stockpick-idle p,
+.stockpick-forbidden p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
 /* ---------- 候选卡片 ---------- */
 
 .stockpick-grid {

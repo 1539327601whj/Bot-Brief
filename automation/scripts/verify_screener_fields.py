@@ -49,7 +49,7 @@ LIST_REPORT = "RPT_VALUEANALYSIS_DET"
 LIST_COLUMNS = "SECURITY_CODE,SECUCODE,SECURITY_NAME_ABBR,TOTAL_MARKET_CAP"
 
 # 与 Java 侧 POOL_SIZE 一致；调这里的时候 production 的 screener.pool-size 要一起调。
-POOL_SIZE = 500
+POOL_SIZE = 300
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -407,7 +407,7 @@ def verify_batch_limit(secids: list[str]) -> None:
         notes.append(
             f"行情批量实测至少能吃 {largest_ok} 只。"
             f"当前配置 screener.quote-batch-size 应设为不超过这个数；"
-            f"500 只的池子在 {largest_ok} 只/批下是 "
+            f"{POOL_SIZE} 只的池子在 {largest_ok} 只/批下是 "
             f"{-(-POOL_SIZE // largest_ok)} 次外呼。")
     else:
         notes.append("批量上限没测出来（第一个档位就失败），保持现在的保守值别上调")

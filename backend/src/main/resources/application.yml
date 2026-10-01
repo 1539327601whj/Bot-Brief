@@ -151,9 +151,14 @@ screener:
   # 但行情批量请求次数按 N / quote-batch-size 增长，而请求数正是触发东财限流的东西。
   # 页面会把实际市值下限写进口径摘要，调这个值时可以直接看那个数。
   # 清单接口一次能返回 2000 行，所以调到 2000 也不会多一次清单请求，只多几批行情。
-  pool-size: ${SCREENER_POOL_SIZE:500}
+  #
+  # 现取 300：500 时行情要分 10 批，300 只要 3 批。代价是市值门槛抬高、会漏掉一些中盘股，
+  # 页面口径摘要里的「总市值前 N 只」会跟着变成 300。这是有意的取舍——撞限流的代价
+  # 比漏掉几只中盘股大。要改回去只动这个默认值，不用动代码。
+  pool-size: ${SCREENER_POOL_SIZE:300}
   # 行情批量接口一次问多少只。调大能同比例减少请求次数。
-  quote-batch-size: ${SCREENER_QUOTE_BATCH_SIZE:50}
+  # 上限由接口实际承载决定，调大前先用 automation/scripts/verify_screener_fields.py 实测一次。
+  quote-batch-size: ${SCREENER_QUOTE_BATCH_SIZE:100}
   # 被行情源限流后的冷却时长。冷却期内不再外呼，有旧快照就用旧快照并标注数据时间。
   # 冷却按源分开记（东财/腾讯/新浪各一条），所以腾讯挨限流不会连带锁掉东财的清单请求。
   rate-limit-cooldown-minutes: ${SCREENER_RATE_LIMIT_COOLDOWN_MINUTES:10}

@@ -10,7 +10,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -47,21 +46,24 @@ class StockScreenerControllerTest {
     }
 
     @Test
-    void aNormalPaidUserIsAlsoBlockedBecauseThisIsAdminAndDemoOnly() {
+    void aNormalPaidUserIsBlockedBecauseOnlyAdminCanRun() {
         authenticateAs("USER", "NORMAL");
         assertThat(controller.scan(null).getCode()).isEqualTo(403);
         verifyNoInteractions(service);
     }
 
+    /**
+     * Demo 能**看**这个页面，但不能**跑**。
+     *
+     * <p>这条以前断言 200（demo 允许），是故意改掉的：一次筛选要向东财发二十多次请求，
+     * 出口 IP 会被按 IP 限流，多一个能触发的人就多一个消耗配额的入口。前端把按钮置灰只是提示，
+     * 拦住 demo 的是这一层——他拿着自己的 token 直接 POST 过来同样得是 403。
+     */
     @Test
-    void demoAccountIsAllowed() {
+    void demoAccountCanSeeThePageButIsRejectedHere() {
         authenticateAs("USER", "DEMO");
-        ScreenerResultDTO dto = mock(ScreenerResultDTO.class);
-        when(service.scan(isNull())).thenReturn(dto);
-
-        Result<ScreenerResultDTO> r = controller.scan(null);
-        assertThat(r.getCode()).isEqualTo(200);
-        assertThat(r.getData()).isSameAs(dto);
+        assertThat(controller.scan(null).getCode()).isEqualTo(403);
+        verifyNoInteractions(service);
     }
 
     @Test

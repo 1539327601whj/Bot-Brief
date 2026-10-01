@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -474,7 +474,9 @@ function IndexFundCard({ item }: { item: IndexFundItem }) {
 
 export default function StockPick() {
   const { user } = useAuth()
+  // 能看 ≠ 能跑。Demo 进得来这个页面，但点不动「开始筛选」。
   const canSee = user?.accountType === 'DEMO' || user?.role === 'ADMIN'
+  const isAdmin = user?.role === 'ADMIN'
 
   const [form, setForm] = useState<Form>(DEFAULT_FORM)
   const [advanced, setAdvanced] = useState(false)
@@ -492,6 +494,9 @@ export default function StockPick() {
   const startedAt = useRef(0)
 
   const run = useCallback(async (payload: Record<string, unknown>) => {
+    // 双保险：按钮已经置灰了，但这里再挡一次。真正生效的那道在服务端
+    // （见 StockScreenerController）——只靠前端置灰，拿着 token 直接调接口照样能跑。
+    if (!isAdmin) return
     setLoading(true)
     setError(null)
     setRateLimited(null)
@@ -520,15 +525,15 @@ export default function StockPick() {
       setElapsed(Date.now() - startedAt.current)
       setLoading(false)
     }
-  }, [])
+  }, [isAdmin])
 
-  // 首次进页面自动用默认条件跑一次。
-  // 这里刻意**不**把 rateLimited 放进依赖：run 一开头就会清掉它，
-  // 放进去会变成「设限流 → 重跑 → 清限流 → 再跑」的死循环。
-  // 挂载时它本来就是 null，只有 canSee 变化才需要重跑。
-  useEffect(() => {
-    if (canSee) run(buildPayload(DEFAULT_FORM))
-  }, [canSee, run])
+  // 这里刻意**没有**「进页面自动跑一次」。东财按 IP 计时限流，自动跑等于每进出一次
+  // 这个页面就消耗一次配额——反复进出本身就是撞上限流的主要来源。
+  // 现在只有点「开始筛选」和限流块里的「再试一次」会真的发请求；
+  // 「重置为默认条件」只重置表单，不发请求。
+  //
+  // 别再把这个 effect 加回来：真要「进来就有内容」，该做的是把上次结果留在前端复用，
+  // 而不是每次重新打一遍行情源。
 
   /** 排除行业的选择项来自上一次结果——比让人凭空输入行业名有用。 */
   const industryOptions = useMemo(() => {
@@ -715,11 +720,13 @@ export default function StockPick() {
         )}
 
         <div className="stockpick-actions">
-          <button type="button" className="stockpick-run" disabled={loading} onClick={() => run(buildPayload(form))}>
+          <button type="button" className="stockpick-run" disabled={loading || !isAdmin}
+            title={isAdmin ? undefined : '筛选需管理员账号'}
+            onClick={() => run(buildPayload(form))}>
             {loading ? '筛选中…' : '开始筛选'}
           </button>
           <button type="button" className="stockpick-reset" disabled={loading}
-            onClick={() => { setForm(DEFAULT_FORM); run(buildPayload(DEFAULT_FORM)) }}>
+            onClick={() => setForm(DEFAULT_FORM)}>
             重置为默认条件
           </button>
           <span className="stockpick-timing">
@@ -738,7 +745,8 @@ export default function StockPick() {
             重试越频繁封得越久，所以这里不会自动重试。等上面说的时间过去，点下面的按钮即可。
           </p>
           <div className="stockpick-actions">
-            <button type="button" className="stockpick-run" disabled={loading}
+            <button type="button" className="stockpick-run" disabled={loading || !isAdmin}
+              title={isAdmin ? undefined : '筛选需管理员账号'}
               onClick={() => run(buildPayload(form))}>
               {loading ? '正在重试…' : '再试一次'}
             </button>
@@ -752,6 +760,26 @@ export default function StockPick() {
           <p>{error}</p>
           <p className="stockpick-note">
             这里显示错误而不是空列表，是因为「取数失败」和「今天确实没有合格候选」是两件事。
+          </p>
+        </section>
+      )}
+
+      {!isAdmin && !loading && !result && !error && !rateLimited && (
+        <section className="stockpick-forbidden">
+          <h3>当前账号只能查看</h3>
+          <p>
+            筛选条件可以照常调整，但发起筛选需要管理员账号：
+            一次筛选要向东财发二十多次请求，出口 IP 会被按 IP 限流，所以触发口只留一个。
+          </p>
+        </section>
+      )}
+
+      {isAdmin && !loading && !result && !error && !rateLimited && (
+        <section className="stockpick-idle">
+          <h3>还没开始筛选</h3>
+          <p>
+            条件已经填好默认值，点上面的「开始筛选」再跑。
+            进页面不会自动跑——行情源按 IP 限流，进一次跑一次只会让限流来得更快。
           </p>
         </section>
       )}
