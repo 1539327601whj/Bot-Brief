@@ -72,25 +72,9 @@ def etf_is_qdii(etf: dict[str, Any]) -> bool:
     return bool(etf.get("qdii")) or etf.get("code") in {"513100", "513500"}
 
 A_SHARE_PICK_COUNT = 2
+# 取「按成交额降序的前 N 只」。这是 A 股候选这一路的**口径**，不是随便一个页大小：
+# 新浪这条链路必须与它保持一致，见 fetch_a_share_candidate_pool 的说明。
 A_SHARE_PAGE_SIZE = 100
-A_SHARE_BOARD_PAGE_SIZE = 50
-A_SHARE_MARKET_FS = "m:1+t:2,m:0+t:6,m:0+t:80"
-A_SHARE_MARKET_BOARDS = ("m:1+t:2", "m:0+t:6", "m:0+t:80")
-A_SHARE_CLIST_FIELDS = "f12,f14,f2,f3,f6,f8,f9,f10,f15,f16,f20,f23,f24,f25,f62"
-A_SHARE_EASTMONEY_UT = "fa5fd1943c7bdc76815634f86e88ea48"
-A_SHARE_EASTMONEY_HOSTS = (
-    "https://push2delay.eastmoney.com/api/qt/clist/get",
-    "https://82.push2.eastmoney.com/api/qt/clist/get",
-    "https://push2.eastmoney.com/api/qt/clist/get",
-)
-A_SHARE_EASTMONEY_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://quote.eastmoney.com/center/gridlist.html",
-    "Accept": "application/json, text/plain, */*",
-}
 A_SHARE_SINA_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -2000,15 +1984,6 @@ def sanitize_report(report: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", report).rstrip()
 
 
-def parse_eastmoney_clist(body: Any) -> list[dict[str, Any]]:
-    if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
-        raise RuntimeError("东方财富A股候选响应缺少 data 对象")
-    items = body["data"].get("diff")
-    if not isinstance(items, list):
-        raise RuntimeError("东方财富A股候选响应 diff 不是列表")
-    return items
-
-
 def summarize_a_share_error(error: Any) -> str:
     text = str(error or "").strip()
     if re.search(r"\b(502|Bad Gateway)\b", text, re.I):
@@ -2022,88 +1997,33 @@ def summarize_a_share_error(error: Any) -> str:
     return cleaned or "行情列表源暂不可用"
 
 
-def _a_share_clist_params(fs: str, page_size: int) -> dict[str, Any]:
-    return {
-        "pn": 1,
-        "pz": page_size,
-        "po": 1,
-        "np": 1,
-        "ut": A_SHARE_EASTMONEY_UT,
-        "fltt": 2,
-        "invt": 2,
-        "fid": "f6",
-        "fs": fs,
-        "fields": A_SHARE_CLIST_FIELDS,
-    }
+def sina_row_to_stock(row: dict[str, Any]) -> dict[str, Any]:
+    """新浪一行 → 打分用的标准形态。
 
-
-def _fetch_eastmoney_clist(url: str, fs: str, page_size: int) -> list[dict[str, Any]]:
-    resp = http_get(
-        url,
-        params=_a_share_clist_params(fs, page_size),
-        timeout=(3, 8),
-        headers=A_SHARE_EASTMONEY_HEADERS,
-    )
-    resp.raise_for_status()
-    return parse_eastmoney_clist(resp.json())
-
-
-def _merge_clist_items(groups: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for items in groups:
-        for item in items:
-            code = str(item.get("f12") or "")
-            if not code or code in seen:
-                continue
-            seen.add(code)
-            merged.append(item)
-    return merged
-
-
-def fetch_a_share_candidates_from_eastmoney() -> list[dict[str, Any]]:
-    errors: list[str] = []
-    for url in A_SHARE_EASTMONEY_HOSTS:
-        try:
-            return _fetch_eastmoney_clist(url, A_SHARE_MARKET_FS, A_SHARE_PAGE_SIZE)
-        except Exception as e:
-            errors.append(f"{url}: {e}")
-    board_groups: list[list[dict[str, Any]]] = []
-    for fs in A_SHARE_MARKET_BOARDS:
-        fetched = False
-        for url in A_SHARE_EASTMONEY_HOSTS:
-            try:
-                board_groups.append(_fetch_eastmoney_clist(url, fs, A_SHARE_BOARD_PAGE_SIZE))
-                fetched = True
-                break
-            except Exception as e:
-                errors.append(f"{fs}@{url}: {e}")
-        if not fetched:
-            continue
-    merged = _merge_clist_items(board_groups)
-    if merged:
-        return merged
-    raise RuntimeError("东方财富A股列表不可用: " + "；".join(errors[:4]))
-
-
-def sina_row_to_eastmoney_item(row: dict[str, Any]) -> dict[str, Any]:
+    新浪的 `mktcap` 单位是**万元**，其余价格/金额字段都是元，所以市值要乘一万。
+    量比、主力净流入、60 日涨幅这几个键新浪不提供，**保留为 None 而不是删掉**：
+    下游打分对它们的写法是「缺了按最低档算」（`(stock["volume_ratio"] or 0)`），
+    键一旦不存在就会变成 KeyError。
+    """
     market_cap = finite_positive(row.get("mktcap"))
     return {
-        "f12": str(row.get("code") or ""),
-        "f14": str(row.get("name") or ""),
-        "f2": row.get("trade"),
-        "f3": row.get("changepercent"),
-        "f6": row.get("amount"),
-        "f8": row.get("turnoverratio"),
-        "f9": row.get("per"),
-        "f10": None,
-        "f15": row.get("high"),
-        "f16": row.get("low"),
-        "f20": market_cap * A_SHARE_SINA_MARKET_CAP_UNIT if market_cap is not None else None,
-        "f23": row.get("pb"),
-        "f24": None,
-        "f25": None,
-        "f62": None,
+        "code": str(row.get("code") or ""),
+        "name": str(row.get("name") or ""),
+        "latest_price": finite_positive(row.get("trade")),
+        "pct_change": to_optional_float(row.get("changepercent")),
+        "amount": finite_positive(row.get("amount")),
+        "turnover_rate": to_optional_float(row.get("turnoverratio")),
+        "pe_dynamic": finite_positive(row.get("per")),
+        "volume_ratio": None,
+        "high": finite_positive(row.get("high")),
+        "low": finite_positive(row.get("low")),
+        "total_market_cap": (
+            market_cap * A_SHARE_SINA_MARKET_CAP_UNIT if market_cap is not None else None
+        ),
+        "pb": finite_positive(row.get("pb")),
+        "pct_change_60d": None,
+        "pct_change_ytd": None,
+        "main_net_inflow": None,
     }
 
 
@@ -2129,51 +2049,49 @@ def fetch_a_share_candidates_from_sina() -> list[dict[str, Any]]:
         body = json.loads(resp.content.decode("gbk", errors="replace"))
     if not isinstance(body, list):
         raise RuntimeError("新浪A股候选响应不是列表")
-    items = [sina_row_to_eastmoney_item(row) for row in body if isinstance(row, dict)]
+    items = [sina_row_to_stock(row) for row in body if isinstance(row, dict)]
     if body and not items:
         raise RuntimeError("新浪A股候选响应无法识别")
     return items
 
 
+A_SHARE_SOURCE_SINA = "新浪财经A股行情"
+
+
 def fetch_a_share_candidate_pool() -> tuple[list[dict[str, Any]], str]:
-    errors: list[str] = []
-    for fetcher, source in (
-        (fetch_a_share_candidates_from_eastmoney, "东方财富A股行情"),
-        (fetch_a_share_candidates_from_sina, "新浪财经A股行情"),
-    ):
-        try:
-            items = fetcher()
-            logger.info("  ✅ A股候选列表来自 %s（%s 条）", source, len(items))
-            return items, source
-        except Exception as e:
-            errors.append(f"{source}: {e}")
-            logger.warning("  ⚠️ %s失败: %s", source, e)
-    raise RuntimeError("；".join(errors) if errors else "A股候选数据源不可用")
+    """A 股候选的来源。**现在只有新浪一个。**
+
+    <h2>东财那条路为什么删了</h2>
+
+    原来首选东财 clist（`push2*.eastmoney.com/api/qt/clist/get`），失败再退到新浪。
+    实测下来它有两个问题叠在一起：
+
+    1. **它会被封。** 东财按 IP、按接口限流这个接口族；同一台机器上「低估精选」
+       用的正是这族接口，两边互相把封禁推得更深。
+    2. **它的取数形态天然放大调用量。** 一次要「3 个域名轮流试组合请求，
+       全失败再按 3 个板块各拉一页」，单次最多十几次外呼，而且**每天都打**——
+       即使每次都失败。封禁期间这些请求换不来任何数据，只是在续期。
+
+    新浪这条路的**口径与之完全相同**：`node=hs_a&sort=amount&asc=0&num=100`，
+    同样是「按成交额降序的前 100 只」，所以结果口径不变，不需要改任何筛选或打分。
+    代价是量比、主力净流入、60 日涨幅这三个字段新浪不提供——它们本来就只影响
+    打分里的小权重项，按缺失处理，行为与之前走新浪兜底时一致。
+
+    保留这个函数（而不是让调用方直接调新浪）是为了保住「来源」这个标签：
+    报告要写明数据来自哪里，这比一个能省掉的间接层重要。
+    """
+    try:
+        items = fetch_a_share_candidates_from_sina()
+    except Exception as e:
+        logger.warning("  ⚠️ %s失败: %s", A_SHARE_SOURCE_SINA, e)
+        raise RuntimeError(f"{A_SHARE_SOURCE_SINA}: {e}") from e
+    logger.info("  ✅ A股候选列表来自 %s（%s 条）", A_SHARE_SOURCE_SINA, len(items))
+    return items, A_SHARE_SOURCE_SINA
 
 
 def fetch_a_share_candidates() -> list[dict[str, Any]]:
     items, _source = fetch_a_share_candidate_pool()
     return items
-
-
-def normalize_a_share(item: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "code": str(item.get("f12") or ""),
-        "name": str(item.get("f14") or ""),
-        "latest_price": finite_positive(item.get("f2")),
-        "pct_change": to_optional_float(item.get("f3")),
-        "amount": finite_positive(item.get("f6")),
-        "turnover_rate": to_optional_float(item.get("f8")),
-        "pe_dynamic": finite_positive(item.get("f9")),
-        "volume_ratio": to_optional_float(item.get("f10")),
-        "high": finite_positive(item.get("f15")),
-        "low": finite_positive(item.get("f16")),
-        "total_market_cap": finite_positive(item.get("f20")),
-        "pb": finite_positive(item.get("f23")),
-        "pct_change_60d": to_optional_float(item.get("f24")),
-        "pct_change_ytd": to_optional_float(item.get("f25")),
-        "main_net_inflow": to_optional_float(item.get("f62")),
-    }
 
 
 def is_a_share_candidate(stock: dict[str, Any]) -> bool:
@@ -2240,8 +2158,7 @@ def a_share_observation(stock: dict[str, Any]) -> dict[str, str]:
 
 def build_a_share_observations() -> AShareObservationResult:
     try:
-        raw_items, source = fetch_a_share_candidate_pool()
-        stocks = [normalize_a_share(item) for item in raw_items]
+        stocks, source = fetch_a_share_candidate_pool()
         candidates = [stock for stock in stocks if is_a_share_candidate(stock)]
         candidates.sort(key=score_a_share, reverse=True)
         picks = candidates[:A_SHARE_PICK_COUNT]

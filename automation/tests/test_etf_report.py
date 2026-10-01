@@ -36,6 +36,30 @@ def prices(source="测试源", count=25):
     } for day in range(1, min(count, 30) + 1)]
 
 
+def a_share_stock(code, name=None, price=10.0, pct=1.0, amount=1_000_000_000,
+                  turnover=1.2, pe=12.0, cap_wan=2_000_000, pb=1.5):
+    """造一只「新浪源」的股票，而且**必须从生产那一步映射里过一遍**。
+
+    直接手写归一化后的字典是不行的：那样测试能构造出生产根本不产生的字段组合，
+    新浪口径改一次，假数据还按老样子通过，等于没测。
+    这里只造新浪的原始行，映射交给 `sina_row_to_stock`。
+    默认值刻意都落在 `is_a_share_candidate` 的合格区间内。
+    """
+    return report.sina_row_to_stock({
+        "code": code,
+        "name": name or f"测试{code}",
+        "trade": price,
+        "changepercent": pct,
+        "amount": amount,
+        "turnoverratio": turnover,
+        "per": pe,
+        "high": price * 1.05,
+        "low": price * 0.95,
+        "mktcap": cap_wan,
+        "pb": pb,
+    })
+
+
 def complete_snapshot(etf=ETF):
     method = etf["percentile_method"]
     return {
@@ -727,62 +751,44 @@ class ReportTests(unittest.TestCase):
 
     @patch.object(report, "fetch_a_share_candidate_pool")
     def test_a_share_selector_returns_two_scored_candidates(self, fetch):
-        fetch.return_value = ([{
-            "f12": f"60000{index}", "f14": f"测试{index}", "f2": 10,
-            "f3": index, "f6": 1_000_000_000 - index, "f8": 2,
-            "f9": 20 + index, "f10": 1.2, "f15": 10.5, "f16": 9.5,
-            "f20": 50_000_000_000, "f23": 2, "f24": 10, "f25": 8,
-            "f62": 10_000_000,
-        } for index in range(3)], "东方财富A股行情")
+        fetch.return_value = ([a_share_stock(f"60000{index}", pe=20 + index,
+                                             amount=1_000_000_000 - index)
+                               for index in range(3)], report.A_SHARE_SOURCE_SINA)
         observations = report.build_a_share_observations()
         self.assertEqual(observations["status"], "available")
         self.assertEqual(len(observations["items"]), 2)
-        self.assertEqual(observations["source"], "东方财富A股行情")
-
-    def test_eastmoney_clist_requires_valid_response_shape(self):
-        self.assertEqual(report.parse_eastmoney_clist({"data": {"diff": []}}), [])
-        with self.assertRaisesRegex(RuntimeError, "diff 不是列表"):
-            report.parse_eastmoney_clist({"data": {}})
-        with self.assertRaisesRegex(RuntimeError, "缺少 data 对象"):
-            report.parse_eastmoney_clist([])
+        self.assertEqual(observations["source"], report.A_SHARE_SOURCE_SINA)
 
     @patch.object(report, "http_get")
-    def test_a_share_eastmoney_switches_host_after_502(self, get):
-        get.side_effect = [
-            response(status=502),
-            response({"data": {"diff": [{"f12": "600000", "f14": "测试"}]}}),
-        ]
-        items = report.fetch_a_share_candidates_from_eastmoney()
-        self.assertEqual(items[0]["f12"], "600000")
-        self.assertEqual(get.call_count, 2)
-        self.assertIn("push2delay.eastmoney.com", get.call_args_list[0].args[0])
-        self.assertIn("82.push2.eastmoney.com", get.call_args_list[1].args[0])
-        self.assertEqual(get.call_args.kwargs["headers"]["Referer"], report.A_SHARE_EASTMONEY_HEADERS["Referer"])
+    def test_a_share_pool_makes_exactly_one_request_and_never_asks_eastmoney(self, get):
+        # 这条是这次删除东财 clist 的守门人。
+        # 原来的形态是「3 个域名轮流试组合请求，失败再按 3 个板块各拉一页」，
+        # 单次最多十几次外呼、每天都打，把 IP 的封禁越推越深。
+        # 这里直接数请求条数与目标域名：多一条就说明哪条老路又回来了。
+        get.return_value = response([
+            {"code": "600000", "name": "测试股份", "trade": 10.2, "changepercent": 1.5,
+             "amount": 800_000_000, "turnoverratio": 1.2, "per": 12.5,
+             "high": 10.5, "low": 9.8, "mktcap": 2_000_000, "pb": 1.8},
+        ])
 
-    @patch.object(report, "http_get")
-    def test_a_share_eastmoney_splits_boards_when_combined_hosts_fail(self, get):
-        combined_failures = [response(status=502)] * len(report.A_SHARE_EASTMONEY_HOSTS)
-        board_payloads = [
-            response({"data": {"diff": [{"f12": "600000"}]}}),
-            response({"data": {"diff": [{"f12": "000001"}]}}),
-            response({"data": {"diff": [{"f12": "300001"}]}}),
-        ]
-        get.side_effect = combined_failures + board_payloads
-        items = report.fetch_a_share_candidates_from_eastmoney()
-        self.assertEqual([item["f12"] for item in items], ["600000", "000001", "300001"])
-        self.assertEqual(get.call_count, len(report.A_SHARE_EASTMONEY_HOSTS) + 3)
-
-    @patch.object(report, "fetch_a_share_candidates_from_eastmoney", side_effect=RuntimeError("502"))
-    @patch.object(report, "fetch_a_share_candidates_from_sina")
-    def test_a_share_pool_falls_back_to_sina(self, sina, _):
-        sina.return_value = [{"f12": "600000"}]
         items, source = report.fetch_a_share_candidate_pool()
-        self.assertEqual(items[0]["f12"], "600000")
-        self.assertEqual(source, "新浪财经A股行情")
-        sina.assert_called_once_with()
 
-    def test_sina_row_maps_market_cap_from_wan_yuan(self):
-        item = report.sina_row_to_eastmoney_item({
+        self.assertEqual(len(items), 1)
+        self.assertEqual(source, report.A_SHARE_SOURCE_SINA)
+        self.assertEqual(get.call_count, 1, "A股候选这条路只该打一次外呼")
+        url = get.call_args.args[0]
+        self.assertIn("sina.com.cn", url)
+        self.assertNotIn("eastmoney", url)
+
+    @patch.object(report, "http_get", side_effect=RuntimeError("network down"))
+    def test_a_sina_failure_is_reported_as_an_error_not_swallowed(self, _):
+        # 少了东财兜底之后，「唯一来源挂了」必须变成明确错误，
+        # 不能悄悄返回空列表——那会被下游当成「今天确实没有候选」。
+        with self.assertRaisesRegex(RuntimeError, "新浪财经A股行情"):
+            report.fetch_a_share_candidate_pool()
+
+    def test_sina_row_maps_every_field_the_scorers_read(self):
+        stock = report.sina_row_to_stock({
             "code": "600000",
             "name": "测试股份",
             "trade": 10.2,
@@ -795,12 +801,29 @@ class ReportTests(unittest.TestCase):
             "mktcap": 2_000_000,
             "pb": 1.8,
         })
-        stock = report.normalize_a_share(item)
         self.assertEqual(stock["code"], "600000")
-        self.assertEqual(stock["total_market_cap"], 20_000_000_000)
+        self.assertEqual(stock["total_market_cap"], 20_000_000_000)  # mktcap 单位是万元
         self.assertTrue(report.is_a_share_candidate(stock))
+        # 新浪不给的字段必须**在**字典里且为 None：打分里写的是
+        # `(stock["volume_ratio"] or 0)`，键不存在会直接 KeyError。
+        for key in ("volume_ratio", "pct_change_60d", "main_net_inflow"):
+            self.assertIn(key, stock)
+            self.assertIsNone(stock[key])
+        self.assertEqual(report.score_a_share(stock), report.score_a_share(stock))
+        self.assertEqual(report.a_share_observation(stock)["code"], "600000")
 
-    @patch.object(report, "fetch_a_share_candidate_pool", return_value=([], "东方财富A股行情"))
+    @patch.object(report, "fetch_a_share_candidate_pool",
+                  side_effect=RuntimeError("新浪财经A股行情: 502"))
+    def test_the_only_source_failing_still_lights_up_the_degradation_path(self, _):
+        # 只剩一个来源之后，这条降级路径比以前更要紧：它一挂就没有备选了。
+        result = report.build_a_share_observations()
+        self.assertEqual(result["status"], "provider_error")
+        self.assertEqual(result["source"], "不可确认")
+        text = report.build_programmatic_report([complete_snapshot()], "market_watch_evening", result)
+        self.assertIn("候选数据源异常", text)
+
+    @patch.object(report, "fetch_a_share_candidate_pool",
+                  return_value=([], report.A_SHARE_SOURCE_SINA))
     def test_a_share_selector_distinguishes_valid_empty_result(self, _):
         result = report.build_a_share_observations()
         self.assertEqual(result["status"], "empty")
@@ -813,7 +836,8 @@ class ReportTests(unittest.TestCase):
         "fetch_a_share_candidate_pool",
         side_effect=RuntimeError(
             "502 Server Error: Bad Gateway for url: "
-            "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100"
+            "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php"
+            "/Market_Center.getHQNodeData?page=1&num=100"
         ),
     )
     def test_a_share_selector_marks_provider_error(self, _):
@@ -824,7 +848,6 @@ class ReportTests(unittest.TestCase):
         self.assertIn("候选数据源异常", text)
         self.assertIn("行情列表源网关繁忙（502）", text)
         self.assertNotIn("https://", text)
-        self.assertNotIn("clist/get", text)
 
     @patch.object(report, "http_get")
     def test_premium_502_returns_provider_error(self, get):

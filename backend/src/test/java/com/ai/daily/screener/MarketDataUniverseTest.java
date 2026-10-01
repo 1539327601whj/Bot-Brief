@@ -106,13 +106,30 @@ class MarketDataUniverseTest {
         return "quote";
     }
 
-    /** 把清单 / 行情两次外呼分开回答；host 用不到，统一按路径判别。 */
+    /**
+     * 把清单 / 行情两次外呼分开回答；host 用不到，统一按路径判别。
+     *
+     * <p>假响应必须回**字节**：生产代码故意不要 {@code Map.class}（服务端把 JSON 声明成
+     * {@code text/plain}，Jackson 转换器读不了，见 {@code MarketDataClient.getJson}），
+     * 而是自己拿字节按 charset 解码再解析。这里跟着真实那一步走，
+     * 免得「mock 的返回类型与生产不一致」把整类问题挡在测试之外。
+     */
     private static RestTemplate client(Function<URI, Map<String, Object>> handler) {
         RestTemplate rt = mock(RestTemplate.class);
-        when(rt.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
-                .thenAnswer(inv -> ResponseEntity.ok(handler.apply(inv.getArgument(0))));
+        when(rt.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)))
+                .thenAnswer(inv -> {
+                    Map<String, Object> body = handler.apply(inv.getArgument(0));
+                    try {
+                        return ResponseEntity.ok(MAPPER.writeValueAsBytes(body));
+                    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        throw new IllegalStateException(e);
+                    }
+                });
         return rt;
     }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     private static RestTemplate clientThatThrowsOnQuote(int failFromBatch,
                                                         RuntimeException toThrow) {

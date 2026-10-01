@@ -1,11 +1,16 @@
 package com.ai.daily.screener;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -13,6 +18,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -50,6 +57,10 @@ import java.util.Set;
 public class MarketDataClient {
 
     private static final String UT = "fa5fd1943c7bdc76815634f86e88ea48";
+
+    /** 自己解析响应用的。字段只取我们点名的那些，多给的（清单偶尔会多塞几列）不该让解析失败。 */
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private static final String UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -438,22 +449,56 @@ public class MarketDataClient {
      * 这与 {@code ConnectException}（连都连不上）必须分开——后者换域名重试是合理的，
      * 前者重试只是在加深封禁。
      */
+    /**
+     * 取一个 JSON 对象。**故意先读成 byte[]，自己定字符集、自己解析，绝不直接要 {@code Map.class}。**
+     *
+     * <p>datacenter-web 回的是完全合法的 JSON，但 Content-Type 声明成
+     * {@code text/plain;charset=UTF-8}。Spring 的 Jackson 转换器只认
+     * {@code application/json} 与 {@code application/*+json}，所以直接要 {@code Map.class}
+     * 会得到一句 {@code no suitable HttpMessageConverter found for content type [text/plain]}——
+     * 一个和真实原因（是服务端把 Content-Type 写错了，不是我们请求错了）毫无关系的报错，
+     * 排查时会一路往网络、代理、限流上想，全想错。
+     *
+     * <p>读取这一步因此完全不经过 Jackson 转换器，Content-Type 声明成什么都不再影响能否解析。
+     * 这类问题被**结构性地**消掉，而不是「给这个域名补一个转换器」那样打补丁——
+     * 补丁只挡得住这一种写法，换个域名换个声明就再犯一次。
+     *
+     * <p>顺带还有一个好处：解析失败时能把服务端**实际回了什么**写进异常。
+     * {@code filter} 写错时它回的是纯文本 {@code 参数预处理错误:org.antlr...NoViableAltException}，
+     * 直接要 Map 的话这条关键信息会被转换器吞掉，只剩下那个看不懂的类型错误。
+     */
     private Map<String, Object> getJson(URI uri, String referer) {
+        String body;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("Referer", referer);
             headers.set("User-Agent", UA);
             headers.set("Accept", "application/json, text/plain, */*");
-            ResponseEntity<Map> resp = restTemplate.exchange(uri, HttpMethod.GET,
-                    new HttpEntity<>(headers), Map.class);
-            //noinspection unchecked
-            return resp.getBody();
+            // 要 byte[] 而不是 String：String 会让 StringHttpMessageConverter 去猜字符集，
+            // 而它在响应没声明 charset 时猜的是 ISO-8859-1（下面 charsetOf 有详述）。
+            ResponseEntity<byte[]> resp = restTemplate.exchange(uri, HttpMethod.GET,
+                    new HttpEntity<>(headers), byte[].class);
+            byte[] raw = resp.getBody();
+            body = raw == null ? null : new String(raw, charsetOf(resp.getHeaders().getContentType()));
         } catch (RuntimeException e) {
             if (isThrottled(e)) {
                 throw new MarketDataException.MarketDataRateLimitedException(
                         "行情源拒绝了本次请求（" + shortReason(e) + "）", e);
             }
             throw e;
+        }
+
+        if (body == null || body.isBlank()) {
+            throw new MarketDataException("行情源返回了空响应（" + shortUrl(uri) + "）");
+        }
+        try {
+            return MAPPER.readValue(body, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException e) {
+            // 服务端用纯文本回业务错误（例如 filter 写错）时会走到这里。
+            // 把原文截一段带上，别让人对着一个「解析失败」猜发生了什么。
+            throw new MarketDataException(
+                    "行情源返回的不是 JSON：" + snippet(body) + "（" + shortUrl(uri) + "）", e);
         }
     }
 
@@ -500,6 +545,36 @@ public class MarketDataClient {
         Throwable root = rootCause(t);
         String msg = root.getMessage();
         return root.getClass().getSimpleName() + (msg == null || msg.isBlank() ? "" : "：" + msg);
+    }
+
+    /**
+     * 只留域名与路径。整条查询串里有 filter、有几百个 secid，
+     * 打进异常信息会让它长得没法读，而排查时真正需要的只是「打的是哪个接口」。
+     */
+    static String shortUrl(URI uri) {
+        return uri.getHost() + uri.getPath();
+    }
+
+    /** 截服务端原文。换行会被压平——异常信息一多行，日志里就散成好几条了。 */
+    static String snippet(String body) {
+        String flat = body.replaceAll("\\s+", " ").trim();
+        return flat.length() <= 160 ? flat : flat.substring(0, 160) + "…";
+    }
+
+    /**
+     * 服务端声明的 charset 优先，没声明就按 UTF-8。
+     *
+     * <p>这件事**不能交给 Spring**：{@code StringHttpMessageConverter} 在响应没声明 charset 时
+     * 会退回 {@code ISO-8859-1}，中文整段变成 {@code æ¥åä¸åæ¨} 这样的乱码。
+     * 比崩溃更难查的是——**这个乱码能通过 JSON 解析**：JSON 的结构字符全是 ASCII，
+     * 于是解析成功、字段齐全、一只股票都不少，只有公司名是坏的，
+     * 一路混进结果页且不带任何报错。所以在解码这步就必须定死。
+     *
+     * <p>默认值取 UTF-8 不是「猜」：RFC 8259 规定 JSON 文本必须以 UTF-8 编码。
+     */
+    static Charset charsetOf(MediaType contentType) {
+        Charset declared = contentType == null ? null : contentType.getCharset();
+        return declared == null ? StandardCharsets.UTF_8 : declared;
     }
 
     // ==================================================================
