@@ -24,11 +24,11 @@
   border: 1px solid var(--border-strong);
   border-radius: 24px;
   background:
-    radial-gradient(circle at 14% 0%, rgba(139, 156, 255, 0.15), transparent 34%),
-    radial-gradient(circle at 92% 100%, rgba(61, 214, 140, 0.05), transparent 28%),
-    linear-gradient(180deg, rgba(17, 21, 32, 0.92), rgba(9, 12, 20, 0.88));
+    radial-gradient(circle at 14% 0%, rgba(var(--accent-rgb), 0.15), transparent 34%),
+    radial-gradient(circle at 92% 100%, rgba(var(--success-rgb), 0.05), transparent 28%),
+    linear-gradient(180deg, rgba(var(--panel-rgb), 0.92), rgba(var(--panel-dim-rgb), 0.88));
   color: var(--text);
-  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .market-watch-hero::before {
@@ -37,10 +37,10 @@
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    linear-gradient(rgba(var(--tint-rgb), 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--tint-rgb), 0.022) 1px, transparent 1px);
   background-size: 52px 52px;
-  mask-image: linear-gradient(90deg, black, rgba(0, 0, 0, 0.38) 72%, transparent);
+  mask-image: linear-gradient(90deg, black, rgba(var(--shadow-rgb), 0.38) 72%, transparent);
 }
 
 .market-watch-hero > div {
@@ -75,10 +75,10 @@
 .market-watch-risk-badge {
   flex: 0 0 auto;
   padding: 10px 16px;
-  border: 1px solid rgba(245, 196, 81, 0.24);
+  border: 1px solid rgba(var(--warning-rgb), 0.24);
   border-radius: 999px;
-  background: rgba(245, 196, 81, 0.08);
-  color: #f7d88a;
+  background: rgba(var(--warning-rgb), 0.08);
+  color: var(--amber-pale);
   font-size: 12px;
   font-weight: 650;
 }
@@ -100,8 +100,8 @@
 .market-watch-feature-card {
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: linear-gradient(180deg, rgba(17, 21, 32, 0.86), rgba(11, 15, 24, 0.8));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  background: linear-gradient(180deg, rgba(var(--panel-rgb), 0.86), rgba(var(--panel-soft-rgb), 0.8));
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), 0.035);
 }
 
 .market-watch-report-card,
@@ -117,7 +117,7 @@
 .market-watch-feature-card:hover {
   border-color: var(--border-strong);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .market-watch-card-header,
@@ -139,7 +139,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-  color: #e8ecff;
+  color: var(--text-indigo-bright);
   font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 17px;
   font-weight: 750;
@@ -182,10 +182,10 @@
 .market-watch-stale {
   margin-bottom: 12px;
   padding: 8px 10px;
-  border: 1px solid rgba(245, 196, 81, 0.2);
+  border: 1px solid rgba(var(--warning-rgb), 0.2);
   border-radius: 10px;
-  background: rgba(245, 196, 81, 0.07);
-  color: #f7d88a;
+  background: rgba(var(--warning-rgb), 0.07);
+  color: var(--amber-pale);
   font-size: 12px;
 }
 
@@ -194,7 +194,7 @@
   max-width: 100%;
   max-height: 124px;
   overflow: hidden;
-  color: #d6dce8;
+  color: var(--text-body-2);
   font-size: 13px;
   line-height: 1.72;
   overflow-wrap: anywhere;
@@ -208,7 +208,7 @@
   bottom: 0;
   left: 0;
   height: 42px;
-  background: linear-gradient(180deg, transparent, rgba(12, 16, 25, 0.98));
+  background: linear-gradient(180deg, transparent, rgba(var(--panel-soft-rgb), 0.98));
   pointer-events: none;
 }
 
@@ -228,13 +228,13 @@
 
 .market-watch-markdown::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--tint-rgb), 0.14);
 }
 
 .market-watch-markdown h1,
 .market-watch-markdown .md-title {
   margin: 14px 0 8px;
-  color: #e8ecff;
+  color: var(--text-indigo-bright);
   font-size: 18px;
   font-weight: 750;
 }
@@ -242,7 +242,7 @@
 .market-watch-markdown h2,
 .market-watch-markdown .md-section {
   margin: 14px 0 8px;
-  color: #7dd3fc;
+  color: var(--blue-sky);
   font-size: 16px;
   font-weight: 750;
 }
@@ -250,7 +250,7 @@
 .market-watch-markdown h3,
 .market-watch-markdown .md-subtitle {
   margin: 12px 0 6px;
-  color: #5eead4;
+  color: var(--teal-mint);
   font-size: 14.5px;
   font-weight: 700;
 }
@@ -259,7 +259,7 @@
 .market-watch-markdown ul,
 .market-watch-markdown ol {
   margin: 6px 0;
-  color: #8b95a6;
+  color: var(--text-gh-muted);
   font-weight: 400;
 }
 
@@ -272,23 +272,23 @@
   min-height: 38px;
   margin-top: 14px;
   padding: 8px 14px;
-  border: 1px solid rgba(139, 156, 255, 0.26);
+  border: 1px solid rgba(var(--accent-rgb), 0.26);
   border-radius: 10px;
   background: var(--accent-soft);
-  color: #cfd6ff;
+  color: var(--text-indigo-strong);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .market-watch-toggle:hover {
-  border-color: rgba(139, 156, 255, 0.42);
-  background: rgba(139, 156, 255, 0.2);
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: rgba(var(--accent-rgb), 0.2);
   color: var(--text);
 }
 
 .market-watch-toggle:focus-visible {
-  outline: 3px solid rgba(139, 156, 255, 0.2);
+  outline: 3px solid rgba(var(--accent-rgb), 0.2);
   outline-offset: 2px;
 }
 
@@ -296,7 +296,7 @@
   padding: 30px 16px;
   border: 1px dashed var(--border-strong);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.018);
+  background: rgba(var(--tint-rgb), 0.018);
   color: var(--text-muted);
   text-align: center;
 }
@@ -322,7 +322,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 14px;
-  border: 1px solid rgba(139, 156, 255, 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.12);
   border-radius: 12px;
   background: var(--accent-soft);
   font-size: 21px;

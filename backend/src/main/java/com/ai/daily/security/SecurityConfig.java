@@ -58,6 +58,9 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/auth/me", "/api/reports", "/api/reports/latest", "/api/stats/dashboard").authenticated()
                         .requestMatchers(new RegexRequestMatcher("^/api/reports/\\d+$", "GET")).authenticated()
+                        // 「低估精选」：管理员与公开 Demo 可见（与「市场观察」同一可见范围）。
+                        // 只有登录还不够，具体边界在 StockScreenerController 里再次判定。
+                        .requestMatchers("/api/stock-screener", "/api/stock-screener/**").authenticated()
                         .requestMatchers("/api/subscription", "/api/subscription/**", "/api/channels", "/api/channels/**")
                                 .access(new WebExpressionAuthorizationManager(
                                         "isAuthenticated() and (hasAuthority('ACCOUNT_NORMAL') or hasRole('ADMIN'))"))

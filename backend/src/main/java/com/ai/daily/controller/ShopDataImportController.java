@@ -6,6 +6,7 @@ import com.ai.daily.dto.ShopImportPreviewDTO;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ShopDataImportService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -15,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/shop/import")
 @RequiredArgsConstructor
@@ -53,7 +55,9 @@ public class ShopDataImportController {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
         try {
-            return Result.ok("数据导入成功", shopDataImportService.confirm(userId, storeId, type, fileHash, file));
+            ShopImportConfirmDTO result = shopDataImportService.confirm(userId, storeId, type, fileHash, file);
+            log.info("店铺数据确认导入 user={} storeId={} type={}", userId, storeId, type);
+            return Result.ok("数据导入成功", result);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
         }

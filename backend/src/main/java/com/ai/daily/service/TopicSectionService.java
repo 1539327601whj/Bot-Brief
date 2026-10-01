@@ -5,6 +5,7 @@ import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.service.impl.ReportServiceImpl;
 import com.ai.daily.util.MarkdownUtils;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSection> {
 
@@ -36,6 +38,7 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
             throw new IllegalArgumentException("主题段落缺少实质正文");
         }
         if (baseMapper.findId(sectionDate, edition, topicKey) != null) {
+            log.info("主题段落已存在，跳过入库 date={} window={} topic={}", sectionDate, edition, topicKey);
             markReadyQuietly(sectionDate, edition, topicKey, runId);
             return false;
         }
@@ -55,9 +58,12 @@ public class TopicSectionService extends ServiceImpl<TopicSectionMapper, TopicSe
         try {
             boolean saved = this.save(section);
             markReadyQuietly(sectionDate, edition, topicKey, runId);
+            log.info("主题段落入库成功 date={} window={} topic={} section_id={} saved={}",
+                    sectionDate, edition, topicKey, section.getId(), saved);
             return saved;
         } catch (DuplicateKeyException e) {
             if (baseMapper.findId(sectionDate, edition, topicKey) != null) {
+                log.warn("主题段落并发写入冲突，已按已存在处理 date={} window={} topic={}", sectionDate, edition, topicKey);
                 markReadyQuietly(sectionDate, edition, topicKey, runId);
                 return false;
             }

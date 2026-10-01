@@ -1,6 +1,7 @@
 package com.ai.daily.service;
 
 import com.ai.daily.entity.PushChannel;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -8,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+@Slf4j
 public final class ChannelIds {
 
     private ChannelIds() {
@@ -23,7 +25,8 @@ public final class ChannelIds {
             if (trimmed.isEmpty()) return null;
             try {
                 return Long.parseLong(trimmed);
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException e) {
+                log.debug("渠道 ID 不是数字，按无效处理 value={}", trimmed);
                 return null;
             }
         }

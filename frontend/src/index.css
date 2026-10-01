@@ -1,23 +1,386 @@
+/*
+ * 主题 token
+ * 深色（:root）是唯一默认，取值必须与改动前完全一致。
+ * 浅色只覆盖值，靠 :root[data-theme='light'] 的更高特异性生效，不需要 !important。
+ * 带透明度的颜色用 -rgb 三元组，rgba(var(--teal-rgb), .3) 这样两种模式通吃。
+ */
 :root {
   color-scheme: dark;
+
+  /* —— 页面底色 —— */
   --bg: #05070d;
   --bg-soft: #070a12;
   --bg-elevated: #0b0f19;
+  --bg-elevated-2: #111620;
   --bg-panel: rgba(12, 15, 24, 0.76);
   --bg-panel-solid: #0d111b;
+  --bg-ink: #080b14;
+
+  /* —— 表面（卡片/面板，来自旧的写死 GitHub-dark 色板）—— */
+  --surface-1: #161b22;
+  --surface-2: #21262d;
+
+  /* —— 玻璃层（侧栏/顶栏/返回按钮）—— */
+
+  /* —— 描边 —— */
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.14);
+  --border-solid: #30363d;
+
+  /* —— 正文 —— */
   --text: #f4f7fb;
   --text-muted: #9aa4b5;
   --text-subtle: #667085;
+  --text-gh: #e6edf3;
+  --text-gh-secondary: #c9d1d9;
+  --text-gh-muted: #8b949e;
+  --text-gh-subtle: #6e7681;
+  --text-indigo-bright: #e8ecff;
+  --text-indigo: #dce1ff;
+  --text-indigo-strong: #cfd6ff;
+  --text-body-2: #d6dce8;
+  --text-body-3: #e5e9ff;
+  --text-pale: #d7deea;
+  --text-pale-2: #c5d0dc;
+  --text-pale-3: #cbd3e3;
+  --text-indigo-faint: #d5dbff;
+  --text-indigo-soft: #c4cbff;
+  --text-indigo-pale: #b7c0ff;
+  --text-indigo-mid: #9aa8ff;
+  --text-indigo-mid-2: #adb8ff;
+  --text-indigo-deep: #7f90ed;
+  --text-slate-1: #c8d0dc;
+  --text-slate-2: #c5cdd8;
+  --text-slate-3: #c8d0ee;
+  --text-slate-5: #e8edf6;
+  --text-slate-6: #d4d4d4;
+  --text-slate-7: #7d8796;
+  --text-slate-8: #778195;
+
+  /* —— 主色 —— */
   --accent: #8b9cff;
   --accent-strong: #a8b2ff;
   --accent-soft: rgba(139, 156, 255, 0.14);
+
+  /* —— 语义色 —— */
   --success: #3dd68c;
   --warning: #f5c451;
   --danger: #ff6b6b;
+  --danger-strong: #ff8080;
+  --danger-soft: #ff9f9f;
+  --danger-pale: #ffb4b4;
+  --danger-softer: #ffc1c1;
+  --danger-deep: #ff7b72;
+  --teal: #00d4aa;
+  --teal-strong: #00f5d4;
+  --teal-deep: #00ffc8;
+  --teal-mint: #5eead4;
+  --teal-pale: #9debc5;
+  /* 原稿里另外两种绿，和上面的绿差得够远，各留一支 */
+  --teal-mint-2: #7ee0c7;
+  --teal-alt: #00b894;
+  --purple: #7c4dff;
+  --purple-alt: #7c3aed;
+  --purple-pale: #c4b5fd;
+  /* 淡紫（正文色用），比 --purple 亮一大截，不能合 */
+  --violet-soft: #a98bff;
+  --violet: #a855f7;
+  --amber: #ffc542;
+  --amber-bright: #ffc107;
+  --amber-pale: #f7d88a;
+  --amber-warm-2: #f0c36d;
+  --amber-warm: #ffb86b;
+  --amber-cream: #ffe7a3;
+  --blue-sky: #7dd3fc;
+  --blue-sky-deep: #38bdf8;
+  --blue-info: #79c0ff;
+  --blue-info-2: #79b8ff;
+  --blue-info-3: #7c9cff;
+  --blue-info-4: #6ea8ff;
+  --blue-pale: #ccebff;
+  --teal-pale-2: #7ee0b4;
+  --teal-pale-3: #c8ffe8;
+  --teal-pale-4: #7ee7d4;
+  --amber-pale-2: #f3d48a;
+  --danger-coral: #ffb4ad;
+  --danger-coral-2: #ff8b82;
+  --danger-coral-3: #ffd0d0;
+  --border-solid-2: #3d444d;
+  --surface-3: #1b2028;
+
+  /* 红涨绿跌：语义固定，浅色模式下也不许换色调 */
+  --up-red: #ff4d4f;
+  --down-green: #14b86a;
+
+  /* —— 首页 / 商城 hero —— */
+  --hero-from: #0d1117;
+  --hero-via: #161b22;
+  --hero-to: #1a1f36;
+
+  /* —— 阴影 —— */
   --shadow-card: 0 24px 80px rgba(0, 0, 0, 0.36);
   --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.24);
+  /* 阴影 / 压暗叠加：深色下是黑，浅色下是深墨 */
+  --shadow-rgb: 0, 0, 0;
+  /* 实心按钮：深色模式下是白底黑字，浅色模式下反过来是靛蓝底白字 */
+  --btn-face-from: #ffffff;
+  --btn-face-to: #dfe5f2;
+  --btn-face-text: #05070d;
+  --btn-indigo-text: #080b14;
+
+  /* —— 带透明度的颜色：翻转总开关 —— */
+  --tint-rgb: 255, 255, 255;
+  --accent-rgb: 139, 156, 255;
+  --teal-rgb: 0, 212, 170;
+  --purple-rgb: 124, 77, 255;
+  --warning-rgb: 245, 196, 81;
+  --amber-rgb: 255, 197, 66;
+  --danger-rgb: 255, 107, 107;
+  --success-rgb: 61, 214, 140;
+  /* --accent 在浅色下保持原色（它主要当描边和光晕），但不当正文色用，
+     白底上 #8b9cff 只有 2.5:1。凡是 `color: var(--accent)` 一律走这一支。 */
+  --accent-text: #8b9cff;
+  /* --border-solid-rgb 当「填充色」用的时候（开关滑轨、置灰按钮、滚动条）
+     要换成这一支：浅色下是一条浅灰轨道，不能跟着变深。 */
+  --fill-muted-rgb: 48, 54, 61;
+  --panel-2-rgb: 26, 31, 54;
+  --panel-3-rgb: 10, 14, 26;
+  --input-bg-rgb: 3, 6, 13;
+  --input-bg-strong-rgb: 5, 8, 16;
+  --hero2-from-rgb: 17, 21, 33;
+  --hero2-to-rgb: 10, 14, 24;
+  --menu-bg-rgb: 20, 25, 35;
+  --glass-rgb: 5, 7, 13;
+  /* 顶栏返回/主题切换按钮的玻璃底 */
+  --glass-back: rgba(5, 7, 13, 0.55);
+  /* 深色下这些是层层叠叠的近黑面板，浅色下一律变白。
+     原稿里近黑面板有 19 种深浅，按色阶归成 5 档：不是纯粹为了省 token，
+     是因为同一个渐变里原本两档不同深浅的（比如首页 hero 的 17,21,32 -> 9,12,20），
+     塌成一档会把渐变抹平。 */
+  --panel-rgb: 17, 21, 32;      /* 常规面板 */
+  --panel-soft-rgb: 11, 15, 24; /* 稍沉一档 */
+  --panel-dim-rgb: 9, 12, 20;   /* 渐变深处 / 凹陷区 */
+  --panel-ink-rgb: 3, 6, 12;    /* 近纯黑 */
+  --panel-lift-rgb: 30, 35, 56; /* 唯一一块提亮的卡 */
+  --panel-deep-rgb: 10, 14, 22; /* 半透明的压暗叠加，不是面板 */
+  --surface-1-rgb: 22, 27, 34;
+  --surface-2-rgb: 33, 38, 45;
+  --bg-deep-rgb: 13, 17, 23;
+
+  /* 次级色族（透明度各不相同，所以只换基色）*/
+  --text-gh-muted-rgb: 139, 148, 158;
+  --text-muted-rgb: 154, 164, 181;
+  --text-body-2-rgb: 214, 220, 232;
+  --accent-strong-rgb: 168, 178, 255;
+  --indigo-pale-rgb: 206, 213, 255;
+  --indigo-pale-2-rgb: 214, 220, 255;
+  --indigo-deep-rgb: 82, 98, 190;
+  --teal-strong-rgb: 0, 245, 212;
+  --teal-deep-rgb: 0, 255, 200;
+  --teal-mint-rgb: 94, 234, 212;
+  --teal-pale-rgb: 157, 235, 197;
+  --purple-2-rgb: 138, 43, 226;
+  --amber-2-rgb: 255, 195, 0;
+  --amber-3-rgb: 255, 195, 66;
+  --amber-bright-rgb: 255, 193, 7;
+  --amber-pale-rgb: 240, 195, 109;
+  --amber-pale-2-rgb: 247, 216, 138;
+  --orange-rgb: 245, 158, 11;
+  --orange-2-rgb: 255, 152, 0;
+  --green-rgb: 34, 197, 94;
+  --green-2-rgb: 7, 193, 96;
+  --red-gh-rgb: 248, 81, 73;
+  --danger-strong-rgb: 255, 128, 128;
+  --danger-deep-rgb: 255, 123, 114;
+  --danger-red-rgb: 255, 90, 90;
+  --scrim-red-rgb: 60, 20, 20;
+  --sky-rgb: 14, 165, 233;
+  --blue-sky-rgb: 125, 211, 252;
+  --blue-info-rgb: 121, 192, 255;
+  --blue-gh-rgb: 56, 139, 253;
+  --blue-gh-2-rgb: 88, 166, 255;
+  --blue-c-rgb: 46, 127, 255;
+  --blue-d-rgb: 51, 112, 255;
+}
+
+/*
+ * 浅色主题
+ * 规矩：深色下当「正文/图标」用的浅色，这里必须换成深墨；
+ * 深色下当「实色块填充」用的，这里只做小幅压深，保持品牌色相。
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f4f5f9;
+  --bg-soft: #eaecf4;
+  --bg-elevated: #ffffff;
+  --bg-elevated-2: #ffffff;
+  --bg-panel: rgba(255, 255, 255, 0.78);
+  --bg-panel-solid: #ffffff;
+  --bg-ink: #eef0f8;
+
+  --surface-1: #ffffff;
+  --surface-2: #f1f3f9;
+  --surface-3: #ffffff;
+
+
+  --border: rgba(16, 24, 40, 0.1);
+  --border-strong: rgba(16, 24, 40, 0.18);
+  --border-solid: rgba(16, 24, 40, 0.16);
+
+  --text: #101828;
+  --text-muted: #5a6577;
+  --text-subtle: #7c8698;
+  --text-gh: #101828;
+  --text-gh-secondary: #3a4256;
+  --text-gh-muted: #5a6472;
+  --text-gh-subtle: #707a8c;
+  --text-indigo-bright: #1b2350;
+  --text-indigo: #28327a;
+  --text-indigo-strong: #3a479c;
+  --text-body-2: #333c52;
+  --text-body-3: #232c5c;
+  --text-pale: #333c52;
+  --text-pale-2: #3a4256;
+  --text-pale-3: #3a4256;
+  --text-indigo-faint: #4f5fd6;
+  --text-indigo-soft: #3a479c;
+  --text-indigo-pale: #3a479c;
+  --text-indigo-mid: #4f5fd6;
+  --text-indigo-mid-2: #4f5fd6;
+  --text-indigo-deep: #4f5fd6;
+  --text-slate-1: #3a4256;
+  --text-slate-2: #3a4256;
+  --text-slate-3: #3a4256;
+  --text-slate-5: #333c52;
+  --text-slate-6: #5a6472;
+  --text-slate-7: #5a6472;
+  --text-slate-8: #5a6472;
+
+  /* 装饰性主色保持不变（边框/光晕），实心填充另用 --accent-strong 压深 */
+  --accent: #8b9cff;
+  --accent-strong: #4f5fd6;
+  --accent-soft: rgba(99, 115, 224, 0.12);
+
+  --success: #12a05c;
+  --warning: #a2660b;
+  --danger: #cf3a3a;
+  --danger-strong: #d94b4b;
+  --danger-soft: #d94b4b;
+  --danger-pale: #bd3b3b;
+  --danger-softer: #bd3b3b;
+  --danger-deep: #c94040;
+  --teal: #0f9d80;
+  --teal-strong: #0aa88a;
+  --teal-deep: #0aa88a;
+  --teal-mint: #0f9d80;
+  --teal-pale: #158a63;
+  --teal-mint-2: #0f9d80;
+  --teal-alt: #0f9d80;
+  --purple: #6d3fe0;
+  --purple-alt: #6d3fe0;
+  --purple-pale: #6d3fe0;
+  --violet-soft: #6d3fe0;
+  --violet: #8b5cf6;
+  --amber: #b07200;
+  --amber-bright: #b07200;
+  --amber-pale: #a07200;
+  --amber-warm: #a2660b;
+  --amber-warm-2: #b07200;
+  --amber-cream: #8a6200;
+  --blue-sky: #1f7fb8;
+  --blue-sky-deep: #1f7fb8;
+  --blue-info: #2f6fd0;
+  --blue-info-2: #2f6fd0;
+  --blue-info-3: #4f5fd6;
+  --blue-info-4: #2f6fd0;
+  --blue-pale: #1f7fb8;
+  --teal-pale-2: #158a63;
+  --teal-pale-3: #158a63;
+  --teal-pale-4: #0f9d80;
+  --amber-pale-2: #a07200;
+  --danger-coral: #bd3b3b;
+  --danger-coral-2: #c94040;
+  --danger-coral-3: #bd3b3b;
+  --border-solid-2: rgba(16, 24, 40, 0.2);
+
+  --up-red: #d9363e;
+  --down-green: #0f9d58;
+
+  --hero-from: #ffffff;
+  --hero-via: #eef1ff;
+  --hero-to: #e7f5f0;
+
+  --shadow-card: 0 18px 48px rgba(16, 24, 40, 0.1);
+  --shadow-soft: 0 8px 24px rgba(16, 24, 40, 0.07);
+  --shadow-rgb: 16, 24, 40;
+  --btn-face-from: #5b6ee0;
+  --btn-face-to: #4f5fd6;
+  --btn-face-text: #ffffff;
+  --btn-indigo-text: #ffffff;
+
+  --tint-rgb: 16, 24, 40;
+  --accent-rgb: 139, 156, 255;
+  --teal-rgb: 15, 157, 128;
+  --purple-rgb: 109, 63, 224;
+  --warning-rgb: 162, 102, 11;
+  --amber-rgb: 176, 114, 0;
+  --danger-rgb: 207, 58, 58;
+  --success-rgb: 18, 160, 92;
+  --accent-text: #4f5fd6;
+  --fill-muted-rgb: 208, 213, 221;
+  --panel-2-rgb: 255, 255, 255;
+  --panel-3-rgb: 255, 255, 255;
+  --input-bg-rgb: 255, 255, 255;
+  --input-bg-strong-rgb: 255, 255, 255;
+  --hero2-from-rgb: 255, 255, 255;
+  --hero2-to-rgb: 238, 241, 250;
+  --menu-bg-rgb: 255, 255, 255;
+  --glass-rgb: 255, 255, 255;
+  --glass-back: rgba(255, 255, 255, 0.6);
+  --panel-rgb: 255, 255, 255;
+  --panel-soft-rgb: 255, 255, 255;
+  --panel-dim-rgb: 255, 255, 255;
+  --panel-ink-rgb: 255, 255, 255;
+  --panel-lift-rgb: 250, 251, 255;
+  --panel-deep-rgb: 255, 255, 255;
+  --surface-1-rgb: 255, 255, 255;
+  --surface-2-rgb: 241, 243, 249;
+  --bg-deep-rgb: 238, 240, 248;
+
+  --text-gh-muted-rgb: 90, 100, 114;
+  --text-muted-rgb: 90, 101, 119;
+  --text-body-2-rgb: 51, 60, 82;
+  --accent-strong-rgb: 79, 95, 214;
+  --indigo-pale-rgb: 58, 71, 156;
+  --indigo-pale-2-rgb: 58, 71, 156;
+  --indigo-deep-rgb: 82, 98, 190;
+  --teal-strong-rgb: 10, 168, 138;
+  --teal-deep-rgb: 10, 168, 138;
+  --teal-mint-rgb: 15, 157, 128;
+  --teal-pale-rgb: 21, 138, 99;
+  --purple-2-rgb: 124, 58, 237;
+  --amber-2-rgb: 176, 114, 0;
+  --amber-3-rgb: 176, 114, 0;
+  --amber-bright-rgb: 176, 114, 0;
+  --amber-pale-rgb: 176, 114, 0;
+  --amber-pale-2-rgb: 160, 114, 0;
+  --orange-rgb: 178, 106, 0;
+  --orange-2-rgb: 178, 106, 0;
+  --green-rgb: 18, 160, 92;
+  --green-2-rgb: 18, 160, 92;
+  --red-gh-rgb: 201, 64, 64;
+  --danger-strong-rgb: 217, 75, 75;
+  --danger-deep-rgb: 201, 64, 64;
+  --danger-red-rgb: 207, 58, 58;
+  --scrim-red-rgb: 252, 235, 235;
+  --sky-rgb: 31, 127, 184;
+  --blue-sky-rgb: 31, 127, 184;
+  --blue-info-rgb: 47, 111, 208;
+  --blue-gh-rgb: 47, 111, 208;
+  --blue-gh-2-rgb: 47, 111, 208;
+  --blue-c-rgb: 47, 111, 208;
+  --blue-d-rgb: 47, 111, 208;
 }
 
 * {

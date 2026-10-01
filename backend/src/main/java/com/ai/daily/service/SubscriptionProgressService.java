@@ -9,6 +9,7 @@ import com.ai.daily.entity.Subscription;
 import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.mapper.TopicSectionMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SubscriptionProgressService {
@@ -62,7 +64,9 @@ public class SubscriptionProgressService {
 
         try {
             reportQueryService.ensureTodayAssembled(userId);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            // 预拼装失败不影响状态查询，降级返回，但必须留痕，否则线上查不到
+            log.warn("预拼装今日个人简报失败 user={} date={}", userId, today, e);
         }
 
         Subscription subscription = subscriptionService.getOrCreateForUser(userId);

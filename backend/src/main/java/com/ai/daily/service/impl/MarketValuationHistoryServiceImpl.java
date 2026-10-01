@@ -5,6 +5,7 @@ import com.ai.daily.entity.MarketValuationHistory;
 import com.ai.daily.mapper.MarketValuationHistoryMapper;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -14,6 +15,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Set;
 
+@Slf4j
 @Service
 public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuationHistoryMapper, MarketValuationHistory> implements MarketValuationHistoryService {
 
@@ -42,6 +44,8 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
         }
         history.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
         baseMapper.upsert(history);
+        log.info("指数估值入库 index_code={} trade_date={} percentile={}",
+                indexCode, dto.getTradeDate(), dto.getPePercentile());
     }
 
     @Override

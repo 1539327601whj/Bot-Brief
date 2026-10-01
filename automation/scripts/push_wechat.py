@@ -12,6 +12,15 @@ import sys
 import glob
 from datetime import datetime, timezone, timedelta
 
+# logging_setup 与本脚本同目录；被其它模块导入时也要能解析
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from logging_setup import setup_logging  # noqa: E402
+
+logger = setup_logging(__name__)
+
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
 
@@ -32,7 +41,7 @@ def get_report_file(date_str=None):
 def read_report(file_path):
     """读取日报文件内容"""
     if not os.path.exists(file_path):
-        print(f"❌ 日报文件不存在: {file_path}")
+        logger.error("❌ 日报文件不存在: %s", file_path)
         return None
     with open(file_path, "r", encoding="utf-8") as f:
         return f.read()
@@ -106,13 +115,13 @@ def push_to_wechat(content, webhook_url):
             result = json.loads(resp.read().decode("utf-8"))
         
         if result.get("errcode") == 0:
-            print(f"✅ 企业微信推送成功 ({len(data)} bytes)")
+            logger.info("✅ 企业微信推送成功 (%s bytes)", len(data))
             return True
         else:
-            print(f"❌ 企业微信推送失败: {result}")
+            logger.error("❌ 企业微信推送失败: %s", result)
             return False
     except Exception as e:
-        print(f"❌ 推送异常: {e}")
+        logger.exception("❌ 推送异常: %s", e)
         return False
 
 def cleanup_old_reports(days=15):
@@ -134,19 +143,19 @@ def cleanup_old_reports(days=15):
             file_date = datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=BEIJING_TZ)
             if file_date < cutoff:
                 os.remove(f)
-                print(f"🗑️ 已清理旧日报: {basename}")
+                logger.info("🗑️ 已清理旧日报: %s", basename)
                 removed += 1
     
     if removed == 0:
-        print("✅ 无需清理旧日报文件")
+        logger.info("✅ 无需清理旧日报文件")
     else:
-        print(f"✅ 共清理 {removed} 个旧日报文件")
+        logger.info("✅ 共清理 %s 个旧日报文件", removed)
 
 def main():
     today = now_beijing().strftime("%Y-%m-%d")
-    print(f"\n{'='*50}")
-    print(f"📤 AI 日报推送脚本 · {today}")
-    print(f"{'='*50}\n")
+    logger.info("\n%s", "=" * 50)
+    logger.info("📤 AI 日报推送脚本 · %s", today)
+    logger.info("%s\n", "=" * 50)
 
     # 获取 webhook URL（优先从环境变量，其次从配置文件）
     webhook_url = os.environ.get("WECHAT_WEBHOOK", "")
@@ -165,11 +174,11 @@ def main():
                         break
 
     if not webhook_url:
-        print("⚠️ 未配置企业微信 Webhook URL")
-        print("请通过以下方式之一配置：")
-        print("  1. 设置环境变量: WECHAT_WEBHOOK=https://qyapi.weixin.qq.com/...")
-        print("  2. 在项目根目录创建 .env.local 文件，写入: WECHAT_WEBHOOK=https://...")
-        print("\n📋 日报内容已保存到文件，跳过推送步骤")
+        logger.warning("⚠️ 未配置企业微信 Webhook URL")
+        logger.info("请通过以下方式之一配置：")
+        logger.info("  1. 设置环境变量: WECHAT_WEBHOOK=https://qyapi.weixin.qq.com/...")
+        logger.info("  2. 在项目根目录创建 .env.local 文件，写入: WECHAT_WEBHOOK=https://...")
+        logger.warning("\n📋 日报内容已保存到文件，跳过推送步骤")
         # 仍然执行清理
         cleanup_old_reports()
         return
@@ -180,17 +189,17 @@ def main():
     if not content:
         sys.exit(1)
 
-    print(f"📄 已读取日报: {os.path.basename(report_file)}")
+    logger.info("📄 已读取日报: %s", os.path.basename(report_file))
 
     # 转换并推送
     wx_content = convert_to_wework_markdown(content)
     push_to_wechat(wx_content, webhook_url)
 
     # 清理旧文件
-    print()
+    logger.info("")
     cleanup_old_reports(days=15)
 
-    print(f"\n✅ 推送流程完成！({now_beijing().strftime('%H:%M:%S')})")
+    logger.info("\n✅ 推送流程完成！(%s)", now_beijing().strftime('%H:%M:%S'))
 
 if __name__ == "__main__":
     main()

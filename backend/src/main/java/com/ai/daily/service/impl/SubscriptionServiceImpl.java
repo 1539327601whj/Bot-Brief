@@ -6,6 +6,7 @@ import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +16,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 
+@Slf4j
 @Service
 public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Subscription> implements SubscriptionService {
 
@@ -37,6 +39,7 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
             subscription.setEveningEnabled(true);
             subscription.setEveningTime(LocalTime.of(20, 15));
             this.save(subscription);
+            log.info("订阅首次创建 user={} subscription_id={}", userId, subscription.getId());
         }
         boolean dirty = false;
         if (subscription.getMorningEnabled() == null) { subscription.setMorningEnabled(true); dirty = true; }
@@ -44,7 +47,10 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
         if (subscription.getEveningEnabled() == null) { subscription.setEveningEnabled(true); dirty = true; }
         if (subscription.getEveningTime() == null) { subscription.setEveningTime(LocalTime.of(20, 15)); dirty = true; }
         if (subscription.getEnabled() == null) { subscription.setEnabled(true); dirty = true; }
-        if (dirty) this.updateById(subscription);
+        if (dirty) {
+            this.updateById(subscription);
+            log.info("订阅补齐默认值 user={}", userId);
+        }
         return subscription;
     }
 
@@ -68,6 +74,8 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
         if (eveningEnabled != null) subscription.setEveningEnabled(eveningEnabled);
         if (eveningTime != null) subscription.setEveningTime(eveningTime);
         this.updateById(subscription);
+        log.info("订阅配置更新 user={} enabled={} morning_enabled={} evening_enabled={}",
+                userId, subscription.getEnabled(), subscription.getMorningEnabled(), subscription.getEveningEnabled());
         return subscription;
     }
 
@@ -78,9 +86,11 @@ public class SubscriptionServiceImpl extends ServiceImpl<SubscriptionMapper, Sub
 
     @Override
     public List<Subscription> findDueThrough(LocalTime nowFloor, LocalDate date, Duration maxLateness) {
-        return listEnabled().stream()
+        List<Subscription> due = listEnabled().stream()
                 .filter(subscription -> subscriptionPreferences.isDueThrough(subscription, nowFloor, maxLateness, date))
                 .toList();
+        log.debug("订阅到期查询 now={} date={} due={}", nowFloor, date, due.size());
+        return due;
     }
 
     @Override

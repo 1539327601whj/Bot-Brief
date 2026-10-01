@@ -5,6 +5,7 @@ import com.ai.daily.entity.Subscription;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Component
 public class SubscriptionPreferences {
 
@@ -62,6 +64,8 @@ public class SubscriptionPreferences {
         try {
             return normalizeNames(objectMapper.readValue(raw, new TypeReference<List<String>>() {}));
         } catch (JsonProcessingException | IllegalArgumentException e) {
+            // 降级成「没有偏好」是可接受的，但得能查出是哪些老数据格式不对
+            log.debug("订阅偏好字段解析失败，按空列表处理", e);
             return List.of();
         }
     }
@@ -76,7 +80,9 @@ public class SubscriptionPreferences {
                 return normalizeSchedules(
                         objectMapper.readValue(raw, SubscriptionDTO.TopicSchedulesDTO.class),
                         legacyTimes(subscription));
-            } catch (JsonProcessingException | IllegalArgumentException ignored) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
+                // 静默回退到 preference_fields，丢的是「哪些订阅的时段配置是坏数据」
+                log.debug("topic_schedules 解析失败，回退到 preference_fields", e);
             }
         }
         return schedulesFromFields(readPreferenceFields(subscription.getPreferenceFields()));
@@ -415,7 +421,8 @@ public class SubscriptionPreferences {
         if (value.length() >= 10) value = value.substring(0, 10);
         try {
             return LocalDate.parse(value);
-        } catch (DateTimeParseException ignored) {
+        } catch (DateTimeParseException e) {
+            log.debug("subscribed_at 无法解析，按空处理 raw={}", raw);
             return null;
         }
     }

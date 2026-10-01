@@ -8,12 +8,14 @@ import com.ai.daily.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
@@ -37,7 +39,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (inviteCode == null || inviteCode.isBlank()) throw new IllegalArgumentException("必须填写邀请码");
 
         String normalizedEmail = email.trim().toLowerCase();
-        if (findByEmail(normalizedEmail) != null) throw new IllegalArgumentException("邮箱已被注册");
+        if (findByEmail(normalizedEmail) != null) {
+            log.warn("注册失败：邮箱已被注册 email={}", normalizedEmail);
+            throw new IllegalArgumentException("邮箱已被注册");
+        }
 
         InviteCode ic = inviteCodeService.findByCode(inviteCode.trim());
         if (ic == null) throw new IllegalArgumentException("邀请码无效");
@@ -56,6 +61,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         this.save(u);
 
         inviteCodeService.markUsed(ic.getCode(), u.getId());
+        log.info("用户注册成功 user={} email={} invite_id={}", u.getId(), normalizedEmail, ic.getId());
         return u;
     }
 
@@ -63,9 +69,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public User authenticate(String email, String rawPassword) {
         if (email == null || rawPassword == null) return null;
         User u = findByEmail(email.trim().toLowerCase());
-        if (u == null || !Boolean.TRUE.equals(u.getEnabled())) return null;
-        if (User.ACCOUNT_DEMO.equals(u.getAccountType())) return null;
-        if (!passwordEncoder.matches(rawPassword, u.getPasswordHash())) return null;
+        if (u == null || !Boolean.TRUE.equals(u.getEnabled())) {
+            if (u == null) {
+                log.warn("认证失败 reason=账号不存在 email={}", email);
+            } else {
+                log.warn("认证失败 reason=账号已停用 email={}", email);
+            }
+            return null;
+        }
+        if (User.ACCOUNT_DEMO.equals(u.getAccountType())) {
+            log.warn("认证失败 reason=Demo账号不可登录 email={}", email);
+            return null;
+        }
+        if (!passwordEncoder.matches(rawPassword, u.getPasswordHash())) {
+            log.warn("认证失败 reason=密码错误 email={}", email);
+            return null;
+        }
         return u;
     }
 }

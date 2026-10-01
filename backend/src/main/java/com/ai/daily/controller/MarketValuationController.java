@@ -6,12 +6,14 @@ import com.ai.daily.entity.MarketValuationHistory;
 import com.ai.daily.security.IngestTokens;
 import com.ai.daily.service.MarketValuationHistoryService;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/market-valuations")
 public class MarketValuationController {
@@ -27,12 +29,15 @@ public class MarketValuationController {
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @Valid @RequestBody MarketValuationIngestDTO dto) {
         if (IngestTokens.invalid(ingestToken, token)) {
+            log.warn("市场估值历史入库 token 无效");
             return Result.error(401, "入库 token 无效");
         }
         try {
             marketValuationHistoryService.upsert(dto);
+            log.info("市场估值历史入库成功");
             return Result.ok("估值历史已保存", null);
         } catch (IllegalArgumentException e) {
+            log.warn("市场估值历史入库参数非法 reason={}", e.getMessage());
             return Result.error(400, e.getMessage());
         }
     }
@@ -44,11 +49,13 @@ public class MarketValuationController {
             @RequestParam String percentileMethod,
             @RequestParam(defaultValue = "7") int limit) {
         if (IngestTokens.invalid(ingestToken, token)) {
+            log.warn("市场估值历史查询 token 无效");
             return Result.error(401, "查询 token 无效");
         }
         try {
             return Result.ok(marketValuationHistoryService.latest(indexCode, percentileMethod, limit));
         } catch (IllegalArgumentException e) {
+            log.warn("市场估值历史查询参数非法 indexCode={} reason={}", indexCode, e.getMessage());
             return Result.error(400, e.getMessage());
         }
     }

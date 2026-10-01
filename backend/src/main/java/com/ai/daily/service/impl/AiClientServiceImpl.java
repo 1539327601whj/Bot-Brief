@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+@Slf4j
 @Service
 public class AiClientServiceImpl implements AiClientService {
 
@@ -39,6 +41,7 @@ public class AiClientServiceImpl implements AiClientService {
     @Override
     public String chat(List<AiMessage> messages, double temperature, int maxTokens) {
         if (deepseekApiKey == null || deepseekApiKey.isBlank()) {
+            log.warn("AI 未配置，跳过调用 model={}", deepseekModel);
             return "AI 服务暂未配置，请先配置 DEEPSEEK_API_KEY。";
         }
 
@@ -52,12 +55,21 @@ public class AiClientServiceImpl implements AiClientService {
                 String responseBody = EntityUtils.toString(httpResponse.getEntity());
                 JsonNode root = objectMapper.readTree(responseBody);
                 if (root.has("error")) {
-                    return "AI 调用失败：" + root.path("error").path("message").asText();
+                    String errorMessage = root.path("error").path("message").asText();
+                    log.warn("AI 返回错误 model={} error={}", deepseekModel, errorMessage);
+                    return "AI 调用失败：" + errorMessage;
                 }
                 String content = root.path("choices").path(0).path("message").path("content").asText();
-                return content == null || content.isBlank() ? "AI 暂未返回内容，请稍后重试。" : content;
+                if (content == null || content.isBlank()) {
+                    log.warn("AI 返回空内容 model={} httpStatus={} messages={}",
+                            deepseekModel, httpResponse.getCode(), messages.size());
+                    return "AI 暂未返回内容，请稍后重试。";
+                }
+                return content;
             }
         } catch (Exception e) {
+            // 调用方拿到的仍是一句文案，这里必须留下堆栈，否则线上完全查不到原因
+            log.error("AI 调用失败 model={} baseUrl={} messages={}", deepseekModel, deepseekBaseUrl, messages.size(), e);
             return "AI 调用失败：" + e.getMessage();
         }
     }

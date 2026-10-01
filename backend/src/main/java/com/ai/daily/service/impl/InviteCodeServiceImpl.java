@@ -6,6 +6,7 @@ import com.ai.daily.service.InviteCodeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -13,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 public class InviteCodeServiceImpl extends ServiceImpl<InviteCodeMapper, InviteCode> implements InviteCodeService {
 
@@ -30,6 +32,7 @@ public class InviteCodeServiceImpl extends ServiceImpl<InviteCodeMapper, InviteC
             this.save(ic);
             out.add(ic);
         }
+        log.info("邀请码生成 admin={} count={}", adminUserId, out.size());
         return out;
     }
 
@@ -49,6 +52,7 @@ public class InviteCodeServiceImpl extends ServiceImpl<InviteCodeMapper, InviteC
                 .set(InviteCode::getUsedBy, userId)
                 .set(InviteCode::getUsedAt, LocalDateTime.now());
         this.update(u);
+        log.info("邀请码核销 user={}", userId);
     }
 
     private String randomCode(int len) {

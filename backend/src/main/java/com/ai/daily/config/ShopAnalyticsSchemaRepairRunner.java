@@ -49,7 +49,7 @@ public class ShopAnalyticsSchemaRepairRunner implements ApplicationRunner {
             log.warn("补建店铺商品外部 ID 唯一索引");
             jdbcTemplate.execute(ShopAnalyticsSchemaRepair.createProductExternalIndexSql());
         } catch (Exception error) {
-            log.error("店铺商品外部 ID 唯一索引未建上，导入可能无法幂等覆盖: {}", error.getMessage());
+            log.error("店铺商品外部 ID 唯一索引未建上，导入可能无法幂等覆盖", error);
         }
     }
 }

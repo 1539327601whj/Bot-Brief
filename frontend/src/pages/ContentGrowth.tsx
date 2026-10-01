@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Alert, Button, Card, ConfigProvider, DatePicker, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Upload, message, theme } from 'antd'
+import { Alert, Button, Card, ConfigProvider, DatePicker, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Upload, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from '../utils/dayjs'
 import { parseCsv } from '../utils/csv'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
+import { contentGrowthTheme } from '../theme/antdTheme'
 import DemoNotice from '../components/DemoNotice'
 import { demoAiExamples, demoCompetitors, demoContentAccounts, demoContentWorks, getDemoContentOverview } from '../demo/fixtures'
 import {
@@ -48,16 +50,6 @@ const goalOptions = [
   { label: '带货转化', value: '带货转化' },
 ]
 
-const contentGrowthTheme = {
-  algorithm: theme.darkAlgorithm,
-  token: {
-    colorPrimary: '#8b9cff', colorPrimaryHover: '#a8b2ff', colorBgBase: '#05070d',
-    colorBgContainer: '#0d111b', colorBgElevated: '#111620', colorBorder: 'rgba(255, 255, 255, 0.14)',
-    colorBorderSecondary: 'rgba(255, 255, 255, 0.08)', colorText: '#f4f7fb', colorTextSecondary: '#9aa4b5',
-    colorTextPlaceholder: '#667085', colorSuccess: '#3dd68c', colorWarning: '#f5c451', colorError: '#ff6b6b',
-    borderRadius: 12, borderRadiusLG: 18, boxShadowSecondary: '0 24px 80px rgba(0, 0, 0, 0.42)',
-  },
-}
 
 const csvHeaders = ['platform', 'title', 'workUrl', 'coverUrl', 'publishTime', 'playCount', 'likeCount', 'commentCount', 'collectCount', 'shareCount', 'followerGain', 'contentType']
 const numericFields = ['playcount', 'likecount', 'commentcount', 'collectcount', 'sharecount', 'followergain'] as const
@@ -77,6 +69,7 @@ const formatRate = (value?: number) => `${((value || 0) * 100).toFixed(2)}%`
 
 export default function ContentGrowth() {
   const { user } = useAuth()
+  const { theme } = useTheme()
   const isDemo = user?.accountType === 'DEMO'
   const [accounts, setAccounts] = useState<ContentAccount[]>([])
   const [works, setWorks] = useState<PageData<ContentWork>>({ records: [], total: 0, current: 1, size: 10 })
@@ -423,7 +416,7 @@ export default function ContentGrowth() {
   if (loading) return <div className="loading">加载中...</div>
 
   return (
-    <ConfigProvider theme={contentGrowthTheme}>
+    <ConfigProvider theme={contentGrowthTheme(theme)}>
       <div className="growth-page">
         {isDemo && <DemoNotice />}
         <section className="growth-hero">

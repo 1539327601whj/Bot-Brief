@@ -5,12 +5,14 @@ import com.ai.daily.mapper.ShopStoreMapper;
 import com.ai.daily.service.ShopStoreService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+@Slf4j
 @Service
 public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore> implements ShopStoreService {
 
@@ -33,6 +35,7 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
         store.setStoreName(storeName == null || storeName.isBlank() ? "我的店铺" : storeName);
         store.setEnabled(true);
         this.save(store);
+        log.info("店铺创建 user={} store_id={} platform={}", userId, store.getId(), store.getPlatform());
         return store;
     }
 
@@ -67,6 +70,7 @@ public class ShopStoreServiceImpl extends ServiceImpl<ShopStoreMapper, ShopStore
         if (enabled <= 1) throw new IllegalArgumentException("至少保留一家店铺");
         store.setEnabled(false);
         this.updateById(store);
+        log.info("店铺停用 user={} store_id={}", userId, storeId);
     }
 
     static String normalizePlatform(String platform) {

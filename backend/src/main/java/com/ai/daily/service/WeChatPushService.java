@@ -47,7 +47,8 @@ public class WeChatPushService {
             log.info("企业微信推送成功，简报ID: {}", report.getId());
             return true;
         } catch (Exception e) {
-            log.error("企业微信推送失败: {}", e.getMessage());
+            // report 是 try 内取到的，catch 里取不到，这里不记 id
+            log.error("企业微信推送失败", e);
             return false;
         }
     }

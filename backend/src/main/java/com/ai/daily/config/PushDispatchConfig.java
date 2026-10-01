@@ -1,5 +1,6 @@
 package com.ai.daily.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -8,6 +9,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 
+@Slf4j
 @Configuration
 public class PushDispatchConfig {
 
@@ -20,6 +22,7 @@ public class PushDispatchConfig {
         executor.setThreadNamePrefix("push-dispatch-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
+        log.info("推送分发线程池已初始化 core={} max={} queue={}", 4, 8, 200);
         return executor;
     }
 
@@ -30,6 +33,7 @@ public class PushDispatchConfig {
         scheduler.setThreadNamePrefix("sched-");
         scheduler.setRemoveOnCancelPolicy(true);
         scheduler.initialize();
+        log.info("推送调度线程池已初始化 poolSize={}", 4);
         return scheduler;
     }
 }

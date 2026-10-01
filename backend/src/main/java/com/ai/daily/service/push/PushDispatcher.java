@@ -53,14 +53,17 @@ public class PushDispatcher {
             try {
                 sender.send(ch, report);
                 pushLogService.record(userId, report.getId(), ch.getId(), ch.getChannelType(), true, null);
+                log.debug("即时推送成功 user={} channel_id={} report_id={}", userId, ch.getId(), report.getId());
                 ok++;
             } catch (Exception e) {
-                log.warn("推送失败 channel_id={} report_id={}", ch.getId(), report.getId());
+                log.warn("推送失败 user={} channel_id={} report_id={}", userId, ch.getId(), report.getId(), e);
                 pushLogService.record(userId, report.getId(), ch.getId(), ch.getChannelType(),
                         false, safeError(e));
                 fail++;
             }
         }
+        log.info("即时分发完成 user={} report_id={} total={} ok={} fail={}",
+                userId, report.getId(), channels.size(), ok, fail);
         return new DispatchResult(channels.size(), ok, fail);
     }
 
@@ -99,10 +102,13 @@ public class PushDispatcher {
             try {
                 sender.send(channel, report);
                 pushLogService.markSuccess(logId);
+                log.debug("定时推送成功 user={} channel_id={} report_id={} slot={}",
+                        userId, channel.getId(), report.getId(), slotKey);
                 ok++;
             } catch (Exception e) {
                 pushLogService.markFailed(logId, safeError(e));
-                log.warn("定时推送失败 channel_id={} report_id={}", channel.getId(), report.getId());
+                log.warn("定时推送失败 user={} channel_id={} report_id={} slot={}",
+                        userId, channel.getId(), report.getId(), slotKey, e);
                 fail++;
             }
         }
@@ -126,6 +132,8 @@ public class PushDispatcher {
             } else {
                 writeImmediate(channel, report, true, null, dispatchKey);
             }
+            log.info("测试推送成功 user={} channel_id={} report_id={}",
+                    channel.getUserId(), channel.getId(), report.getId());
         } catch (Exception e) {
             String errorMessage = safeError(e);
             if (logId != null) {
@@ -133,6 +141,8 @@ public class PushDispatcher {
             } else {
                 writeImmediate(channel, report, false, errorMessage, dispatchKey);
             }
+            log.warn("测试推送失败 user={} channel_id={} report_id={}",
+                    channel.getUserId(), channel.getId(), report.getId(), e);
             throw new IllegalStateException(errorMessage);
         }
     }

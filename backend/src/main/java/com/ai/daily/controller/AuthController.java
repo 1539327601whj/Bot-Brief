@@ -43,7 +43,12 @@ public class AuthController {
                 return Result.error(400, "请填写邮箱和密码");
             }
             User u = userService.authenticate(req.getEmail(), req.getPassword());
-            if (u == null) return Result.error(401, "邮箱或密码错误");
+            if (u == null) {
+                // 密码错误此前完全不留痕，撞库/爆破无从发现；只记邮箱，不记密码
+                log.warn("登录失败：邮箱或密码错误 email={}", req.getEmail());
+                return Result.error(401, "邮箱或密码错误");
+            }
+            log.info("登录成功 user={} email={}", u.getId(), u.getEmail());
             return Result.ok(buildLoginResponse(u));
         } catch (Exception e) {
             log.error("登录失败", e);

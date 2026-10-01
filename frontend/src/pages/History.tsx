@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { DatePicker, Input, ConfigProvider, Pagination, theme } from 'antd'
+import { DatePicker, Input, ConfigProvider, Pagination } from 'antd'
 import type { PaginationProps } from 'antd'
 import type { Dayjs } from 'dayjs'
 import zhCN from 'antd/locale/zh_CN'
@@ -8,6 +8,8 @@ import dayjs from '../utils/dayjs'
 import api from '../utils/api'
 import { getReportEditionInfo, reportSlotStamp } from '../utils/reportEdition'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
+import { getAntdTheme } from '../theme/antdTheme'
 import './History.css'
 
 const { RangePicker } = DatePicker
@@ -33,6 +35,7 @@ interface PageData {
 
 export default function History() {
   const { user } = useAuth()
+  const { theme } = useTheme()
   const isDemo = user?.accountType === 'DEMO'
   const isAdmin = user?.role === 'ADMIN'
   const canSeePublicDigest = isDemo || isAdmin
@@ -173,21 +176,7 @@ export default function History() {
   return (
     <ConfigProvider
       locale={zhCN}
-      theme={{
-        algorithm: theme.darkAlgorithm,
-        token: {
-          colorPrimary: '#8b9cff',
-          colorPrimaryHover: '#a8b2ff',
-          colorBgBase: '#05070d',
-          colorBgContainer: '#0d111b',
-          colorBgElevated: '#111620',
-          colorBorder: 'rgba(255, 255, 255, 0.14)',
-          colorText: '#f4f7fb',
-          colorTextSecondary: '#9aa4b5',
-          colorTextPlaceholder: '#667085',
-          borderRadius: 12,
-        }
-      }}
+      theme={getAntdTheme(theme)}
     >
       <div className="history-page">
         <div className="history-header">

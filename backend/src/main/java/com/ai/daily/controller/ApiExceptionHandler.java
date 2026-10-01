@@ -22,7 +22,7 @@ public class ApiExceptionHandler {
         } else if (detail.contains("Unknown column") || detail.contains("doesn't exist")) {
             message = "数据库结构与当前版本不一致，请补跑 backend/sql 下未执行的脚本";
         }
-        log.error("数据库访问失败: {}", detail);
+        log.error("数据库访问失败 detail={}", detail, error);
         return ResponseEntity.status(500).body(Result.error(500, message));
     }
 
@@ -35,7 +35,7 @@ public class ApiExceptionHandler {
         } else if (!detail.isBlank() && detail.length() <= 80) {
             message = detail;
         }
-        log.error("服务状态异常: {}", detail);
+        log.error("服务状态异常 detail={}", detail, error);
         return ResponseEntity.status(500).body(Result.error(500, message));
     }
 

@@ -11,6 +11,7 @@ import com.ai.daily.service.PushChannelService;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.push.PushDispatcher;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/channels")
 @RequiredArgsConstructor
@@ -47,7 +49,9 @@ public class PushChannelController {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
         try {
-            return Result.ok("已创建", pushChannelService.createForUser(userId, request));
+            PushChannelResponse created = pushChannelService.createForUser(userId, request);
+            log.info("创建推送渠道 user={} channel_id={} type={}", userId, created.getId(), created.getChannelType());
+            return Result.ok("已创建", created);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
         } catch (IllegalStateException e) {
@@ -61,6 +65,7 @@ public class PushChannelController {
         if (userId == null) return Result.error(401, "未登录");
         try {
             PushChannelResponse response = pushChannelService.updateForUser(id, userId, request);
+            if (response != null) log.info("更新推送渠道 user={} channel_id={} type={}", userId, id, response.getChannelType());
             return response == null ? Result.error(404, "渠道不存在") : Result.ok(response);
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
@@ -73,7 +78,9 @@ public class PushChannelController {
     public Result<String> delete(@PathVariable Long id) {
         Long userId = SecurityUtils.currentUserId();
         if (userId == null) return Result.error(401, "未登录");
-        return pushChannelService.removeForUser(id, userId)
+        boolean removed = pushChannelService.removeForUser(id, userId);
+        if (removed) log.info("删除推送渠道 user={} channel_id={}", userId, id);
+        return removed
                 ? Result.ok("已删除", null)
                 : Result.error(404, "渠道不存在");
     }
@@ -88,10 +95,13 @@ public class PushChannelController {
             Report report = testReport(userId);
             if (report == null) return Result.error(404, "暂无属于你的简报可推送，请先勾选兴趣并等待生成");
             pushDispatcher.sendOne(channel, report);
+            log.info("推送渠道测试消息已发送 user={} channel_id={}", userId, id);
             return Result.ok("测试推送已发出，请到目标渠道查看", null);
         } catch (IllegalStateException e) {
+            log.warn("推送渠道测试降级 user={} channel_id={}", userId, id, e);
             return Result.error(503, safeMessage(e));
         } catch (Exception e) {
+            log.warn("推送渠道测试失败 user={} channel_id={}", userId, id, e);
             return Result.error(500, "测试推送失败：" + safeMessage(e));
         }
     }

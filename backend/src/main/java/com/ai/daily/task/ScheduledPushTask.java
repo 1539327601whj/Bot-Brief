@@ -86,11 +86,17 @@ public class ScheduledPushTask {
     public void catchUpUser(Subscription subscription, LocalDate date, LocalTime displayTime) {
         if (subscription == null || date == null || displayTime == null) return;
         LocalTime now = LocalTime.now(ZONE).withSecond(0).withNano(0);
-        if (displayTime.withSecond(0).withNano(0).isAfter(now)) return;
+        if (displayTime.withSecond(0).withNano(0).isAfter(now)) {
+            log.debug("补发跳过：展示时刻还没到 user={} date={} time={}",
+                    subscription.getUserId(), date, displayTime);
+            return;
+        }
         User user = userMapper.selectById(subscription.getUserId());
         if (user == null
                 || !Boolean.TRUE.equals(user.getEnabled())
                 || User.ACCOUNT_DEMO.equals(user.getAccountType())) {
+            log.debug("补发跳过：用户不存在/已停用/Demo user={} date={} time={}",
+                    subscription.getUserId(), date, displayTime);
             return;
         }
         dispatchAt(subscription, date, displayTime);
@@ -98,7 +104,10 @@ public class ScheduledPushTask {
 
     void dispatchDue(LocalTime now, LocalDate date, Duration maxLateness) {
         List<Subscription> due = subscriptionService.findDueThrough(now, date, maxLateness);
-        if (due.isEmpty()) return;
+        if (due.isEmpty()) {
+            log.debug("本轮无到期订阅 now={} date={}", now, date);
+            return;
+        }
 
         Map<Long, User> users = userMapper.selectBatchIds(
                         due.stream().map(Subscription::getUserId).collect(Collectors.toSet()))
@@ -112,7 +121,10 @@ public class ScheduledPushTask {
                             && !User.ACCOUNT_DEMO.equals(user.getAccountType());
                 })
                 .toList();
-        if (due.isEmpty()) return;
+        if (due.isEmpty()) {
+            log.debug("到期订阅的用户全部不可用（不存在/已停用/Demo），跳过 now={} date={}", now, date);
+            return;
+        }
 
         for (Subscription subscription : due) {
             for (LocalTime displayTime : subscriptionPreferences.dueDisplayTimes(subscription, now, maxLateness, date)) {

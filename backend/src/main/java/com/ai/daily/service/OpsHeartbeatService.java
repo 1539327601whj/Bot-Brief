@@ -38,7 +38,7 @@ public class OpsHeartbeatService {
             row.setDetail(trim(detail));
             heartbeatMapper.updateById(row);
         } catch (Exception e) {
-            log.warn("心跳写入失败: {}", e.getMessage());
+            log.warn("心跳写入失败 name={}", name, e);
         }
     }
 
@@ -46,7 +46,7 @@ public class OpsHeartbeatService {
         try {
             return name == null ? null : heartbeatMapper.selectById(name);
         } catch (Exception e) {
-            log.warn("读取心跳失败: {}", e.getMessage());
+            log.warn("读取心跳失败 name={}", name, e);
             return null;
         }
     }

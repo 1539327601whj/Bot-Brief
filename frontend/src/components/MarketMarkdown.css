@@ -1,5 +1,5 @@
 .market-markdown {
-  color: #9aa4b5;
+  color: var(--text-muted);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.75;
@@ -15,45 +15,45 @@
 
 .market-markdown .md-title {
   margin: 18px 0 10px;
-  color: #e8ecff;
+  color: var(--text-indigo-bright);
   font-size: 1.35em;
   font-weight: 750;
 }
 
 .market-markdown .md-section {
   margin: 16px 0 8px;
-  color: #a8b2ff;
+  color: var(--accent-strong);
   font-size: 1.15em;
   font-weight: 750;
 }
 
 .market-markdown .md-subtitle {
   margin: 14px 0 6px;
-  color: #5eead4;
+  color: var(--teal-mint);
   font-size: 1em;
   font-weight: 700;
 }
 
 .market-markdown p {
   margin: 0 0 10px;
-  color: #9aa4b5;
+  color: var(--text-muted);
   font-weight: 400;
 }
 
 .market-markdown strong {
-  color: #d7deea;
+  color: var(--text-pale);
   font-weight: 650;
 }
 
 .market-markdown a {
-  color: #8b9cff;
+  color: var(--accent-text);
   text-decoration: underline;
   text-underline-offset: 2px;
   word-break: break-word;
 }
 
 .market-markdown a:hover {
-  color: #c4cbff;
+  color: var(--text-indigo-soft);
 }
 
 .market-change {
@@ -67,19 +67,19 @@
 .article-content .market-change-up,
 .today-card-body .market-change-up,
 .overview-card .market-change-up {
-  color: #ff4d4f;
+  color: var(--up-red);
 }
 
 .market-markdown .market-change-down,
 .article-content .market-change-down,
 .today-card-body .market-change-down,
 .overview-card .market-change-down {
-  color: #14b86a;
+  color: var(--down-green);
 }
 
 .market-markdown .market-change-flat,
 .article-content .market-change-flat,
 .today-card-body .market-change-flat,
 .overview-card .market-change-flat {
-  color: #8b949e;
+  color: var(--text-gh-muted);
 }

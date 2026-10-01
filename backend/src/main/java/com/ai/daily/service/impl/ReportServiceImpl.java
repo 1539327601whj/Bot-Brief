@@ -5,6 +5,7 @@ import com.ai.daily.mapper.ReportMapper;
 import com.ai.daily.service.ReportService;
 import com.ai.daily.service.ReportWindows;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +20,7 @@ import java.util.regex.Pattern;
 /**
  * Report 服务实现
  */
+@Slf4j
 @Service
 public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> implements ReportService {
 
@@ -35,12 +37,16 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
                 ? edition + ":" + runId
                 : null;
         if (ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null) {
+            log.warn("公共简报重复入库，已跳过 edition={} date={} run_id={}", edition, reportDate, runId);
             return false;
         }
         Long existingId = baseMapper.findIdByEditionAndReportDate(edition, reportDate);
         if (existingId != null) {
             Report existing = baseMapper.selectById(existingId);
-            if (existing == null) return false;
+            if (existing == null) {
+                log.debug("公共简报覆盖更新找不到原记录 edition={} date={} report_id={}", edition, reportDate, existingId);
+                return false;
+            }
             existing.setTitle(title);
             existing.setContent(content);
             existing.setSummary(summary);
@@ -48,7 +54,10 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             existing.setIngestKey(ingestKey);
             existing.setDisplayTime(ReportWindows.publicDisplayTime(edition));
             existing.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
-            return baseMapper.updateById(existing) > 0;
+            boolean updated = baseMapper.updateById(existing) > 0;
+            log.info("公共简报覆盖更新 edition={} date={} report_id={} run_id={} updated={}",
+                    edition, reportDate, existing.getId(), runId, updated);
+            return updated;
         }
         Report report = new Report();
         report.setUserId(Report.PUBLIC_OWNER_ID);
@@ -65,6 +74,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             if (!this.save(report)) {
                 throw new IllegalStateException("简报保存失败");
             }
+            log.info("公共简报入库 edition={} date={} report_id={} run_id={}", edition, reportDate, report.getId(), runId);
             return true;
         } catch (DuplicateKeyException e) {
             boolean duplicateRun = ingestKey != null && baseMapper.findIdByIngestKey(ingestKey) != null;
@@ -72,6 +82,8 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             if (!duplicateRun && !duplicateBusinessReport) {
                 throw e;
             }
+            log.warn("公共简报重复入库，已去重 edition={} date={} run_id={} duplicate_run={} duplicate_business={}",
+                    edition, reportDate, runId, duplicateRun, duplicateBusinessReport);
             return false;
         }
     }
@@ -111,6 +123,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Long existingId = baseMapper.findIdByUserEditionDateAndTime(userId, Report.PERSONAL, reportDate, minute);
         if (existingId != null) {
+            log.debug("用户简报已存在，直接返回 user={} date={} time={} report_id={}", userId, reportDate, minute, existingId);
             return this.getById(existingId);
         }
         Report report = new Report();
@@ -126,10 +139,13 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
             if (!this.save(report)) {
                 throw new IllegalStateException("用户简报保存失败");
             }
+            log.info("用户简报入库 user={} date={} time={} report_id={}", userId, reportDate, minute, report.getId());
             return report;
         } catch (DuplicateKeyException e) {
             Long raced = baseMapper.findIdByUserEditionDateAndTime(userId, Report.PERSONAL, reportDate, minute);
             if (raced != null) {
+                log.debug("用户简报并发写入，返回已存在记录 user={} date={} time={} report_id={}",
+                        userId, reportDate, minute, raced);
                 return this.getById(raced);
             }
             throw e;

@@ -9,12 +9,12 @@
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #e6edf3;
+  color: var(--text-gh);
 }
 .notifications-page .page-desc {
   margin: 0;
   font-size: 14px;
-  color: #8b949e;
+  color: var(--text-gh-muted);
 }
 
 .log-toolbar {
@@ -23,9 +23,9 @@
   gap: 10px;
   margin-bottom: 16px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(var(--tint-rgb), 0.08);
   border-radius: 16px;
-  background: rgba(12, 15, 24, 0.72);
+  background: rgba(var(--panel-soft-rgb), 0.72);
 }
 .log-filters {
   display: flex;
@@ -33,26 +33,26 @@
   gap: 8px;
 }
 .log-filters button {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: #9aa4b5;
+  border: 1px solid rgba(var(--tint-rgb), 0.1);
+  background: rgba(var(--tint-rgb), 0.04);
+  color: var(--text-muted);
   border-radius: 999px;
   padding: 6px 12px;
   cursor: pointer;
 }
 .log-filters button.active {
-  color: #f4f7fb;
-  border-color: rgba(139, 156, 255, 0.4);
-  background: rgba(139, 156, 255, 0.16);
+  color: var(--text);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 .log-filters button.has-miss:not(.active) {
-  border-color: rgba(255, 197, 66, 0.28);
-  color: #ffc542;
+  border-color: rgba(var(--amber-rgb), 0.28);
+  color: var(--amber);
 }
 .log-filters button.unwritten.active,
 .log-filters button.has-miss.active {
-  border-color: rgba(255, 197, 66, 0.4);
-  background: rgba(255, 197, 66, 0.14);
+  border-color: rgba(var(--amber-rgb), 0.4);
+  background: rgba(var(--amber-rgb), 0.14);
 }
 .log-query {
   display: flex;
@@ -69,22 +69,22 @@
 .log-reset {
   min-height: 36px;
   padding: 7px 13px;
-  border: 1px solid rgba(255, 107, 107, 0.24);
+  border: 1px solid rgba(var(--danger-rgb), 0.24);
   border-radius: 10px;
-  background: rgba(255, 107, 107, 0.07);
-  color: #ffb4b4;
+  background: rgba(var(--danger-rgb), 0.07);
+  color: var(--danger-pale);
   font-size: 12px;
   cursor: pointer;
 }
 .log-reset:hover {
-  border-color: rgba(255, 107, 107, 0.42);
-  background: rgba(255, 107, 107, 0.12);
+  border-color: rgba(var(--danger-rgb), 0.42);
+  background: rgba(var(--danger-rgb), 0.12);
 }
 .notifications-page .ant-picker,
 .notifications-page .ant-select-selector {
-  border-color: rgba(255, 255, 255, 0.14) !important;
-  background: rgba(3, 6, 13, 0.64) !important;
-  color: #f4f7fb !important;
+  border-color: rgba(var(--tint-rgb), 0.14) !important;
+  background: rgba(var(--input-bg-rgb), 0.64) !important;
+  color: var(--text) !important;
 }
 
 .log-list {
@@ -96,14 +96,14 @@
   display: flex;
   gap: 14px;
   padding: 14px 18px;
-  background: rgba(26, 31, 54, 0.6);
-  border: 1px solid rgba(48, 54, 61, 0.8);
+  background: rgba(var(--panel-2-rgb), 0.6);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
 }
 .log-row.failed,
 .log-row.unwritten {
-  border-color: rgba(255, 90, 90, 0.3);
-  background: rgba(60, 20, 20, 0.3);
+  border-color: rgba(var(--danger-red-rgb), 0.3);
+  background: rgba(var(--scrim-red-rgb), 0.3);
 }
 .log-icon { font-size: 22px; }
 .log-info { flex: 1; min-width: 0; }
@@ -112,7 +112,7 @@
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  color: #e6edf3;
+  color: var(--text-gh);
   font-size: 14px;
 }
 .log-type {
@@ -122,24 +122,24 @@
   font-weight: 650;
 }
 .log-type.channel-wechat {
-  background: rgba(7, 193, 96, 0.16);
-  color: #3ecf8e;
+  background: rgba(var(--green-2-rgb), 0.16);
+  color: var(--success);
 }
 .log-type.channel-email {
-  background: rgba(240, 195, 109, 0.16);
-  color: #f0c36d;
+  background: rgba(var(--amber-pale-rgb), 0.16);
+  color: var(--amber-warm-2);
 }
 .log-type.channel-dingtalk {
-  background: rgba(46, 127, 255, 0.16);
-  color: #6ea8ff;
+  background: rgba(var(--blue-c-rgb), 0.16);
+  color: var(--blue-info-4);
 }
 .log-type.channel-feishu {
-  background: rgba(51, 112, 255, 0.18);
-  color: #7c9cff;
+  background: rgba(var(--blue-d-rgb), 0.18);
+  color: var(--blue-info-3);
 }
 .log-type.channel-unknown {
-  background: rgba(255, 255, 255, 0.06);
-  color: #8b949e;
+  background: rgba(var(--tint-rgb), 0.06);
+  color: var(--text-gh-muted);
 }
 .log-kind {
   padding: 2px 8px;
@@ -148,36 +148,36 @@
   font-weight: 600;
 }
 .log-kind.test {
-  background: rgba(240, 195, 109, 0.16);
-  color: #f0c36d;
+  background: rgba(var(--amber-pale-rgb), 0.16);
+  color: var(--amber-warm-2);
 }
 .log-kind.scheduled {
-  background: rgba(0, 212, 170, 0.14);
-  color: #7ee0c7;
+  background: rgba(var(--teal-rgb), 0.14);
+  color: var(--teal-mint-2);
 }
 .log-kind.ops {
-  background: rgba(88, 166, 255, 0.16);
-  color: #79b8ff;
+  background: rgba(var(--blue-gh-2-rgb), 0.16);
+  color: var(--blue-info-2);
 }
 .log-kind.unknown {
-  background: rgba(255, 255, 255, 0.06);
-  color: #8b949e;
+  background: rgba(var(--tint-rgb), 0.06);
+  color: var(--text-gh-muted);
 }
 .log-kind.unwritten {
-  background: rgba(255, 197, 66, 0.16);
-  color: #ffc542;
+  background: rgba(var(--amber-rgb), 0.16);
+  color: var(--amber);
 }
-.log-status.success { color: #00d4aa; font-size: 13px; }
-.log-status.failed { color: #ff8080; font-size: 13px; }
-.log-time { margin-left: auto; color: #6e7681; font-family: Menlo, Consolas, monospace; font-size: 12px; }
-.log-meta { color: #8b949e; font-size: 12px; margin-top: 4px; font-family: Menlo, Consolas, monospace; }
+.log-status.success { color: var(--teal); font-size: 13px; }
+.log-status.failed { color: var(--danger-strong); font-size: 13px; }
+.log-time { margin-left: auto; color: var(--text-gh-subtle); font-family: Menlo, Consolas, monospace; font-size: 12px; }
+.log-meta { color: var(--text-gh-muted); font-size: 12px; margin-top: 4px; font-family: Menlo, Consolas, monospace; }
 .log-error {
   margin-top: 6px;
   padding: 8px 10px;
-  background: rgba(255, 90, 90, 0.1);
-  border-left: 3px solid rgba(255, 90, 90, 0.5);
+  background: rgba(var(--danger-red-rgb), 0.1);
+  border-left: 3px solid rgba(var(--danger-red-rgb), 0.5);
   border-radius: 4px;
-  color: #ff8080;
+  color: var(--danger-strong);
   font-size: 12px;
   word-break: break-all;
 }
@@ -185,11 +185,11 @@
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #8b949e;
+  color: var(--text-gh-muted);
 }
 .empty-icon { font-size: 48px; margin-bottom: 12px; }
 .empty-state p { margin: 4px 0; }
-.empty-state .hint { font-size: 13px; color: #6e7681; }
+.empty-state .hint { font-size: 13px; color: var(--text-gh-subtle); }
 
 .log-page-bar {
   display: flex;
@@ -199,7 +199,7 @@
   margin-top: 20px;
 }
 .log-page-summary {
-  color: #8b949e;
+  color: var(--text-gh-muted);
   font-size: 12px;
 }
 .log-pagination {
@@ -214,9 +214,9 @@
   min-width: 36px;
   height: 36px;
   margin: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(var(--tint-rgb), 0.1);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(var(--tint-rgb), 0.025);
 }
 .log-pagination .ant-pagination-prev,
 .log-pagination .ant-pagination-next {
@@ -230,26 +230,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9aa4b5;
+  color: var(--text-muted);
 }
 .log-pagination .ant-pagination-item-active {
-  border-color: rgba(139, 156, 255, 0.46);
-  background: rgba(139, 156, 255, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.46);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 .log-pagination .ant-pagination-item-active a {
-  color: #dce1ff;
+  color: var(--text-indigo);
   font-weight: 650;
 }
 .log-pagination .ant-pagination-options-quick-jumper {
-  color: #9aa4b5;
+  color: var(--text-muted);
 }
 .log-pagination .ant-pagination-options-quick-jumper input {
   width: 56px;
   height: 32px;
   border-radius: 8px;
-  background: rgba(3, 6, 13, 0.64);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #f4f7fb;
+  background: rgba(var(--input-bg-rgb), 0.64);
+  border: 1px solid rgba(var(--tint-rgb), 0.14);
+  color: var(--text);
 }
 
 .loading {
@@ -257,7 +257,7 @@
   align-items: center;
   justify-content: center;
   height: 200px;
-  color: #8b949e;
+  color: var(--text-gh-muted);
   font-size: 16px;
 }
 

@@ -11,6 +11,7 @@ import com.ai.daily.service.SubscriptionPreferences;
 import com.ai.daily.service.SubscriptionService;
 import com.ai.daily.service.TopicGenerationStatusService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/subscription")
 @RequiredArgsConstructor
@@ -56,6 +58,7 @@ public class SubscriptionController {
         } catch (DataAccessException e) {
             throw e;
         } catch (RuntimeException e) {
+            log.error("订阅配置读取异常 user={}", userId, e);
             return Result.error(500, "订阅配置读取失败：" + e.getMessage());
         }
     }
@@ -94,14 +97,18 @@ public class SubscriptionController {
                     eveningTime
             );
             reopenUnreadyTopics(enabled);
+            log.info("订阅配置保存成功 user={} 启用主题数={}", userId, enabled.size());
             return Result.ok("订阅配置已更新", convertToDTO(updated));
         } catch (IllegalArgumentException e) {
+            log.warn("订阅配置参数非法 user={} reason={}", userId, e.getMessage());
             return Result.error(400, e.getMessage());
         } catch (IllegalStateException e) {
+            log.error("订阅配置转换失败 user={}", userId, e);
             return Result.error(500, "订阅配置转换失败");
         } catch (DataAccessException e) {
             throw e;
         } catch (RuntimeException e) {
+            log.error("订阅配置保存异常 user={}", userId, e);
             return Result.error(500, "订阅配置保存失败：" + e.getMessage());
         }
     }
@@ -170,6 +177,7 @@ public class SubscriptionController {
         try {
             return ReportWindows.parse(value);
         } catch (IllegalArgumentException e) {
+            log.debug("时段值无法解析，回退到默认时段 value={} fallback={}", value, fallback);
             return fallback;
         }
     }

@@ -2,6 +2,7 @@ package com.ai.daily.service;
 
 import com.ai.daily.entity.OpsHeartbeat;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class HealthCheckService {
@@ -67,6 +69,8 @@ public class HealthCheckService {
             Integer one = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
             return one != null && one == 1;
         } catch (Exception e) {
+            // 健康检查只返回 ok=false 的话，原因（连接超时？认证失败？）就彻底丢了
+            log.warn("健康检查：数据库探测失败", e);
             return false;
         }
     }

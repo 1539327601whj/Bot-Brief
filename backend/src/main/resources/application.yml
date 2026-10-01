@@ -41,11 +41,50 @@ spring:
 
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 走 SLF4J 而不是 StdOutImpl：SQL 才会受 logging.level.com.ai.daily.mapper 控制，
+    # 也能跟着时间戳/traceId 一起落盘。想看 SQL 就把 LOG_SQL_LEVEL 设为 DEBUG。
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
     map-underscore-to-camel-case: true
   global-config:
     db-config:
       id-type: auto
+
+logging:
+  charset:
+    # 控制台编码默认跟随运行环境，不写死（这是「本地 Windows 终端 + 服务器 SSH 都要看」的前提）：
+    #   本地 Windows 终端按 GBK(936) 解码 -> 用 GBK 写才不乱码
+    #   容器 / 服务器 / CI      -> UTF-8
+    # 取值顺序：控制台输出编码 -> 系统原生编码 -> UTF-8。
+    # 注意不能拿 file.encoding 当依据：JDK 18+ 它恒为 UTF-8（JEP 400），与本机控制台无关。
+    # 需要强制指定时设 LOG_CONSOLE_CHARSET。
+    # 落盘固定 UTF-8（见 logback-spring.xml），不受终端影响。
+    console: ${LOG_CONSOLE_CHARSET:${stdout.encoding:${sun.stdout.encoding:${native.encoding:UTF-8}}}}
+    file: UTF-8
+  file:
+    name: ${LOG_FILE_NAME:logs/app.log}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.ai.daily: ${LOG_LEVEL_APP:INFO}
+    # 想排查 SQL 就设 LOG_SQL_LEVEL=DEBUG
+    com.ai.daily.mapper: ${LOG_SQL_LEVEL:INFO}
+    org.springframework: ${LOG_LEVEL_SPRING:INFO}
+    org.springframework.mail: WARN
+    # 启动时那句 "Using generated security password: xxx" 会把一个明文凭据写进日志（还会落盘）。
+    # 本项目用自建 JWT 鉴权，没开 httpBasic，这个自动配置的默认用户是惰性的，静音即可。
+    # （真想彻底去掉，是排除 UserDetailsServiceAutoConfiguration，那属于行为改动，先不动。）
+    org.springframework.boot.autoconfigure.security: WARN
+    org.mybatis: WARN
+    com.baomidou.mybatisplus: WARN
+    com.zaxxer.hikari: INFO
+    org.apache.hc: WARN
+    org.apache.http: WARN
+    org.apache.tomcat: WARN
+    org.apache.catalina: INFO
+  logback:
+    rollingpolicy:
+      max-file-size: ${LOG_MAX_FILE_SIZE:100MB}
+      max-history: ${LOG_MAX_HISTORY:14}
+      total-size-cap: ${LOG_TOTAL_SIZE_CAP:1GB}
 
 server:
   port: ${SERVER_PORT:8081}
@@ -88,3 +127,27 @@ push-channel:
   http:
     connect-timeout: ${PUSH_HTTP_CONNECT_TIMEOUT:5s}
     read-timeout: ${PUSH_HTTP_READ_TIMEOUT:10s}
+
+# 「低估精选」按需筛选（规则见 automation/agents/stock_screening_rules.md）
+screener:
+  http:
+    connect-timeout: ${SCREENER_HTTP_CONNECT_TIMEOUT:5s}
+    read-timeout: ${SCREENER_HTTP_READ_TIMEOUT:10s}
+  # 并发抓日线的线程数，首屏时间 ≈ 请求数 / 线程数 × 单次耗时
+  fetch-threads: ${SCREENER_FETCH_THREADS:5}
+  # 日线取多少根（250 ≈ 一年，价格分位与 MA250 都基于它）
+  kline-limit: ${SCREENER_KLINE_LIMIT:250}
+  # 全市场基本面快照缓存时长
+  universe-ttl-minutes: ${SCREENER_UNIVERSE_TTL_MINUTES:15}
+  # 盘中（09:30–15:00）日线缓存时长；收盘后当天一直有效
+  kline-intraday-ttl-minutes: ${SCREENER_KLINE_INTRADAY_TTL_MINUTES:20}
+  # 池子大小：取最新交易日总市值前 N 只。
+  # 这是拿覆盖面换请求量的旋钮——N 越大，市值门槛越低、越不容易漏掉中盘价值股，
+  # 但行情批量请求次数按 N / quote-batch-size 增长，而请求数正是触发东财限流的东西。
+  # 页面会把实际市值下限写进口径摘要，调这个值时可以直接看那个数。
+  # 清单接口一次能返回 2000 行，所以调到 2000 也不会多一次清单请求，只多几批行情。
+  pool-size: ${SCREENER_POOL_SIZE:500}
+  # 行情批量接口一次问多少只。调大能同比例减少请求次数。
+  quote-batch-size: ${SCREENER_QUOTE_BATCH_SIZE:50}
+  # 被行情源限流后的冷却时长。冷却期内不再外呼，有旧快照就用旧快照并标注数据时间。
+  rate-limit-cooldown-minutes: ${SCREENER_RATE_LIMIT_COOLDOWN_MINUTES:10}

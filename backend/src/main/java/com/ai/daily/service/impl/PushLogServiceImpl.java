@@ -5,6 +5,7 @@ import com.ai.daily.mapper.PushLogMapper;
 import com.ai.daily.service.PushLogService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
+@Slf4j
 @Service
 public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> implements PushLogService {
 
@@ -36,6 +38,8 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
     @Override
     public void record(Long userId, Long reportId, Long channelId, String channelType,
                        boolean success, String errorMessage, String dispatchKey) {
+        log.debug("推送记录写入 user={} report_id={} channel_id={} channel_type={} success={}",
+                userId, reportId, channelId, channelType, success);
         PushLog log = newLog(userId, reportId, channelId, channelType);
         log.setStatus(success ? "success" : "failed");
         log.setErrorMessage(sanitizeError(errorMessage));
@@ -52,13 +56,18 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
                 .eq(PushLog::getDispatchKey, dispatchKey)
                 .last("LIMIT 1"));
         if (existing != null) {
-            if (!canRetry(existing)) return null;
+            if (!canRetry(existing)) {
+                log.info("幂等命中跳过 dispatch_key={} channel_id={}", dispatchKey, channelId);
+                return null;
+            }
             existing.setReportId(reportId);
             existing.setStatus("sending");
             existing.setErrorMessage(null);
             existing.setPushedAt(LocalDateTime.now(BEIJING));
+            log.debug("推送记录置为 sending（重试） dispatch_key={} log_id={}", dispatchKey, existing.getId());
             return updateById(existing) ? existing.getId() : null;
         }
+        log.debug("认领推送记录，新建 sending dispatch_key={} channel_id={}", dispatchKey, channelId);
         PushLog log = newLog(userId, reportId, channelId, channelType);
         log.setStatus("sending");
         log.setDispatchKey(dispatchKey);
@@ -73,6 +82,8 @@ public class PushLogServiceImpl extends ServiceImpl<PushLogMapper, PushLog> impl
             raced.setStatus("sending");
             raced.setErrorMessage(null);
             raced.setPushedAt(LocalDateTime.now(BEIJING));
+            PushLogServiceImpl.log.debug("推送记录置为 sending（并发冲突重试） dispatch_key={} log_id={}",
+                    dispatchKey, raced.getId());
             return updateById(raced) ? raced.getId() : null;
         }
     }

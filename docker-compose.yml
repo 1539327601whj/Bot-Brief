@@ -33,6 +33,18 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-BriefMind}
+      # 日志：容器里固定 UTF-8（服务器要确定值，不跟随宿主终端）；落盘到 /app/logs，
+      # 也固定 UTF-8，按天滚动。
+      # 本地用 docker compose logs 看、而终端按 GBK 解码时，在 .env 里设 LOG_CONSOLE_CHARSET=GBK。
+      # 注意本地直接跑（不走 compose）时不用设：不设就自动跟随终端编码。
+      LOG_CONSOLE_CHARSET: ${LOG_CONSOLE_CHARSET:-UTF-8}
+      LOG_FILE_NAME: /app/logs/app.log
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+      # 想看 SQL 就设 DEBUG
+      LOG_SQL_LEVEL: ${LOG_SQL_LEVEL:-INFO}
+      LOG_MAX_HISTORY: ${LOG_MAX_HISTORY:-14}
+    volumes:
+      - ./logs/backend:/app/logs
     restart: always
 
   poller:
@@ -52,6 +64,11 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
       GENERATION_CONCURRENCY: ${GENERATION_CONCURRENCY:-4}
+      PYTHONIOENCODING: UTF-8
+      LOG_LEVEL: ${POLLER_LOG_LEVEL:-INFO}
+      LOG_FILE_DIR: /app/logs
+    volumes:
+      - ./logs/poller:/app/logs
     restart: always
 
   frontend:

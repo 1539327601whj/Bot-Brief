@@ -6,14 +6,14 @@
   bottom: 74px;           /* 用户区高度 ≈ 66px，留 8px 间距 */
   left: 12px;
   width: 280px;
-  background: rgba(20, 25, 35, 0.98);
-  border: 1px solid rgba(0, 212, 170, 0.25);
+  background: rgba(var(--menu-bg-rgb), 0.98);
+  border: 1px solid rgba(var(--teal-rgb), 0.25);
   border-radius: 12px;
   padding: 14px;
   z-index: 1000;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
-              0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-              0 0 30px rgba(0, 212, 170, 0.08);
+  box-shadow: 0 12px 40px rgba(var(--shadow-rgb), 0.5),
+              0 0 0 1px rgba(var(--tint-rgb), 0.03) inset,
+              0 0 30px rgba(var(--teal-rgb), 0.08);
   backdrop-filter: blur(12px);
   animation: userMenuIn 0.15s ease-out;
 }
@@ -34,7 +34,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #7c4dff 0%, #00d4aa 100%);
+  background: linear-gradient(135deg, var(--purple) 0%, var(--teal) 100%);
   color: #0a0e14;
   display: flex;
   align-items: center;
@@ -42,11 +42,11 @@
   font-weight: 700;
   font-size: 20px;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(124, 77, 255, 0.35);
+  box-shadow: 0 4px 12px rgba(var(--purple-rgb), 0.35);
 }
 .user-menu-info { flex: 1; min-width: 0; }
 .user-menu-name {
-  color: #e6edf3;
+  color: var(--text-gh);
   font-weight: 600;
   font-size: 14px;
   overflow: hidden;
@@ -54,7 +54,7 @@
   white-space: nowrap;
 }
 .user-menu-email {
-  color: #8b949e;
+  color: var(--text-gh-muted);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -66,25 +66,25 @@
   margin-top: 6px;
   padding: 2px 8px;
   border-radius: 10px;
-  background: rgba(139, 148, 158, 0.2);
-  color: #c9d1d9;
+  background: rgba(var(--text-gh-muted-rgb), 0.2);
+  color: var(--text-gh-secondary);
   font-size: 11px;
   font-weight: 500;
 }
 .user-menu-role-badge.admin {
-  background: linear-gradient(135deg, rgba(255, 195, 0, 0.2), rgba(255, 152, 0, 0.15));
-  color: #ffc542;
-  border: 1px solid rgba(255, 195, 0, 0.3);
+  background: linear-gradient(135deg, rgba(var(--amber-2-rgb), 0.2), rgba(var(--orange-2-rgb), 0.15));
+  color: var(--amber);
+  border: 1px solid rgba(var(--amber-2-rgb), 0.3);
 }
 .user-menu-role-badge.demo {
-  background: rgba(139, 156, 255, 0.16);
-  color: #cfd6ff;
-  border: 1px solid rgba(139, 156, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--text-indigo-strong);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
 }
 
 .user-menu-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--tint-rgb), 0.08), transparent);
   margin: 4px 0 6px;
 }
 
@@ -98,21 +98,21 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #c9d1d9;
+  color: var(--text-gh-secondary);
   text-align: left;
   cursor: pointer;
   transition: all 0.15s;
   font-family: inherit;
 }
 .user-menu-item:hover {
-  background: rgba(0, 212, 170, 0.08);
-  border-color: rgba(0, 212, 170, 0.25);
-  color: #e6edf3;
+  background: rgba(var(--teal-rgb), 0.08);
+  border-color: rgba(var(--teal-rgb), 0.25);
+  color: var(--text-gh);
 }
 .user-menu-item.danger:hover {
-  background: rgba(255, 90, 90, 0.1);
-  border-color: rgba(255, 90, 90, 0.3);
-  color: #ff8080;
+  background: rgba(var(--danger-red-rgb), 0.1);
+  border-color: rgba(var(--danger-red-rgb), 0.3);
+  color: var(--danger-strong);
 }
 .user-menu-item-icon {
   font-size: 18px;
@@ -132,8 +132,8 @@
 }
 .user-menu-item-text small {
   font-size: 11px;
-  color: #6e7681;
+  color: var(--text-gh-subtle);
 }
 .user-menu-item:hover .user-menu-item-text small {
-  color: #8b949e;
+  color: var(--text-gh-muted);
 }

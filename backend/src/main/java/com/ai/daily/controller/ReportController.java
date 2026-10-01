@@ -331,6 +331,8 @@ public class ReportController {
         try {
             return LocalDateTime.of(LocalDate.parse(startDate), LocalTime.MIN);
         } catch (Exception e) {
+            // 静默返回 null 会让「按日期过滤」悄悄失效、返回全量数据，必须留痕
+            log.warn("查询起始日期解析失败，已忽略该筛选条件 startDate={}", startDate);
             return null;
         }
     }
@@ -340,6 +342,7 @@ public class ReportController {
         try {
             return LocalDateTime.of(LocalDate.parse(endDate), LocalTime.MAX);
         } catch (Exception e) {
+            log.warn("查询结束日期解析失败，已忽略该筛选条件 endDate={}", endDate);
             return null;
         }
     }

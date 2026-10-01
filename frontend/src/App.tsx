@@ -12,11 +12,13 @@ import Register from './pages/Register'
 import PushChannels from './pages/PushChannels'
 import Notifications from './pages/Notifications'
 import MarketWatch from './pages/MarketWatch'
+import StockPick from './pages/StockPick'
 import Pricing from './pages/Pricing'
 import CreatorTools from './pages/CreatorTools'
 import ShopAnalytics from './pages/ShopAnalytics'
 import Admin from './pages/Admin'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
 import BrandLogo from './components/BrandLogo'
 import UserMenu from './components/UserMenu'
@@ -34,7 +36,10 @@ function Sidebar() {
   const menuItems = [
     { path: '/', icon: '🏠', label: '首页概览' },
     { path: '/reports', icon: '📋', label: '历史简报' },
-    ...(canSeePublicDigest ? [{ path: '/market-watch', icon: '市', label: '市场观察' }] : []),
+    ...(canSeePublicDigest ? [
+      { path: '/market-watch', icon: '市', label: '市场观察' },
+      { path: '/stock-pick', icon: '选', label: '低估精选' },
+    ] : []),
     { path: '/pricing', icon: '💎', label: '套餐权益' },
     { path: '/creator-tools', icon: '🎬', label: '短视频分析' },
     { path: '/content-growth', icon: '📈', label: '内容增长' },
@@ -109,6 +114,7 @@ function Sidebar() {
 function Header() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { theme, toggleTheme } = useTheme()
   const showBack = location.pathname !== '/'
 
   const goBack = () => {
@@ -127,6 +133,15 @@ function Header() {
         <h1 className="header-title">BriefMind</h1>
       </div>
       <div className="header-right">
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? '浅色模式' : '深色模式'}
+          aria-label={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <span className="header-time">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</span>
       </div>
     </header>
@@ -151,35 +166,38 @@ function MainLayout({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* 登录/注册页 —— 无侧栏 */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* 登录/注册页 —— 无侧栏 */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-          {/* 需登录后可访问 */}
-          <Route path="/*" element={
-            <MainLayout>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/reports" element={<History />} />
-                <Route path="/market-watch" element={<MarketWatch />} />
-                <Route path="/pricing" element={<Pricing />} />
-                <Route path="/creator-tools" element={<CreatorTools />} />
-                <Route path="/content-growth" element={<ContentGrowth />} />
-                <Route path="/shop-analytics" element={<ShopAnalytics />} />
-                <Route path="/report/:id" element={<ReportDetail />} />
-                <Route path="/subscription" element={<Subscription />} />
-                <Route path="/chat" element={<Chat />} />
-                <Route path="/channels" element={<PushChannels />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-              </Routes>
-            </MainLayout>
-          } />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+            {/* 需登录后可访问 */}
+            <Route path="/*" element={
+              <MainLayout>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/reports" element={<History />} />
+                  <Route path="/market-watch" element={<MarketWatch />} />
+                  <Route path="/stock-pick" element={<StockPick />} />
+                  <Route path="/pricing" element={<Pricing />} />
+                  <Route path="/creator-tools" element={<CreatorTools />} />
+                  <Route path="/content-growth" element={<ContentGrowth />} />
+                  <Route path="/shop-analytics" element={<ShopAnalytics />} />
+                  <Route path="/report/:id" element={<ReportDetail />} />
+                  <Route path="/subscription" element={<Subscription />} />
+                  <Route path="/chat" element={<Chat />} />
+                  <Route path="/channels" element={<PushChannels />} />
+                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+                </Routes>
+              </MainLayout>
+            } />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

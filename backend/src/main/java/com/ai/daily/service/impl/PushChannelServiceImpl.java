@@ -53,6 +53,9 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
         channel.setSecret(encryptedSecret(type, request.getSecret()));
         channel.setEnabled(request.getEnabled() == null || request.getEnabled());
         save(channel);
+        // 只记渠道类型与 id，target/secret 是加密的推送凭证，不入日志
+        log.info("创建推送渠道 user={} channel_id={} type={} enabled={}",
+                userId, channel.getId(), type, channel.getEnabled());
         return toResponse(channel);
     }
 
@@ -91,13 +94,22 @@ public class PushChannelServiceImpl extends ServiceImpl<PushChannelMapper, PushC
             stored.setSecret(null);
         }
         updateById(stored);
+        log.info("更新推送渠道 user={} channel_id={} type={} typeChanged={} enabled={}",
+                userId, stored.getId(), type, typeChanged, stored.getEnabled());
         return toResponse(stored);
     }
 
     @Override
     public boolean removeForUser(Long id, Long userId) {
         PushChannel stored = getStoredByIdForUser(id, userId);
-        return stored != null && removeById(stored.getId());
+        if (stored == null) {
+            log.warn("删除推送渠道失败：渠道不存在或不属于该用户 user={} channel_id={}", userId, id);
+            return false;
+        }
+        boolean removed = removeById(stored.getId());
+        log.info("删除推送渠道 user={} channel_id={} type={} removed={}",
+                userId, stored.getId(), stored.getChannelType(), removed);
+        return removed;
     }
 
     @Override

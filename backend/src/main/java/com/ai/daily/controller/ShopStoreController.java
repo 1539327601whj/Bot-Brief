@@ -6,10 +6,12 @@ import com.ai.daily.entity.ShopStore;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.ShopStoreService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/shop/stores")
 @RequiredArgsConstructor
@@ -33,6 +35,7 @@ public class ShopStoreController {
         if (userId == null) return Result.error(401, "未登录");
         try {
             ShopStore store = shopStoreService.createForUser(userId, dto.getPlatform(), dto.getStoreName());
+            log.info("创建店铺 user={} storeId={}", userId, store.getId());
             return Result.ok("店铺已创建", toDTO(store));
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
@@ -45,6 +48,7 @@ public class ShopStoreController {
         if (userId == null) return Result.error(401, "未登录");
         try {
             shopStoreService.disableForUser(userId, id);
+            log.info("停用店铺 user={} storeId={}", userId, id);
             return Result.ok("店铺已移除", null);
         } catch (IllegalArgumentException e) {
             return Result.error("店铺不存在".equals(e.getMessage()) ? 404 : 400, e.getMessage());

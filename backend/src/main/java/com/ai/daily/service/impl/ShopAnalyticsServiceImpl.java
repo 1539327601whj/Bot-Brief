@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
@@ -435,6 +437,8 @@ public class ShopAnalyticsServiceImpl implements ShopAnalyticsService {
         try {
             return objectMapper.readValue(json, new TypeReference<>() {});
         } catch (Exception e) {
+            // 返回空列表会让图表「看起来就是没有数据」，与解析失败无法区分
+            log.warn("店铺分析 JSON 字段解析失败，按空列表返回", e);
             return List.of();
         }
     }

@@ -219,7 +219,7 @@ public class ReportQueryService {
         try {
             ensureTodayAssembled(userId);
         } catch (Exception e) {
-            log.warn("拼装今日个人简报失败，不影响公共日报查询: userId={}, {}", userId, e.getMessage());
+            log.warn("拼装今日个人简报失败，不影响公共日报查询 user={}", userId, e);
         }
     }
 

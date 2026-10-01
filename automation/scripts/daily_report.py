@@ -18,6 +18,15 @@ from urllib.parse import quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
+# logging_setup 与本脚本同目录；被 poll_loop 以模块方式导入时也要能解析
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from logging_setup import setup_logging  # noqa: E402
+
+logger = setup_logging(__name__)
+
 # 北京时区 (UTC+8)
 BEIJING_TZ = timezone(timedelta(hours=8))
 
@@ -37,10 +46,10 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
     if not backend_url:
-        print("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
+        logger.warning("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
         return False
     if not ingest_token:
-        print("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
+        logger.warning("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
         return False
 
     max_content_length = 30000
@@ -68,10 +77,10 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
             except ValueError:
                 body = None
             if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
-                print(f"  ✅ 已同步到后端 API（第 {attempt + 1} 次尝试）")
+                logger.info("  ✅ 已同步到后端 API（第 %s 次尝试）", attempt + 1)
                 return True
             message = body.get("message") if isinstance(body, dict) else "响应不是有效 JSON"
-            print(f"  ⚠️ 后端 API 返回 HTTP {resp.status_code}，业务响应: {message}")
+            logger.warning("  ⚠️ 后端 API 返回 HTTP %s，业务响应: %s", resp.status_code, message)
             business_code = body.get("code") if isinstance(body, dict) else None
             retryable = resp.status_code in RETRYABLE_STATUS_CODES or (
                 resp.status_code == 200 and isinstance(business_code, int) and business_code >= 500
@@ -79,13 +88,13 @@ def push_to_backend(edition, report_date, title, content, summary, run_id):
             if not retryable:
                 return False
         except (req.ConnectionError, req.Timeout) as e:
-            print(f"  ⚠️ 后端 API 同步失败: {e}")
+            logger.warning("  ⚠️ 后端 API 同步失败: %s", e)
         except req.RequestException as e:
-            print(f"  ⚠️ 后端 API 同步失败且不可重试: {e}")
+            logger.warning("  ⚠️ 后端 API 同步失败且不可重试: %s", e)
             return False
         if attempt < max_retries - 1:
             wait_time = (attempt + 1) * 5
-            print(f"  ⏳ {wait_time} 秒后重试...")
+            logger.warning("  ⏳ %s 秒后重试...", wait_time)
             time.sleep(wait_time)
     return False
 
@@ -116,12 +125,12 @@ def record_ops_delivery(edition, report_date, success=True, channel_type="wechat
             body = None
         ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
         if ok:
-            print(f"  📝 已记入投递记录 {body.get('data')}")
+            logger.info("  📝 已记入投递记录 %s", body.get('data'))
         else:
-            print(f"  ⚠️ 投递记录写入失败: HTTP {resp.status_code}")
+            logger.warning("  ⚠️ 投递记录写入失败: HTTP %s", resp.status_code)
         return ok
     except req.RequestException as e:
-        print(f"  ⚠️ 投递记录写入失败: {e}")
+        logger.warning("  ⚠️ 投递记录写入失败: %s", e)
         return False
 
 
@@ -144,10 +153,10 @@ def dispatch_due_pushes():
             body = None
         ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
         if not ok:
-            print(f"  ⚠️ 到期推送补扫失败: HTTP {resp.status_code}")
+            logger.warning("  ⚠️ 到期推送补扫失败: HTTP %s", resp.status_code)
         return ok
     except req.RequestException as e:
-        print(f"  ⚠️ 到期推送补扫失败: {e}")
+        logger.warning("  ⚠️ 到期推送补扫失败: %s", e)
         return False
 
 
@@ -166,7 +175,7 @@ def post_poller_heartbeat(detail="ok"):
         )
         return resp.status_code == 200
     except req.RequestException as e:
-        print(f"  ⚠️ 心跳上报失败: {e}")
+        logger.warning("  ⚠️ 心跳上报失败: %s", e)
         return False
 
 
@@ -197,7 +206,7 @@ def report_generation_status(edition, report_date, topic, status, message="", ru
             body = None
         return resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
     except req.RequestException as e:
-        print(f"  ⚠️ 主题状态上报失败: {e}")
+        logger.warning("  ⚠️ 主题状态上报失败: %s", e)
         return False
 
 
@@ -241,9 +250,9 @@ def fetch_due_generations(report_date=None):
                             "intent": normalize_intent(item.get("intent")),
                         })
                 return due
-        print(f"  ⚠️ 获取到期主题失败: HTTP {resp.status_code}")
+        logger.warning("  ⚠️ 获取到期主题失败: HTTP %s", resp.status_code)
     except req.RequestException as e:
-        print(f"  ⚠️ 获取到期主题失败: {e}")
+        logger.warning("  ⚠️ 获取到期主题失败: %s", e)
     return []
 
 
@@ -270,9 +279,9 @@ def fetch_subscribed_topics(edition):
             topics = data.get("topics") if isinstance(data, dict) else data
             if isinstance(topics, list):
                 return [topic.strip() for topic in topics if isinstance(topic, str) and topic.strip()]
-        print(f"  ⚠️ 获取订阅主题失败: HTTP {resp.status_code}")
+        logger.warning("  ⚠️ 获取订阅主题失败: HTTP %s", resp.status_code)
     except req.RequestException as e:
-        print(f"  ⚠️ 获取订阅主题失败: {e}")
+        logger.warning("  ⚠️ 获取订阅主题失败: %s", e)
     return []
 
 
@@ -304,12 +313,12 @@ def push_topic_section(edition, report_date, topic, title, content, summary, run
         except ValueError:
             body = None
         if resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200:
-            print(f"  ✅ 主题「{topic}」已入库")
+            logger.info("  ✅ 主题「%s」已入库", topic)
             return True
         message = body.get("message") if isinstance(body, dict) else "响应不是有效 JSON"
-        print(f"  ⚠️ 主题「{topic}」入库失败: {message}")
+        logger.warning("  ⚠️ 主题「%s」入库失败: %s", topic, message)
     except req.RequestException as e:
-        print(f"  ⚠️ 主题「{topic}」入库失败: {e}")
+        logger.warning("  ⚠️ 主题「%s」入库失败: %s", topic, e)
     return False
 
 
@@ -332,15 +341,15 @@ def push_to_wechat(content, webhook_url, max_retries=3):
                 data = None
             errcode = data.get("errcode") if isinstance(data, dict) else None
             if resp.status_code == 200 and errcode == 0:
-                print(f"✅ 推送成功 ({len(content.encode('utf-8'))} bytes)")
+                logger.info("✅ 推送成功 (%s bytes)", len(content.encode('utf-8')))
                 return True
-            print(f"❌ 推送失败: HTTP {resp.status_code}, errcode={errcode}")
+            logger.error("❌ 推送失败: HTTP %s, errcode=%s", resp.status_code, errcode)
             if resp.status_code not in RETRYABLE_STATUS_CODES and errcode not in WECHAT_RETRYABLE_ERRCODES:
                 return False
         except (requests.ConnectionError, requests.Timeout) as e:
-            print(f"⚠️ 企业微信推送失败: {e}")
+            logger.warning("⚠️ 企业微信推送失败: %s", e)
         except requests.RequestException as e:
-            print(f"❌ 企业微信推送失败且不可重试: {e}")
+            logger.exception("❌ 企业微信推送失败且不可重试: %s", e)
             return False
         if attempt < max_retries - 1:
             time.sleep(attempt + 1)
@@ -457,7 +466,7 @@ def fetch_feed(feed_url, timeout=10):
             charset = resp.headers.get_content_charset() or "utf-8"
             return resp.read().decode(charset, errors="replace")
     except (URLError, HTTPError, Exception) as e:
-        print(f"  ⚠️ 抓取失败 {feed_url}: {e}")
+        logger.warning("  ⚠️ 抓取失败 %s: %s", feed_url, e)
         return None
 
 
@@ -661,7 +670,7 @@ def select_news_for_prompt(items, edition):
 
 def extract_ai_news(max_feeds=None, max_items=60):
     """从 RSS 源中提取 AI 相关新闻"""
-    print("📡 正在抓取资讯源...")
+    logger.info("📡 正在抓取资讯源...")
     all_items = []
     feeds = RSS_FEEDS if max_feeds is None else RSS_FEEDS[:max_feeds]
 
@@ -677,9 +686,9 @@ def extract_ai_news(max_feeds=None, max_items=60):
                 if any(kw.lower() in text for kw in AI_KEYWORDS):
                     source_count += 1
                     all_items.append(item)
-            print(f"  ✅ {name}: 解析 {len(parsed)} 条，抓取到 {source_count} 条 AI 相关")
+            logger.info("  ✅ %s: 解析 %s 条，抓取到 %s 条 AI 相关", name, len(parsed), source_count)
         except Exception as e:
-            print(f"  ⚠️ 解析失败 {name}: {e}")
+            logger.warning("  ⚠️ 解析失败 %s: %s", name, e)
 
     all_items.sort(key=lambda x: x["score"], reverse=True)
     return all_items[:40]
@@ -753,9 +762,9 @@ def extract_llm_content(response, description):
         content = re.sub(r"^```(?:markdown)?\s*", "", content, flags=re.IGNORECASE)
         content = re.sub(r"\s*```\s*$", "", content)
         content = content.strip()
-    print(
-        f"  响应诊断: choices={choice_count}, finish_reason={finish_reason}, "
-        f"raw_chars={raw_length}, content_chars={len(content)}"
+    logger.debug(
+        "  响应诊断: choices=%s, finish_reason=%s, raw_chars=%s, content_chars=%s",
+        choice_count, finish_reason, raw_length, len(content)
     )
     if not content:
         raise InvalidLLMResponseError(f"{description} 返回空正文")
@@ -860,14 +869,14 @@ def call_llm_with_retry(prompt, max_retries=3):
         description = model_config.get("description", model_name)
         api_key = os.environ.get(api_key_env, "")
         if not api_key:
-            print(f"⚠️ 未配置 {api_key_env}，跳过 {description}")
+            logger.warning("⚠️ 未配置 %s，跳过 %s", api_key_env, description)
             continue
 
         client = OpenAI(api_key=api_key, base_url=base_url)
         retries = max_retries if model_index == 0 else max(1, max_retries - 1)
         for attempt in range(retries + 1):
             try:
-                print(f"🤖 正在调用 {description} (尝试 {attempt + 1}/{retries + 1})...")
+                logger.info("🤖 正在调用 %s (尝试 %s/%s)...", description, attempt + 1, retries + 1)
                 response = client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
@@ -876,7 +885,7 @@ def call_llm_with_retry(prompt, max_retries=3):
                     extra_body={"thinking": {"type": "disabled"}}
                 )
                 content = extract_llm_content(response, description)
-                print(f"✅ 成功使用模型: {description}")
+                logger.info("✅ 成功使用模型: %s", description)
                 return content
             except Exception as e:
                 last_error = e
@@ -887,14 +896,14 @@ def call_llm_with_retry(prompt, max_retries=3):
                 ))
                 if retryable and attempt < retries:
                     wait_time = (attempt + 1) * 3
-                    print(f"⚠️ {description} 响应无效或服务繁忙，等待 {wait_time} 秒后重试: {e}")
+                    logger.warning("⚠️ %s 响应无效或服务繁忙，等待 %s 秒后重试: %s", description, wait_time, e)
                     time.sleep(wait_time)
                     continue
-                print(f"❌ {description} 本轮失败: {e}")
+                logger.exception("❌ %s 本轮失败: %s", description, e)
                 break
         if model_index < len(LLM_MODELS) - 1:
             next_model = LLM_MODELS[model_index + 1].get("description", "备用模型")
-            print(f"⚠️ 降级到 {next_model}...")
+            logger.warning("⚠️ 降级到 %s...", next_model)
 
     raise RuntimeError(f"所有 LLM 模型均不可用: {last_error or '没有可用模型配置'}")
 
@@ -1308,7 +1317,7 @@ def fetch_topic_search_news(topic, limit=8, intent=None):
                     item["query"] = query
                 collected.append(item)
         except Exception as e:
-            print(f"  ⚠️ 主题检索解析失败 {source}: {e}")
+            logger.warning("  ⚠️ 主题检索解析失败 %s: %s", source, e)
     recent = filter_recent_items(collected)
     filtered = [
         item for item in dedupe_news_items(recent)
@@ -1327,9 +1336,9 @@ def collect_topic_candidates(news_items, topic, intent=None):
         return selected, "topic" if selected else "none"
     label = f"{topic}" + (f"（{extra}）" if extra else "")
     if not selected:
-        print(f"  🔍 主题「{label}」在公共资讯池无匹配，改为按词检索")
+        logger.warning("  🔍 主题「%s」在公共资讯池无匹配，改为按词检索", label)
     else:
-        print(f"  🔍 主题「{label}」合并公开检索，补近两天资讯")
+        logger.info("  🔍 主题「%s」合并公开检索，补近两天资讯", label)
     searched = fetch_topic_search_news(topic, intent=extra) if extra else fetch_topic_search_news(topic)
     merged = filter_recent_items(dedupe_news_items(list(selected) + list(searched or [])))
     merged = [item for item in merged if news_mentions_topic(item, topic, extra)]
@@ -1338,13 +1347,13 @@ def collect_topic_candidates(news_items, topic, intent=None):
         focused = [item for item in merged if news_matches_intent(item, topic, extra)]
         focused_on_topic = [item for item in focused if news_mentions_topic(item, topic)]
         if focused_on_topic:
-            print(f"  🎯 主题「{topic}」按想法优先，命中 {len(focused_on_topic)} 条")
+            logger.info("  🎯 主题「%s」按想法优先，命中 %s 条", topic, len(focused_on_topic))
             return focused_on_topic[:8], "intent"
         if focused and not alias_terms_for(topic) and not is_preset_topic(topic):
-            print(f"  🎯 主题「{topic}」按想法检索，命中 {len(focused)} 条")
+            logger.info("  🎯 主题「%s」按想法检索，命中 %s 条", topic, len(focused))
             return focused[:8], "intent"
         if on_topic:
-            print(f"  🔄 主题「{topic}」未命中想法，回退主题相近资讯 {len(on_topic)} 条")
+            logger.warning("  🔄 主题「%s」未命中想法，回退主题相近资讯 %s 条", topic, len(on_topic))
             return on_topic[:8], "topic"
         if focused:
             return focused[:8], "intent"
@@ -1447,14 +1456,14 @@ def generate_due_topic_sections(news_items, report_date, run_id, due=None):
     if due is None:
         due = fetch_due_generations(report_date)
     if not due:
-        print("🧩 当前没有到期的订阅主题，跳过主题段生成")
+        logger.warning("🧩 当前没有到期的订阅主题，跳过主题段生成")
         return 0
     grouped = {}
     for item in due:
         grouped.setdefault(item["window"], []).append(item)
     saved = 0
     for window, jobs in grouped.items():
-        print(f"🧩 {window} 将为 {len(jobs)} 个到期主题生成段落")
+        logger.info("🧩 %s 将为 %s 个到期主题生成段落", window, len(jobs))
         saved += generate_topic_sections(news_items, window, jobs, report_date, run_id)
     return saved
 
@@ -1487,7 +1496,7 @@ def is_etf_digest_topic(topic):
 def generate_public_ai_digest(news_items, edition, report_date, run_id):
     """用原来的早晚报 prompt 生成全站科技日报并入库。"""
     if not news_items:
-        print("  skip AI digest: no news")
+        logger.warning("  skip AI digest: no news")
         return False
     edition_suffix = "早间版" if edition == "morning" else "晚间版"
     selected = select_news_for_prompt(news_items, edition)
@@ -1496,10 +1505,10 @@ def generate_public_ai_digest(news_items, edition, report_date, run_id):
     try:
         body = call_llm_with_retry(prompt)
     except Exception as error:
-        print(f"  AI digest LLM failed: {error}")
+        logger.exception("  AI digest LLM failed: %s", error)
         return False
     if not has_substantive_report_content(body):
-        print("  skip AI digest: empty body")
+        logger.warning("  skip AI digest: empty body")
         return False
     header = f"# 🤖 AI 每日高价值简报 · {report_date}（{edition_suffix}）\n\n---\n\n"
     full_report = header + attach_sources(body, selected)
@@ -1523,7 +1532,7 @@ def generate_due_digest_reports(due, news_items, report_date, run_id):
             if key in seen:
                 continue
             seen.add(key)
-            print(f"  generate AI digest {edition} for {topic}")
+            logger.info("  generate AI digest %s for %s", edition, topic)
             if generate_public_ai_digest(news_items, edition, report_date, run_id):
                 report_generation_status(window, report_date, topic, "ready", "已按早晚报原文生成", run_id)
                 saved += 1
@@ -1534,16 +1543,16 @@ def generate_due_digest_reports(due, news_items, report_date, run_id):
             if key in seen:
                 continue
             seen.add(key)
-            print(f"  generate ETF digest for {topic}")
+            logger.info("  generate ETF digest for %s", topic)
             try:
                 from etf_report import generate_and_ingest, now_beijing, should_skip_weekend_report
                 if should_skip_weekend_report(now_beijing(), False):
-                    print("  skip ETF digest: weekend")
+                    logger.warning("  skip ETF digest: weekend")
                     report_generation_status(window, report_date, topic, "skipped_no_news", "周末休市，今日不生成 ETF 日报", run_id)
                     continue
                 ok = generate_and_ingest()
             except Exception as error:
-                print(f"  ETF digest failed: {error}")
+                logger.exception("  ETF digest failed: %s", error)
                 ok = False
             if ok:
                 report_generation_status(window, report_date, topic, "ready", "已按 ETF 原文生成", run_id)
@@ -1557,11 +1566,11 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id, 
     """生成并入库单个主题。失败返回 False，不影响其他主题。"""
     extra = normalize_intent(intent)
     if is_digest_topic(topic, extra):
-        print("  skip digest topic: use public morning/evening/etf report")
+        logger.warning("  skip digest topic: use public morning/evening/etf report")
         return False
     selected, match = collect_topic_candidates(news_items, topic, extra)
     if not selected:
-        print(f"  ⏭️ 主题「{topic}」没有匹配资讯，跳过生成")
+        logger.warning("  ⏭️ 主题「%s」没有匹配资讯，跳过生成", topic)
         report_generation_status(edition, report_date, topic, "skipped_no_news", "今天没有抓到与该主题直接相关的资讯", run_id)
         return False
     prompt = build_topic_prompt(
@@ -1574,11 +1583,11 @@ def generate_one_topic_section(news_items, edition, topic, report_date, run_id, 
     try:
         content = call_llm_with_retry(prompt)
     except Exception as e:
-        print(f"  ⚠️ 主题「{topic}」生成失败，跳过: {e}")
+        logger.warning("  ⚠️ 主题「%s」生成失败，跳过: %s", topic, e)
         report_generation_status(edition, report_date, topic, "failed", "模型生成失败，稍后重试", run_id)
         return False
     if not has_substantive_report_content(content):
-        print(f"  ⏭️ 主题「{topic}」没有实质正文，跳过")
+        logger.warning("  ⏭️ 主题「%s」没有实质正文，跳过", topic)
         report_generation_status(edition, report_date, topic, "failed", "模型没有写出实质正文", run_id)
         return False
     if not content.lstrip().startswith("##"):
@@ -1629,7 +1638,7 @@ def generate_topic_sections(news_items, edition, topics, report_date, run_id):
                 if future.result():
                     saved += 1
             except Exception as e:
-                print(f"  ⚠️ 主题生成线程异常，跳过: {e}")
+                logger.warning("  ⚠️ 主题生成线程异常，跳过: %s", e)
     return saved
 
 
@@ -1660,9 +1669,9 @@ def main():
     edition = detect_edition()
     edition_name = "轮询到期主题" if mode == "poll" else ("早间版" if edition == "morning" else "晚间版")
 
-    print(f"\n{'='*50}")
-    print(f"🤖 AI 每日简报 · {today}（{edition_name}）")
-    print(f"{'='*50}\n")
+    logger.info("\n%s", "=" * 50)
+    logger.info("🤖 AI 每日简报 · %s（%s）", today, edition_name)
+    logger.info("%s\n", "=" * 50)
 
     # 报告文件名区分早晚报
     edition_suffix = "早间版" if edition == "morning" else "晚间版"
@@ -1674,34 +1683,34 @@ def main():
     # 检查是否有任意一个模型的 API Key 配置
     has_api_key = any(os.environ.get(m["api_key_env"]) for m in LLM_MODELS)
     if not has_api_key:
-        print("❌ 缺少 API Key 环境变量，请配置 DEEPSEEK_API_KEY")
+        logger.error("❌ 缺少 API Key 环境变量，请配置 DEEPSEEK_API_KEY")
         sys.exit(1)
     if mode == "poll":
         post_poller_heartbeat("checking")
         if not backend_configured:
-            print("❌ 轮询模式需要配置 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
+            logger.error("❌ 轮询模式需要配置 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
             sys.exit(1)
     elif not backend_configured and not webhook_url:
-        print("❌ 缺少 WECHAT_WEBHOOK，且未配置后端入库")
+        logger.error("❌ 缺少 WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
     if mode == "poll":
         due = fetch_due_generations(today)
         if not due:
-            print("🧩 当前没有到期的订阅主题，跳过爬取和生成")
+            logger.warning("🧩 当前没有到期的订阅主题，跳过爬取和生成")
         else:
             digest_due = [item for item in due if is_digest_topic(item.get("topic"), item.get("intent"))]
             topic_due = [item for item in due if not is_digest_topic(item.get("topic"), item.get("intent"))]
             run_id = os.environ.get("GITHUB_RUN_ID", "local")
             news_items = []
             if topic_due or any(is_ai_digest_topic(item.get("topic")) for item in digest_due):
-                print(f"🧩 检测到 {len(due)} 个到期主题，开始抓取资讯")
+                logger.info("🧩 检测到 %s 个到期主题，开始抓取资讯", len(due))
                 news_items = extract_ai_news()
             if digest_due:
                 generate_due_digest_reports(digest_due, news_items, today, run_id)
             if topic_due:
                 generate_due_topic_sections(news_items, today, run_id, due=topic_due)
-            print(f"\n✅ 到期主题轮询完成！({now_beijing().strftime('%H:%M:%S')})")
+            logger.info("\n✅ 到期主题轮询完成！(%s)", now_beijing().strftime('%H:%M:%S'))
         dispatch_due_pushes()
         return
 
@@ -1709,10 +1718,10 @@ def main():
     news_items = extract_ai_news()
 
     if not news_items:
-        print("❌ 未抓取到任何 AI 相关资讯，不生成、不入库、不推送")
+        logger.error("❌ 未抓取到任何 AI 相关资讯，不生成、不入库、不推送")
         sys.exit(1)
 
-    print(f"\n📊 共抓取到 {len(news_items)} 条 AI 相关资讯\n")
+    logger.info("\n📊 共抓取到 %s 条 AI 相关资讯\n", len(news_items))
 
     # Step 2: 用 LLM 生成简报（支持多模型降级）
     news_text = format_news_for_prompt(news_items, edition)
@@ -1721,11 +1730,11 @@ def main():
     try:
         report = call_llm_with_retry(prompt)
     except Exception as e:
-        print(f"❌ LLM API 调用失败: {e}")
+        logger.exception("❌ LLM API 调用失败: %s", e)
         sys.exit(1)
 
     if not has_substantive_report_content(report):
-        print("❌ LLM 未生成实质正文，不写文件、不入库、不推送")
+        logger.error("❌ LLM 未生成实质正文，不写文件、不入库、不推送")
         sys.exit(1)
 
     header = f"# 🤖 AI 每日高价值简报 · {today}（{edition_suffix}）\n\n---\n\n"
@@ -1737,24 +1746,24 @@ def main():
     if backend_configured:
         generate_due_topic_sections(news_items, today, run_id)
         if not push_to_backend(edition, today, title_text, full_report, summary_text, run_id):
-            print("❌ 同步到后端失败，本次日报不继续推送")
+            logger.error("❌ 同步到后端失败，本次日报不继续推送")
             sys.exit(1)
-        print("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
+        logger.warning("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
         dispatch_due_pushes()
     else:
         wx_content = convert_to_wework_markdown(full_report)
         if not push_to_wechat(wx_content, webhook_url):
-            print("❌ 企业微信推送失败")
+            logger.error("❌ 企业微信推送失败")
             sys.exit(1)
         record_ops_delivery(edition, today, success=True)
 
     try:
         with open(report_file, "w", encoding="utf-8") as f:
             f.write(full_report)
-        print(f"💾 已保存: {report_file}")
+        logger.info("💾 已保存: %s", report_file)
     except OSError as e:
-        print(f"⚠️ 报告已入库并推送，但本地文件保存失败: {e}")
-    print(f"\n✅ 今日简报完成！({now_beijing().strftime('%H:%M:%S')})")
+        logger.warning("⚠️ 报告已入库并推送，但本地文件保存失败: %s", e)
+    logger.info("\n✅ 今日简报完成！(%s)", now_beijing().strftime('%H:%M:%S'))
 
 
 if __name__ == "__main__":

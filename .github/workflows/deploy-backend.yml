@@ -45,6 +45,7 @@ jobs:
             automation/.dockerignore \
             automation/requirements.txt \
             automation/poll_loop.py \
+            automation/scripts/logging_setup.py \
             automation/scripts/daily_report.py \
             docker-compose.yml
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")

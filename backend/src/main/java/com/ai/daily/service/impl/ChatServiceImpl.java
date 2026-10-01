@@ -18,6 +18,7 @@ import com.ai.daily.service.TopicSectionService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -28,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
@@ -55,6 +57,7 @@ public class ChatServiceImpl implements ChatService {
 
         List<Passage> passages = retrieve(retrievalQuery, intent, userId);
         if (passages.isEmpty()) {
+            log.info("AI 对话无检索结果 user={} question_len={}", userId, asked.length());
             response.setAnswer("抱歉，没有检索到与这个问题匹配的科技日报或市场观察。可以换个主题，或先确认对应简报已经入库。");
             response.setSources(List.of());
             return response;
@@ -73,8 +76,15 @@ public class ChatServiceImpl implements ChatService {
         }
         messages.add(new AiClientService.AiMessage("user", ChatPromptBuilder.userMessage(asked, materials)));
 
-        response.setAnswer(aiClientService.chat(messages, 0.3, 2048));
+        String answer = aiClientService.chat(messages, 0.3, 2048);
+        response.setAnswer(answer);
         response.setSources(toSources(passages));
+        if (answer == null || answer.startsWith("AI 服务暂未配置")
+                || answer.startsWith("AI 调用失败") || answer.startsWith("AI 暂未返回内容")) {
+            log.warn("AI 对话降级 user={} passages={}", userId, passages.size());
+        } else {
+            log.info("AI 对话完成 user={} passages={} answer_len={}", userId, passages.size(), answer.length());
+        }
         return response;
     }
 

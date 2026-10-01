@@ -5,10 +5,12 @@ import com.ai.daily.entity.PushLog;
 import com.ai.daily.security.SecurityUtils;
 import com.ai.daily.service.PushLogService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/push-logs")
 @RequiredArgsConstructor
@@ -23,6 +25,7 @@ public class PushLogController {
         try {
             return Result.ok(pushLogService.recentByUser(uid, limit));
         } catch (RuntimeException e) {
+            log.error("推送记录查询异常 user={}", uid, e);
             return Result.error(503, "推送记录暂时读不到，请稍后刷新");
         }
     }

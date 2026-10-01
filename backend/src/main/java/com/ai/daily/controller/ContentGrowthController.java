@@ -10,11 +10,13 @@ import com.ai.daily.service.ContentAccountBindRules;
 import com.ai.daily.service.ContentGrowthService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Set;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/content-growth")
 @RequiredArgsConstructor
@@ -37,7 +39,9 @@ public class ContentGrowthController {
         if (userId == null) return Result.error(401, "未登录");
         String error = validateAccount(request);
         if (error != null) return Result.error(400, error);
-        return Result.ok(contentGrowthService.createAccount(userId, request));
+        ContentAccount created = contentGrowthService.createAccount(userId, request);
+        log.info("创建内容账号 user={} accountId={}", userId, created.getId());
+        return Result.ok(created);
     }
 
     @PutMapping("/accounts/{id}")
@@ -126,7 +130,10 @@ public class ContentGrowthController {
             return Result.error(400, "重复处理策略只允许 UPDATE 或 SKIP");
         }
         try {
-            return Result.ok(contentGrowthService.importWorks(userId, request));
+            ContentGrowthDTO.WorkImportResult result = contentGrowthService.importWorks(userId, request);
+            log.info("作品批量导入完成 user={} accountId={} created={} updated={} skipped={}",
+                    userId, request.getAccountId(), result.getCreated(), result.getUpdated(), result.getSkipped());
+            return Result.ok(result);
         } catch (IllegalArgumentException e) {
             return Result.error(404, e.getMessage());
         }
@@ -147,6 +154,7 @@ public class ContentGrowthController {
     public Result<ContentGrowthDTO.AiTextResponse> hotAnalysis(@RequestBody(required = false) ContentGrowthDTO.HotAnalysisRequest request) {
         Long userId = currentUserId();
         if (userId == null) return Result.error(401, "未登录");
+        log.info("AI 内容增长接口调用 user={} endpoint={}", userId, "hot-analysis");
         try {
             return Result.ok(contentGrowthService.analyzeHotWork(userId, request));
         } catch (IllegalArgumentException e) {
@@ -158,6 +166,7 @@ public class ContentGrowthController {
     public Result<ContentGrowthDTO.AiTextResponse> topicRecommendations(@RequestBody(required = false) ContentGrowthDTO.TopicRequest request) {
         Long userId = currentUserId();
         if (userId == null) return Result.error(401, "未登录");
+        log.info("AI 内容增长接口调用 user={} endpoint={}", userId, "topic-recommendations");
         return Result.ok(contentGrowthService.recommendTopics(userId, request));
     }
 
@@ -165,6 +174,7 @@ public class ContentGrowthController {
     public Result<ContentGrowthDTO.AiTextResponse> rewriteAdvice(@RequestBody ContentGrowthDTO.RewriteRequest request) {
         Long userId = currentUserId();
         if (userId == null) return Result.error(401, "未登录");
+        log.info("AI 内容增长接口调用 user={} endpoint={}", userId, "rewrite-advice");
         try {
             return Result.ok(contentGrowthService.rewriteAdvice(userId, request));
         } catch (IllegalArgumentException e) {

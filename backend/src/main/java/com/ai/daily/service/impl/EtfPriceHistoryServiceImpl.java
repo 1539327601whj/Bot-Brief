@@ -5,6 +5,7 @@ import com.ai.daily.entity.EtfPriceHistory;
 import com.ai.daily.mapper.EtfPriceHistoryMapper;
 import com.ai.daily.service.EtfPriceHistoryService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 public class EtfPriceHistoryServiceImpl extends ServiceImpl<EtfPriceHistoryMapper, EtfPriceHistory> implements EtfPriceHistoryService {
 
@@ -29,6 +31,7 @@ public class EtfPriceHistoryServiceImpl extends ServiceImpl<EtfPriceHistoryMappe
                 .map(dto -> toEntity(dto, now))
                 .toList();
         baseMapper.upsertBatch(histories);
+        log.info("ETF 行情批量入库 count={} date={}", histories.size(), prices.get(0).getTradeDate());
     }
 
     private EtfPriceHistory toEntity(EtfPriceHistoryIngestDTO dto, LocalDateTime now) {

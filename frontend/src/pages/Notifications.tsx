@@ -1,12 +1,14 @@
 import { cloneElement, isValidElement, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ConfigProvider, DatePicker, Pagination, Select, theme } from 'antd'
+import { ConfigProvider, DatePicker, Pagination, Select } from 'antd'
 import type { PaginationProps } from 'antd'
 import type { Dayjs } from 'dayjs'
 import zhCN from 'antd/locale/zh_CN'
 import api from '../utils/api'
 import { parseBeijing } from '../utils/dayjs'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
+import { getAntdTheme } from '../theme/antdTheme'
 import DemoNotice from '../components/DemoNotice'
 import { demoPushLogs, demoTodayStatus } from '../demo/fixtures'
 import { CHANNEL_LABEL, channelLabel, dispatchKeyOf, missKey, missStamp, pushKindFromDispatchKey, visibleGenerationMisses, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
@@ -43,24 +45,10 @@ function parseFilter(value: string | null): Filter {
   return FILTERS.includes(value as Filter) ? value as Filter : 'all'
 }
 
-const notificationTheme = {
-  algorithm: theme.darkAlgorithm,
-  token: {
-    colorPrimary: '#8b9cff',
-    colorPrimaryHover: '#a8b2ff',
-    colorBgBase: '#05070d',
-    colorBgContainer: '#0d111b',
-    colorBgElevated: '#111620',
-    colorBorder: 'rgba(255, 255, 255, 0.14)',
-    colorText: '#f4f7fb',
-    colorTextSecondary: '#9aa4b5',
-    colorTextPlaceholder: '#667085',
-    borderRadius: 12,
-  },
-}
 
 export default function Notifications() {
   const { user } = useAuth()
+  const { theme } = useTheme()
   const isDemo = user?.accountType === 'DEMO'
   const [searchParams, setSearchParams] = useSearchParams()
   const [logs, setLogs] = useState<PushLog[]>([])
@@ -173,7 +161,7 @@ export default function Notifications() {
   }
 
   return (
-    <ConfigProvider locale={zhCN} theme={notificationTheme}>
+    <ConfigProvider locale={zhCN} theme={getAntdTheme(theme)}>
     <div className="notifications-page">
       {isDemo && <DemoNotice />}
       <div className="page-header">

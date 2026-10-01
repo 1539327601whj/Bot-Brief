@@ -12,6 +12,9 @@ build/
 
 # Logs
 *.log
+# 滚动归档的文件名是 app.log.2026-10-01.0.gz，*.log 匹配不到
+*.log.gz
+logs/
 npm-debug.log*
 
 # OS
@@ -26,6 +29,8 @@ Thumbs.db
 # Test
 coverage/
 .vercel
+__pycache__/
+*.pyc
 
 # WorkBuddy local data (contains sensitive info)
 .workbuddy/

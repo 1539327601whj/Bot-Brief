@@ -14,6 +14,7 @@ import com.ai.daily.service.ContentGrowthService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ContentGrowthServiceImpl implements ContentGrowthService {
@@ -241,7 +243,13 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
                 + "\n请用中文输出：1. 爆款原因；2. 可复用结构；3. 下一条内容建议；4. 风险提醒。";
         String content = aiClientService.chat(prompt);
         saveAnalysis(userId, work.getAccountId(), "hot_analysis", prompt, content);
-        return aiResponse(content, isFallback(content));
+        boolean fallback = isFallback(content);
+        if (fallback) {
+            log.warn("AI 分析降级 user={} type={} fallback={}", userId, "hot_analysis", fallback);
+        } else {
+            log.info("AI 分析完成 user={} type={} fallback={}", userId, "hot_analysis", fallback);
+        }
+        return aiResponse(content, fallback);
     }
 
     @Override
@@ -262,7 +270,13 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
                 + "\n请推荐 " + count + " 个选题。每个选题包含：标题、推荐理由、适合平台、内容角度、脚本方向。";
         String content = aiClientService.chat(prompt);
         saveAnalysis(userId, account.getId(), "topic_recommendation", prompt, content);
-        return aiResponse(content, isFallback(content));
+        boolean fallback = isFallback(content);
+        if (fallback) {
+            log.warn("AI 分析降级 user={} type={} fallback={}", userId, "topic_recommendation", fallback);
+        } else {
+            log.info("AI 分析完成 user={} type={} fallback={}", userId, "topic_recommendation", fallback);
+        }
+        return aiResponse(content, fallback);
     }
 
     @Override
@@ -286,7 +300,13 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
                 + "\n请输出：1. 标题优化方案；2. 封面文案建议；3. 开头 3 秒钩子；4. 脚本结构；5. 评论区互动引导。";
         String content = aiClientService.chat(prompt);
         saveAnalysis(userId, account == null ? null : account.getId(), "rewrite_advice", prompt, content);
-        return aiResponse(content, isFallback(content));
+        boolean fallback = isFallback(content);
+        if (fallback) {
+            log.warn("AI 分析降级 user={} type={} fallback={}", userId, "rewrite_advice", fallback);
+        } else {
+            log.info("AI 分析完成 user={} type={} fallback={}", userId, "rewrite_advice", fallback);
+        }
+        return aiResponse(content, fallback);
     }
 
     @Override
@@ -612,6 +632,7 @@ public class ContentGrowthServiceImpl implements ContentGrowthService {
         analysis.setResultText(result);
         analysis.setCreatedAt(LocalDateTime.now());
         contentGrowthAnalysisMapper.insert(analysis);
+        log.info("内容增长 AI 分析入库 user={} type={} analysis_id={}", userId, type, analysis.getId());
     }
 
     private ContentGrowthDTO.AiTextResponse aiResponse(String content, boolean fallback) {

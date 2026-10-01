@@ -5,6 +5,7 @@ import com.ai.daily.entity.Report;
 import com.ai.daily.entity.TopicSection;
 import com.ai.daily.util.MarkdownUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -12,6 +13,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReportAssemblyService {
@@ -30,16 +32,29 @@ public class ReportAssemblyService {
 
     public Report assembleAndPersistFocuses(
             Long userId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
-        if (userId == null || date == null || displayTime == null) return null;
-        if (focuses == null || focuses.isEmpty()) return null;
+        if (userId == null || date == null || displayTime == null) {
+            log.debug("拼装跳过：入参不完整 user={} date={} time={}", userId, date, displayTime);
+            return null;
+        }
+        if (focuses == null || focuses.isEmpty()) {
+            log.debug("拼装跳过：主题为空 user={} date={} time={}", userId, date, displayTime);
+            return null;
+        }
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
-        if (existing != null) return existing;
+        if (existing != null) {
+            log.debug("个人简报已存在，跳过拼装 user={} date={} time={} reportId={}",
+                    userId, date, minute, existing.getId());
+            return existing;
+        }
 
         Assembled assembled = assemble(date, minute, focuses);
         if (assembled == null) return null;
-        return reportService.saveUserReport(
+        Report saved = reportService.saveUserReport(
                 userId, date, minute, assembled.title(), assembled.content(), assembled.summary());
+        log.info("个人简报已拼装入库 user={} date={} time={} topics={} reportId={}",
+                userId, date, minute, focuses.size(), saved != null ? saved.getId() : null);
+        return saved;
     }
 
     public Report assembleEphemeral(Long reportId, LocalDate date, LocalTime displayTime, List<String> topics) {
@@ -53,7 +68,10 @@ public class ReportAssemblyService {
 
     public Report assembleEphemeralFocuses(
             Long reportId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
-        if (date == null || displayTime == null || focuses == null || focuses.isEmpty()) return null;
+        if (date == null || displayTime == null || focuses == null || focuses.isEmpty()) {
+            log.debug("临时简报拼装跳过：入参不完整 user={} date={} time={}", reportId, date, displayTime);
+            return null;
+        }
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Assembled assembled = assemble(date, minute, focuses);
         if (assembled == null) return null;
@@ -79,7 +97,10 @@ public class ReportAssemblyService {
 
     public Report assembleForWebIfReadyFocuses(
             Long userId, LocalDate date, LocalTime displayTime, List<TopicFocus> focuses) {
-        if (userId == null || date == null || displayTime == null) return null;
+        if (userId == null || date == null || displayTime == null) {
+            log.debug("网页预拼装跳过：入参不完整 user={} date={} time={}", userId, date, displayTime);
+            return null;
+        }
         LocalTime minute = displayTime.withSecond(0).withNano(0);
         Report existing = reportService.getByUserEditionDateAndTime(userId, Report.PERSONAL, date, minute);
         if (existing != null) return existing;
@@ -88,7 +109,11 @@ public class ReportAssemblyService {
 
     private Assembled assemble(LocalDate date, LocalTime minute, List<TopicFocus> focuses) {
         List<TopicSection> sections = resolveSections(date, minute, focuses);
-        if (sections.isEmpty()) return null;
+        if (sections.isEmpty()) {
+            // 调用方（定时推送等）还会再记一条 warn，这里只留 debug 说明是哪一步空的
+            log.debug("拼装跳过：无可拼装段落 date={} time={} topics={}", date, minute, focuses.size());
+            return null;
+        }
         boolean onlyDigest = focuses.stream().allMatch(TopicFocus::usePublicDigest);
         String title;
         String content;

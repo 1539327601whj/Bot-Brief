@@ -3,6 +3,7 @@ package com.ai.daily.service;
 import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.mapper.TopicGenerationStatusMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -11,6 +12,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TopicGenerationStatusService {
@@ -32,6 +34,8 @@ public class TopicGenerationStatusService {
         TopicGenerationStatus existing = statusMapper.findOne(date, window, topicKey);
         if (existing != null && TopicGenerationStatus.READY.equals(existing.getStatus())
                 && !TopicGenerationStatus.READY.equals(normalized)) {
+            log.debug("生成状态保持 ready，忽略非 ready 变更 date={} window={} topic={} status={}",
+                    date, window, topicKey, normalized);
             return;
         }
         LocalDateTime now = LocalDateTime.now(BEIJING);
@@ -45,6 +49,8 @@ public class TopicGenerationStatusService {
             row.setRunId(runId);
             row.setUpdatedAt(now);
             statusMapper.insert(row);
+            log.info("生成状态新增 date={} window={} topic={} status={} run_id={}",
+                    date, window, topicKey, normalized, runId);
             return;
         }
         existing.setStatus(normalized);
@@ -52,6 +58,8 @@ public class TopicGenerationStatusService {
         existing.setRunId(runId);
         existing.setUpdatedAt(now);
         statusMapper.updateById(existing);
+        log.debug("生成状态更新 date={} window={} topic={} status={} run_id={}",
+                date, window, topicKey, normalized, runId);
     }
 
     public void reopenUnready(LocalDate date, String window, String topic) {
@@ -59,6 +67,7 @@ public class TopicGenerationStatusService {
         if (existing == null || existing.getId() == null) return;
         if (TopicGenerationStatus.READY.equals(existing.getStatus())) return;
         statusMapper.deleteById(existing.getId());
+        log.info("生成状态重开 date={} window={} topic={}", date, window, topic);
     }
 
     public TopicGenerationStatus find(LocalDate date, String window, String topic) {
@@ -68,6 +77,7 @@ public class TopicGenerationStatusService {
             if (exact != null) return exact;
             return statusMapper.findOne(date, window, topic.trim().toLowerCase(Locale.ROOT));
         } catch (Exception e) {
+            log.warn("查询生成状态失败，已忽略 date={} window={} topic={}", date, window, topic, e);
             return null;
         }
     }

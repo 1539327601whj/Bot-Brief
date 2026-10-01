@@ -25,6 +25,10 @@ if _SCRIPTS_DIR not in sys.path:
 
 from etf_allocation_analyst import analyze_snapshot
 
+from logging_setup import setup_logging  # noqa: E402
+
+logger = setup_logging(__name__)
+
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 ETF_LIST = [
@@ -355,11 +359,11 @@ def fetch_etf_quote(etf: dict[str, str]) -> dict[str, Any]:
     for fetcher in (fetch_quote_from_eastmoney, fetch_quote_from_sina):
         try:
             quote = fetcher(etf)
-            print(f"  ✅ {etf['name']} 行情来自 {quote['source']}")
+            logger.info("  ✅ %s 行情来自 %s", etf['name'], quote['source'])
             return quote
         except Exception as e:
             errors.append(f"{getattr(fetcher, '__name__', '行情适配器')}: {e}")
-            print(f"  ⚠️ {etf['name']} 行情源失败: {e}")
+            logger.warning("  ⚠️ %s 行情源失败: %s", etf['name'], e)
     raise RuntimeError(f"{etf['name']} 所有实时行情源均失败: {'; '.join(errors)}")
 
 
@@ -473,7 +477,7 @@ def fetch_etf_daily_prices(etf: dict[str, str]) -> list[dict[str, Any]]:
             return fetcher(etf)
         except Exception as e:
             errors.append(f"{getattr(fetcher, '__name__', '行情适配器')}: {e}")
-            print(f"  ⚠️ {etf['name']} 历史源失败: {e}")
+            logger.warning("  ⚠️ %s 历史源失败: %s", etf['name'], e)
     raise RuntimeError("外部历史双源失败: " + "; ".join(errors))
 
 
@@ -553,7 +557,7 @@ def fetch_cached_etf_prices(etf: dict[str, str]) -> list[dict[str, Any]]:
             raise RuntimeError("价格缓存响应 data 必须是数组")
         return data
     except Exception as e:
-        print(f"  ⚠️ {etf['name']} 价格缓存查询失败: {e}")
+        logger.warning("  ⚠️ %s 价格缓存查询失败: %s", etf['name'], e)
         return []
 
 
@@ -675,7 +679,7 @@ def push_etf_price_history(
                 return False
         return True
     except Exception as e:
-        print(f"  ⚠️ {etf['name']} 价格缓存同步失败: {e}")
+        logger.warning("  ⚠️ %s 价格缓存同步失败: %s", etf['name'], e)
         return False
 
 
@@ -810,16 +814,16 @@ def fetch_price_context(
         context = build_price_context(quote, prices, "external")
         if push_etf_price_history(etf, prices, quote, cached_items):
             context["data_status"] = "external_cached"
-        print(f"  ✅ {etf['name']} 价格趋势来自 {context['source']}")
+        logger.info("  ✅ %s 价格趋势来自 %s", etf['name'], context['source'])
         return context
     except Exception as e:
         external_error = str(e)
-        print(f"  ⚠️ {etf['name']} 外部价格历史失败: {e}")
+        logger.warning("  ⚠️ %s 外部价格历史失败: %s", etf['name'], e)
     cached = select_cached_price_series(cached_items)
     if cached:
         context = build_price_context(quote, cached, "cache", external_error)
         context["source"] = f"{context['source']}（后端缓存）"
-        print(f"  ✅ {etf['name']} 价格趋势使用单一来源后端缓存")
+        logger.info("  ✅ %s 价格趋势使用单一来源后端缓存", etf['name'])
         return context
     return empty_price_context(
         f"外部历史失败且无可用单一来源缓存: {external_error}",
@@ -886,9 +890,9 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             -listed_rate if listed_rate is not None else None
         )
         if listed_rate is not None and calculated_rate is not None and abs(listed_rate + calculated_rate) > 0.2:
-            print(
-                f"  ⚠️ {etf['name']} 折价率字段与IOPV计算差异 "
-                f"{abs(listed_rate + calculated_rate):.2f} 个百分点"
+            logger.warning(
+                "  ⚠️ %s 折价率字段与IOPV计算差异 %.2f 个百分点",
+                etf['name'], abs(listed_rate + calculated_rate)
             )
         if premium_rate is None:
             raise RuntimeError("东方财富ETF溢价响应缺少有效IOPV和折价率")
@@ -903,7 +907,7 @@ def fetch_etf_premium(etf: dict[str, str], quote: dict[str, Any]) -> dict[str, A
             "error": None,
         }
     except Exception as e:
-        print(f"  ⚠️ {etf['name']} 溢价率抓取失败: {e}")
+        logger.warning("  ⚠️ %s 溢价率抓取失败: %s", etf['name'], e)
         return {
             "premium_rate": None,
             "level": "不可确认",
@@ -1162,7 +1166,7 @@ def enrich_premium_with_history(
         })
     except Exception as e:
         fields["history_error"] = str(e)
-        print(f"  ⚠️ {etf['name']} 历史溢价失败: {e}")
+        logger.warning("  ⚠️ %s 历史溢价失败: %s", etf['name'], e)
     return {**premium, **fields}
 
 
@@ -1364,7 +1368,7 @@ def fetch_valuation_archive(snapshot_date: date) -> dict[str, Any]:
         _VALUATION_ARCHIVE_CACHE[date_text] = items
         return {"status": "ok", "items": items}
     except (requests.RequestException, ValueError) as e:
-        print(f"  ⚠️ {date_text} 蛋卷估值公开快照传输失败: {e}")
+        logger.warning("  ⚠️ %s 蛋卷估值公开快照传输失败: %s", date_text, e)
         return {"status": "transport_error", "items": None, "error": str(e)}
 
 
@@ -1395,7 +1399,7 @@ def fetch_archived_valuation_on_or_before(
         try:
             valuation = valuation_from_danjuan_item(etf, item, "蛋卷估值每日公开快照")
         except RuntimeError as e:
-            print(f"  ⚠️ {snapshot_date.isoformat()} 蛋卷估值快照字段无效: {e}")
+            logger.warning("  ⚠️ %s 蛋卷估值快照字段无效: %s", snapshot_date.isoformat(), e)
             continue
         effective_date = parse_iso_date(valuation.get("updated_at"))
         if effective_date is not None and effective_date <= target_date:
@@ -1463,9 +1467,9 @@ def fetch_source_valuation(
         ):
             valuation = realtime
         else:
-            print(f"  ⚠️ {etf['name']} 蛋卷实时估值数据过旧，改用公开快照")
+            logger.warning("  ⚠️ %s 蛋卷实时估值数据过旧，改用公开快照", etf['name'])
     except Exception as e:
-        print(f"  ⚠️ {etf['name']} 蛋卷实时估值抓取失败: {e}")
+        logger.warning("  ⚠️ %s 蛋卷实时估值抓取失败: %s", etf['name'], e)
     if valuation is None:
         valuation = fetch_archived_valuation_on_or_before(etf, now_beijing().date())
         if valuation is None:
@@ -1786,18 +1790,18 @@ def backend_result(
     parsed_body: Any = _JSON_UNSET,
 ) -> Optional[dict[str, Any]]:
     if resp.status_code != 200:
-        print(f"  ⚠️ {operation}失败: HTTP {resp.status_code} {resp.text[:300]}")
+        logger.warning("  ⚠️ %s失败: HTTP %s %s", operation, resp.status_code, resp.text[:300])
         return None
     try:
         body = resp.json() if parsed_body is _JSON_UNSET else parsed_body
     except ValueError:
-        print(f"  ⚠️ {operation}失败: 后端未返回JSON")
+        logger.warning("  ⚠️ %s失败: 后端未返回JSON", operation)
         return None
     if not isinstance(body, dict):
-        print(f"  ⚠️ {operation}失败: 后端JSON不是对象")
+        logger.warning("  ⚠️ %s失败: 后端JSON不是对象", operation)
         return None
     if body.get("code") != 200:
-        print(f"  ⚠️ {operation}失败: 业务码 {body.get('code')} {body.get('message', '')}")
+        logger.warning("  ⚠️ %s失败: 业务码 %s %s", operation, body.get('code'), body.get('message', ''))
         return None
     return body
 
@@ -1810,10 +1814,10 @@ def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
     if not backend_url:
-        print(f"  ⚠️ {etf['index_name']} 未配置 BACKEND_API_URL，跳过估值缓存查询")
+        logger.warning("  ⚠️ %s 未配置 BACKEND_API_URL，跳过估值缓存查询", etf['index_name'])
         return []
     if not ingest_token:
-        print(f"  ⚠️ {etf['index_name']} 未配置 REPORT_INGEST_TOKEN，跳过估值缓存查询")
+        logger.warning("  ⚠️ %s 未配置 REPORT_INGEST_TOKEN，跳过估值缓存查询", etf['index_name'])
         return []
     try:
         resp = http_get(
@@ -1828,7 +1832,7 @@ def fetch_valuation_history(etf: dict[str, str]) -> list[dict[str, Any]]:
         body = backend_result(resp, f"{etf['index_name']}估值历史查询")
         return (body.get("data") or []) if body else []
     except Exception as e:
-        print(f"  ⚠️ {etf['index_name']} 估值历史查询失败: {e}")
+        logger.warning("  ⚠️ %s 估值历史查询失败: %s", etf['index_name'], e)
         return []
 
 
@@ -1863,7 +1867,7 @@ def push_valuation_history(snapshot: dict[str, Any]) -> bool:
     )
     items = [item for item in source_items if item.get("tradeDate") in wanted_dates]
     if not items:
-        print(f"  ⚠️ {etf['index_name']} 当前估值不完整，跳过历史写入")
+        logger.warning("  ⚠️ %s 当前估值不完整，跳过历史写入", etf['index_name'])
         return False
 
     saved = 0
@@ -1893,9 +1897,9 @@ def push_valuation_history(snapshot: dict[str, Any]) -> bool:
             if backend_result(resp, f"{etf['index_name']}估值历史同步"):
                 saved += 1
         except Exception as e:
-            print(f"  ⚠️ {etf['index_name']} 估值历史同步失败: {e}")
+            logger.warning("  ⚠️ %s 估值历史同步失败: %s", etf['index_name'], e)
     if saved:
-        print(f"  ✅ {etf['index_name']} 已同步 {saved} 个估值基准")
+        logger.info("  ✅ %s 已同步 %s 个估值基准", etf['index_name'], saved)
     return saved == len(items)
 
 
@@ -1908,10 +1912,10 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
         valuation = validate_valuation(valuation, expected_method)
         valuation["data_status"] = "external"
         valuation["error"] = None
-        print(f"  ✅ {etf['name']} 估值来自 {valuation['source']}")
+        logger.info("  ✅ %s 估值来自 %s", etf['name'], valuation['source'])
     except Exception as e:
         valuation_error = str(e)
-        print(f"  ⚠️ {etf['name']} 主估值源失败: {e}")
+        logger.warning("  ⚠️ %s 主估值源失败: %s", etf['name'], e)
         source_history = []
         cached = merge_pe_history(backend_history, percentile_method=expected_method)
         latest = next((item for item in reversed(cached) if is_fresh_date(
@@ -1962,7 +1966,7 @@ def build_snapshot(etf: dict[str, str]) -> dict[str, Any]:
         if quote is None:
             raise RuntimeError(f"{etf['name']} 实时行情失败且无新鲜缓存收盘价: {e}") from e
         quote["error"] = quote_error
-        print(f"  ✅ {etf['name']} 行情使用后端缓存最近确认收盘价")
+        logger.info("  ✅ %s 行情使用后端缓存最近确认收盘价", etf['name'])
     premium = (
         fetch_etf_premium(etf, quote)
         if quote.get("data_status") != "cached_close"
@@ -2139,11 +2143,11 @@ def fetch_a_share_candidate_pool() -> tuple[list[dict[str, Any]], str]:
     ):
         try:
             items = fetcher()
-            print(f"  ✅ A股候选列表来自 {source}（{len(items)} 条）")
+            logger.info("  ✅ A股候选列表来自 %s（%s 条）", source, len(items))
             return items, source
         except Exception as e:
             errors.append(f"{source}: {e}")
-            print(f"  ⚠️ {source}失败: {e}")
+            logger.warning("  ⚠️ %s失败: %s", source, e)
     raise RuntimeError("；".join(errors) if errors else "A股候选数据源不可用")
 
 
@@ -2242,7 +2246,7 @@ def build_a_share_observations() -> AShareObservationResult:
         candidates.sort(key=score_a_share, reverse=True)
         picks = candidates[:A_SHARE_PICK_COUNT]
         status = "available" if picks else "empty"
-        print(f"  ✅ A股观察候选筛选完成：{len(picks)} 只，来源 {source}")
+        logger.info("  ✅ A股观察候选筛选完成：%s 只，来源 %s", len(picks), source)
         return {
             "status": status,
             "items": [a_share_observation(stock) for stock in picks],
@@ -2250,7 +2254,7 @@ def build_a_share_observations() -> AShareObservationResult:
             "error": None,
         }
     except Exception as e:
-        print(f"  ⚠️ A股观察候选抓取失败: {e}")
+        logger.warning("  ⚠️ A股观察候选抓取失败: %s", e)
         return {
             "status": "provider_error",
             "items": [],
@@ -2627,15 +2631,15 @@ def push_to_wechat(content: str, webhook_url: str, max_attempts: int = 3) -> boo
                 data = None
             errcode = data.get("errcode") if isinstance(data, dict) else None
             if resp.status_code == 200 and errcode == 0:
-                print(f"✅ ETF 企业微信推送成功 ({len(content.encode('utf-8'))} bytes)")
+                logger.info("✅ ETF 企业微信推送成功 (%s bytes)", len(content.encode('utf-8')))
                 return True
-            print(f"❌ ETF 企业微信推送失败: HTTP {resp.status_code}, errcode={errcode}")
+            logger.error("❌ ETF 企业微信推送失败: HTTP %s, errcode=%s", resp.status_code, errcode)
             if resp.status_code not in RETRYABLE_STATUS_CODES and errcode not in WECHAT_RETRYABLE_ERRCODES:
                 return False
         except (requests.ConnectionError, requests.Timeout) as e:
-            print(f"⚠️ ETF 企业微信推送失败: {e}")
+            logger.warning("⚠️ ETF 企业微信推送失败: %s", e)
         except requests.RequestException as e:
-            print(f"❌ ETF 企业微信推送失败且不可重试: {e}")
+            logger.exception("❌ ETF 企业微信推送失败且不可重试: %s", e)
             return False
         if attempt < max_attempts - 1:
             time.sleep(attempt + 1)
@@ -2666,12 +2670,12 @@ def record_ops_delivery(edition, report_date, success=True, channel_type="wechat
             body = None
         ok = resp.status_code == 200 and isinstance(body, dict) and body.get("code") == 200
         if ok:
-            print(f"  📝 已记入投递记录 {body.get('data')}")
+            logger.info("  📝 已记入投递记录 %s", body.get('data'))
         else:
-            print(f"  ⚠️ 投递记录写入失败: HTTP {resp.status_code}")
+            logger.warning("  ⚠️ 投递记录写入失败: HTTP %s", resp.status_code)
         return ok
     except requests.RequestException as e:
-        print(f"  ⚠️ 投递记录写入失败: {e}")
+        logger.warning("  ⚠️ 投递记录写入失败: %s", e)
         return False
 
 
@@ -2686,10 +2690,10 @@ def push_to_backend(
     backend_url = os.environ.get("BACKEND_API_URL", "")
     ingest_token = os.environ.get("REPORT_INGEST_TOKEN", "")
     if not backend_url:
-        print("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
+        logger.warning("  ⚠️ 未配置 BACKEND_API_URL，跳过后端存储")
         return False
     if not ingest_token:
-        print("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
+        logger.warning("  ⚠️ 未配置 REPORT_INGEST_TOKEN，跳过后端存储")
         return False
 
     payload = {
@@ -2714,7 +2718,7 @@ def push_to_backend(
                 parsed_body = None
             body = backend_result(resp, "ETF报告同步", parsed_body)
             if body is not None:
-                print(f"  ✅ ETF 报告已同步到后端（第 {attempt + 1} 次尝试）")
+                logger.info("  ✅ ETF 报告已同步到后端（第 %s 次尝试）", attempt + 1)
                 return True
             business_code = parsed_body.get("code") if isinstance(parsed_body, dict) else None
             retryable = resp.status_code in RETRYABLE_STATUS_CODES or (
@@ -2723,9 +2727,9 @@ def push_to_backend(
             if not retryable:
                 return False
         except (requests.ConnectionError, requests.Timeout) as e:
-            print(f"  ⚠️ 后端 API 同步失败: {e}")
+            logger.warning("  ⚠️ 后端 API 同步失败: %s", e)
         except requests.RequestException as e:
-            print(f"  ⚠️ 后端 API 同步失败且不可重试: {e}")
+            logger.warning("  ⚠️ 后端 API 同步失败且不可重试: %s", e)
             return False
         if attempt < 2:
             time.sleep(attempt + 1)
@@ -2790,7 +2794,7 @@ def unavailable_snapshot(etf: dict[str, str], error: str) -> dict[str, Any]:
 
 def sync_price_history() -> bool:
     if not os.environ.get("BACKEND_API_URL") or not os.environ.get("REPORT_INGEST_TOKEN"):
-        print("❌ sync_only 需要 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
+        logger.error("❌ sync_only 需要 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
         return False
     success = True
     completed_cutoff = {"data_time": now_beijing().strftime("%Y-%m-%d %H:%M:%S")}
@@ -2814,13 +2818,13 @@ def sync_price_history() -> bool:
                 or not expected_dates.issubset(cached_dates)
             ):
                 raise RuntimeError("回读缓存未覆盖本次同来源回填数据")
-            print(
-                f"  ✅ {etf['name']} 已回填并确认 {len(completed)} 条价格，"
-                f"截至 {cached[-1]['date']}，来源 {cached[-1]['source']}"
+            logger.info(
+                "  ✅ %s 已回填并确认 %s 条价格，截至 %s，来源 %s",
+                etf['name'], len(completed), cached[-1]['date'], cached[-1]['source']
             )
         except Exception as e:
             success = False
-            print(f"  ❌ {etf['name']} 价格历史回填失败: {e}")
+            logger.exception("  ❌ %s 价格历史回填失败: %s", etf['name'], e)
     return success
 
 
@@ -2839,40 +2843,41 @@ def main() -> None:
     label = edition_label(edition)
     report_file = f"ETF市场数据简报_{today}（{label}）.md"
 
-    print(f"\n{'=' * 50}")
-    print(f"📈 ETF 市场数据简报 · {today}（{label}）")
-    print(f"{'=' * 50}\n")
+    logger.info("\n%s", "=" * 50)
+    logger.info("📈 ETF 市场数据简报 · %s（%s）", today, label)
+    logger.info("%s\n", "=" * 50)
 
     webhook_url = os.environ.get("ETF_WECHAT_WEBHOOK", "")
     backend_configured = bool(os.environ.get("BACKEND_API_URL") and os.environ.get("REPORT_INGEST_TOKEN"))
     dry_run = env_enabled("ETF_DRY_RUN")
     sync_only = env_enabled("ETF_SYNC_ONLY")
     if sync_only:
-        print("📡 正在回填 ETF 价格历史...")
+        logger.info("📡 正在回填 ETF 价格历史...")
         if not sync_price_history():
             sys.exit(1)
-        print(f"\n✅ ETF 价格历史回填完成！({now_beijing().strftime('%H:%M:%S')})")
+        logger.info("\n✅ ETF 价格历史回填完成！(%s)", now_beijing().strftime('%H:%M:%S'))
         return
     if should_skip_weekend_report(current_time, dry_run):
-        print("ℹ️ 周末无交易，默认跳过 ETF 日报抓取与推送")
+        # 周末休市是设计内的正常路径，不是降级，所以给 info：error.log 只留真正的问题
+        logger.info("ℹ️ 周末无交易，默认跳过 ETF 日报抓取与推送")
         return
     if not webhook_url and not backend_configured and not dry_run:
-        print("❌ 缺少 ETF_WECHAT_WEBHOOK，且未配置后端入库")
+        logger.error("❌ 缺少 ETF_WECHAT_WEBHOOK，且未配置后端入库")
         sys.exit(1)
 
-    print("📡 正在抓取 ETF 行情...")
+    logger.info("📡 正在抓取 ETF 行情...")
     snapshots = []
     for etf in ETF_LIST:
         try:
             snapshots.append(build_snapshot(etf))
         except Exception as e:
-            print(f"  ❌ {etf['name']} 数据不可确认，保留降级报告: {e}")
+            logger.exception("  ❌ %s 数据不可确认，保留降级报告: %s", etf['name'], e)
             snapshots.append(unavailable_snapshot(etf, str(e)))
 
     if dry_run:
-        print("🧪 ETF_DRY_RUN 已开启，跳过估值历史写入")
+        logger.warning("🧪 ETF_DRY_RUN 已开启，跳过估值历史写入")
     else:
-        print("📡 正在同步估值历史...")
+        logger.info("📡 正在同步估值历史...")
         for snapshot in snapshots:
             if push_valuation_history(snapshot):
                 snapshot["pe_history"] = merge_pe_history(
@@ -2880,36 +2885,36 @@ def main() -> None:
                     fetch_valuation_history(snapshot["etf"]),
                 )
 
-    print("📡 正在筛选两只 A 股观察候选...")
+    logger.info("📡 正在筛选两只 A 股观察候选...")
     stock_observations = build_a_share_observations()
     report = build_programmatic_report(snapshots, edition, stock_observations)
 
     if dry_run:
-        print("🧪 ETF_DRY_RUN 已开启，跳过本地报告文件写入")
+        logger.warning("🧪 ETF_DRY_RUN 已开启，跳过本地报告文件写入")
     else:
         with open(report_file, "w", encoding="utf-8") as f:
             f.write(report)
-        print(f"💾 已保存: {report_file}")
+        logger.info("💾 已保存: %s", report_file)
 
     wx_content = convert_to_wework_markdown(build_wechat_report(snapshots, edition, stock_observations))
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     title = f"【ETF市场数据简报{label}】沪深300ETF / 纳指100ETF / 标普500ETF {today}"
     if dry_run:
-        print("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
-        print(wx_content)
+        logger.warning("🧪 ETF_DRY_RUN 已开启，跳过后端报告存储和企业微信推送")
+        logger.info("%s", wx_content)
     else:
         if not push_to_backend(edition, today, title, report, build_summary(snapshots), run_id):
-            print("❌ ETF 报告同步到后端失败，本次不继续推送")
+            logger.error("❌ ETF 报告同步到后端失败，本次不继续推送")
             sys.exit(1)
         if backend_configured:
-            print("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
+            logger.warning("📬 推送由后端订阅渠道负责，跳过脚本直推企业微信")
         elif not push_to_wechat(wx_content, webhook_url):
-            print("❌ ETF 企业微信推送失败，报告已入库")
+            logger.error("❌ ETF 企业微信推送失败，报告已入库")
             sys.exit(1)
         else:
             record_ops_delivery(edition, today, success=True)
 
-    print(f"\n✅ 市场观察完成！({now_beijing().strftime('%H:%M:%S')})")
+    logger.info("\n✅ 市场观察完成！(%s)", now_beijing().strftime('%H:%M:%S'))
 
 
 def generate_and_ingest() -> bool:

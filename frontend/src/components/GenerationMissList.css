@@ -6,7 +6,7 @@
 }
 
 .generation-miss-title {
-  color: #c5d0dc;
+  color: var(--text-pale-2);
   font-size: 13px;
   font-weight: 600;
 }
@@ -23,12 +23,12 @@
   gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(255, 197, 66, 0.06);
-  border: 1px solid rgba(255, 197, 66, 0.16);
+  background: rgba(var(--amber-rgb), 0.06);
+  border: 1px solid rgba(var(--amber-rgb), 0.16);
 }
 
 .generation-miss-list .topic-progress span {
-  color: #c5d0dc;
+  color: var(--text-pale-2);
   font-size: 13px;
 }
 
@@ -37,27 +37,27 @@
 }
 
 .generation-miss-list .topic-progress small {
-  color: #8b949e;
+  color: var(--text-gh-muted);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .generation-miss-list .topic-progress.warn strong {
-  color: #ffc542;
+  color: var(--amber);
 }
 
 .generation-miss-list .topic-progress.danger {
-  background: rgba(255, 123, 114, 0.08);
-  border-color: rgba(255, 123, 114, 0.2);
+  background: rgba(var(--danger-deep-rgb), 0.08);
+  border-color: rgba(var(--danger-deep-rgb), 0.2);
 }
 
 .generation-miss-list .topic-progress.danger strong {
-  color: #ff8080;
+  color: var(--danger-strong);
 }
 
 .generation-miss-more {
   display: inline-block;
   margin-top: 2px;
-  color: #8b9cff;
+  color: var(--accent-text);
   font-size: 12px;
 }

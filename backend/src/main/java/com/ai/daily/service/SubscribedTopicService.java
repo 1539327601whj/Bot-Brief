@@ -7,6 +7,7 @@ import com.ai.daily.entity.TopicGenerationStatus;
 import com.ai.daily.entity.User;
 import com.ai.daily.mapper.TopicSectionMapper;
 import com.ai.daily.mapper.UserMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +23,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class SubscribedTopicService {
 
@@ -76,6 +78,7 @@ public class SubscribedTopicService {
             }
             due.add(item);
         }
+        log.debug("待生成主题计划查询 date={} now={} due={}", date, now, due.size());
         return due;
     }
 
@@ -177,19 +180,29 @@ public class SubscribedTopicService {
 
     private List<Subscription> eligibleSubscriptions() {
         List<Subscription> subscriptions = subscriptionService.listEnabled();
-        if (subscriptions.isEmpty()) return List.of();
+        if (subscriptions.isEmpty()) {
+            log.debug("待生成计划跳过 reason=没有启用订阅的用户");
+            return List.of();
+        }
         Set<Long> userIds = subscriptions.stream()
                 .map(Subscription::getUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        if (userIds.isEmpty()) return List.of();
+        if (userIds.isEmpty()) {
+            log.debug("待生成计划跳过 reason=订阅缺少userId");
+            return List.of();
+        }
         Set<Long> eligibleUserIds = userMapper.selectBatchIds(userIds).stream()
                 .filter(user -> Boolean.TRUE.equals(user.getEnabled())
                         && !User.ACCOUNT_DEMO.equals(user.getAccountType()))
                 .map(User::getId)
                 .collect(Collectors.toSet());
-        return subscriptions.stream()
+        List<Subscription> eligible = subscriptions.stream()
                 .filter(subscription -> eligibleUserIds.contains(subscription.getUserId()))
                 .toList();
+        if (eligible.isEmpty()) {
+            log.debug("待生成计划跳过 reason=没有可用订阅用户");
+        }
+        return eligible;
     }
 }

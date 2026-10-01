@@ -13,6 +13,7 @@ import com.ai.daily.mapper.ShopSalesDailyMapper;
 import com.ai.daily.service.ShopDataImportService;
 import com.ai.daily.service.ShopStoreService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -34,6 +35,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
+@Slf4j
 @Service
 public class ShopDataImportServiceImpl implements ShopDataImportService {
 
@@ -92,6 +94,8 @@ public class ShopDataImportServiceImpl implements ShopDataImportService {
         }
         ParsedCsv parsed = parse(userId, store.getId(), normalized, bytes);
         if (!parsed.errors().isEmpty()) {
+            log.warn("店铺数据导入被拒绝：仍有校验错误 user={} store_id={} type={} error_count={}",
+                    userId, store.getId(), normalized, parsed.errors().size());
             throw new IllegalArgumentException("文件仍有校验错误，请修正后重新预览");
         }
         for (Map<String, String> row : parsed.rows()) {
@@ -102,6 +106,8 @@ public class ShopDataImportServiceImpl implements ShopDataImportService {
                 default -> throw new IllegalArgumentException("不支持的导入类型");
             }
         }
+        log.info("店铺数据导入成功 user={} store_id={} type={} rows={}",
+                userId, store.getId(), normalized, parsed.rows().size());
         return new ShopImportConfirmDTO(normalized, parsed.rows().size());
     }
 
@@ -138,6 +144,7 @@ public class ShopDataImportServiceImpl implements ShopDataImportService {
                 if (rowErrors.isEmpty()) rows.add(row); else errors.addAll(rowErrors);
             }
         } catch (IOException | IllegalArgumentException e) {
+            log.warn("CSV 解析失败 user={} store_id={} type={}", userId, storeId, type, e);
             throw new IllegalArgumentException("CSV 解析失败：" + e.getMessage());
         }
         if (rows.isEmpty() && errors.isEmpty()) {

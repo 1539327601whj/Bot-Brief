@@ -51,7 +51,7 @@ public class PushDeliverySchemaRepairRunner implements ApplicationRunner {
                 jdbcTemplate.execute(PushDeliverySchemaRepair.createDispatchKeyIndexSql());
                 log.info("已创建 {}", PushDeliverySchemaRepair.DISPATCH_KEY_INDEX);
             } catch (Exception e) {
-                log.warn("创建 {} 失败: {}", PushDeliverySchemaRepair.DISPATCH_KEY_INDEX, e.getMessage());
+                log.warn("创建 {} 失败", PushDeliverySchemaRepair.DISPATCH_KEY_INDEX, e);
             }
         }
     }

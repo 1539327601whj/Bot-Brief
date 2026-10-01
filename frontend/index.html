@@ -1,6 +1,22 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
+    <!-- 在打包 CSS 加载前先定好主题，避免首屏闪一下白/闪一下深色。
+         判断逻辑必须和 src/context/ThemeContext.tsx 的 readStoredTheme 完全一致。 -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('brief.theme')
+          document.documentElement.setAttribute('data-theme', t === 'light' || t === 'dark' ? t : 'dark')
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark')
+        }
+      })()
+    </script>
+    <style>
+      html { background: #05070d; color-scheme: dark; }
+      html[data-theme='light'] { background: #f4f5f9; color-scheme: light; }
+    </style>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

@@ -24,10 +24,10 @@
   border: 1px solid var(--border-strong);
   border-radius: 24px;
   background:
-    radial-gradient(circle at 12% 0%, rgba(139, 156, 255, 0.15), transparent 34%),
-    radial-gradient(circle at 92% 100%, rgba(61, 214, 140, 0.05), transparent 28%),
-    linear-gradient(180deg, rgba(17, 21, 32, 0.92), rgba(9, 12, 20, 0.88));
-  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    radial-gradient(circle at 12% 0%, rgba(var(--accent-rgb), 0.15), transparent 34%),
+    radial-gradient(circle at 92% 100%, rgba(var(--success-rgb), 0.05), transparent 28%),
+    linear-gradient(180deg, rgba(var(--panel-rgb), 0.92), rgba(var(--panel-dim-rgb), 0.88));
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .history-page .history-header::before {
@@ -36,10 +36,10 @@
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    linear-gradient(rgba(var(--tint-rgb), 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--tint-rgb), 0.022) 1px, transparent 1px);
   background-size: 52px 52px;
-  mask-image: linear-gradient(90deg, black, rgba(0, 0, 0, 0.38) 72%, transparent);
+  mask-image: linear-gradient(90deg, black, rgba(var(--shadow-rgb), 0.38) 72%, transparent);
 }
 
 .history-page .header-info {
@@ -74,14 +74,14 @@
   flex-direction: column;
   align-items: center;
   padding: 14px 20px;
-  border: 1px solid rgba(139, 156, 255, 0.2);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   border-radius: 15px;
   background: var(--accent-soft);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .history-page .stat-number {
-  color: #dce1ff;
+  color: var(--text-indigo);
   font-size: 29px;
   line-height: 1.1;
   font-weight: 720;
@@ -105,8 +105,8 @@
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(12, 15, 24, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  background: rgba(var(--panel-soft-rgb), 0.72);
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), 0.025);
 }
 
 .history-page .history-filter-group {
@@ -121,7 +121,7 @@
   padding: 7px 13px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(var(--tint-rgb), 0.025);
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
@@ -130,22 +130,22 @@
 
 .history-page .history-chip:hover {
   border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--tint-rgb), 0.05);
   color: var(--text);
 }
 
 .history-page .history-chip.active {
-  border-color: rgba(139, 156, 255, 0.4);
+  border-color: rgba(var(--accent-rgb), 0.4);
   background: var(--accent-soft);
-  color: #dce1ff;
+  color: var(--text-indigo);
   font-weight: 650;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .history-page .history-chip:focus-visible,
 .history-page .history-reset:focus-visible,
 .history-page .history-error button:focus-visible {
-  outline: 2px solid rgba(139, 156, 255, 0.88);
+  outline: 2px solid rgba(var(--accent-rgb), 0.88);
   outline-offset: 2px;
 }
 
@@ -162,19 +162,19 @@
 .history-page .history-reset {
   min-height: 36px;
   padding: 7px 13px;
-  border: 1px solid rgba(255, 107, 107, 0.24);
+  border: 1px solid rgba(var(--danger-rgb), 0.24);
   border-radius: 10px;
-  background: rgba(255, 107, 107, 0.07);
-  color: #ffb4b4;
+  background: rgba(var(--danger-rgb), 0.07);
+  color: var(--danger-pale);
   font-size: 12px;
   cursor: pointer;
   transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
 .history-page .history-reset:hover {
-  border-color: rgba(255, 107, 107, 0.42);
-  background: rgba(255, 107, 107, 0.12);
-  color: #ffd0d0;
+  border-color: rgba(var(--danger-rgb), 0.42);
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-coral-3);
 }
 
 .history-page .ant-picker,
@@ -182,7 +182,7 @@
 .history-page .ant-input,
 .history-page .ant-btn {
   border-color: var(--border-strong);
-  background: rgba(3, 6, 13, 0.64);
+  background: rgba(var(--input-bg-rgb), 0.64);
   color: var(--text);
   box-shadow: none;
 }
@@ -191,14 +191,14 @@
 .history-page .ant-input-affix-wrapper:hover,
 .history-page .ant-input:hover,
 .history-page .ant-btn:hover {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(var(--tint-rgb), 0.24);
 }
 
 .history-page .ant-picker-focused,
 .history-page .ant-input-affix-wrapper-focused,
 .history-page .ant-input:focus {
-  border-color: rgba(139, 156, 255, 0.68);
-  box-shadow: 0 0 0 3px rgba(139, 156, 255, 0.12);
+  border-color: rgba(var(--accent-rgb), 0.68);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
 }
 
 .history-page .ant-picker-input > input,
@@ -221,19 +221,19 @@
 .history-page .history-group {
   margin-bottom: 24px;
   padding: 18px 18px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(var(--tint-rgb), 0.08);
   border-radius: 16px;
-  background: rgba(13, 17, 27, 0.35);
+  background: rgba(var(--panel-deep-rgb), 0.35);
 }
 
 .history-page .history-group.personal {
-  border-color: rgba(0, 212, 170, 0.2);
-  background: rgba(0, 212, 170, 0.03);
+  border-color: rgba(var(--teal-rgb), 0.2);
+  background: rgba(var(--teal-rgb), 0.03);
 }
 
 .history-page .history-group h3 {
   margin: 0 0 14px;
-  color: #e6edf3;
+  color: var(--text-gh);
   font-size: 16px;
 }
 
@@ -253,7 +253,7 @@
   margin: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(var(--tint-rgb), 0.025);
 }
 
 .history-page .history-pagination .ant-pagination-prev,
@@ -277,7 +277,7 @@
 .history-page .history-pagination .ant-pagination-prev:not(.ant-pagination-disabled):hover,
 .history-page .history-pagination .ant-pagination-next:not(.ant-pagination-disabled):hover {
   border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--tint-rgb), 0.05);
 }
 
 .history-page .history-pagination .ant-pagination-item:hover a,
@@ -287,12 +287,12 @@
 }
 
 .history-page .history-pagination .ant-pagination-item-active {
-  border-color: rgba(139, 156, 255, 0.46);
+  border-color: rgba(var(--accent-rgb), 0.46);
   background: var(--accent-soft);
 }
 
 .history-page .history-pagination .ant-pagination-item-active a {
-  color: #dce1ff;
+  color: var(--text-indigo);
   font-weight: 650;
 }
 
@@ -302,7 +302,7 @@
 
 .history-page .history-pagination a:focus-visible,
 .history-page .history-pagination button:focus-visible {
-  outline: 2px solid rgba(139, 156, 255, 0.88);
+  outline: 2px solid rgba(var(--accent-rgb), 0.88);
   outline-offset: 2px;
 }
 
@@ -313,17 +313,17 @@
   padding: 20px 22px;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(17, 21, 32, 0.84), rgba(11, 15, 24, 0.78));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background: linear-gradient(180deg, rgba(var(--panel-rgb), 0.84), rgba(var(--panel-soft-rgb), 0.78));
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), 0.03);
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .history-page .report-card:hover {
   border-color: var(--border-strong);
-  background: linear-gradient(180deg, rgba(20, 25, 38, 0.9), rgba(13, 17, 27, 0.86));
+  background: linear-gradient(180deg, rgba(var(--panel-rgb), 0.9), rgba(var(--panel-soft-rgb), 0.86));
   transform: translateY(-1px);
-  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(var(--tint-rgb), 0.04);
 }
 
 .history-page .report-icon {
@@ -333,7 +333,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(139, 156, 255, 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.12);
   border-radius: 13px;
   background: var(--accent-soft);
   font-size: 23px;
@@ -354,10 +354,10 @@
 
 .history-page .report-category {
   padding: 3px 8px;
-  border: 1px solid rgba(139, 156, 255, 0.28) !important;
+  border: 1px solid rgba(var(--accent-rgb), 0.28) !important;
   border-radius: 7px;
   background: var(--accent-soft);
-  color: #cfd6ff;
+  color: var(--text-indigo-strong);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -371,7 +371,7 @@
 
 .history-page .report-title {
   margin: 0 0 7px;
-  color: #e8ecff;
+  color: var(--text-indigo-bright);
   font-family: 'Segoe UI Semibold', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 17px;
   line-height: 1.35;
@@ -429,37 +429,37 @@
   gap: 14px;
   border: 1px dashed var(--border-strong);
   border-radius: 18px;
-  background: rgba(12, 15, 24, 0.54);
+  background: rgba(var(--panel-deep-rgb), 0.54);
   color: var(--text-muted);
   text-align: center;
 }
 
 .history-page .history-error p {
   margin: 0;
-  color: #ffb4b4;
+  color: var(--danger-pale);
 }
 
 .history-page .history-error button {
   min-height: 38px;
   padding: 8px 16px;
-  border: 1px solid rgba(139, 156, 255, 0.36);
+  border: 1px solid rgba(var(--accent-rgb), 0.36);
   border-radius: 10px;
   background: var(--accent-soft);
-  color: #dce1ff;
+  color: var(--text-indigo);
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease;
 }
 
 .history-page .history-error button:hover {
-  border-color: rgba(139, 156, 255, 0.6);
-  background: rgba(139, 156, 255, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 .history-page .spinner {
   width: 38px;
   height: 38px;
-  border: 3px solid rgba(139, 156, 255, 0.16);
-  border-top-color: var(--accent);
+  border: 3px solid rgba(var(--accent-rgb), 0.16);
+  border-top-color: var(--accent-text);
   border-radius: 50%;
   animation: historySpin 0.9s linear infinite;
 }
@@ -487,17 +487,17 @@
 .history-page .history-empty-link {
   min-height: 38px;
   padding: 8px 16px;
-  border: 1px solid rgba(139, 156, 255, 0.36);
+  border: 1px solid rgba(var(--accent-rgb), 0.36);
   border-radius: 10px;
   background: var(--accent-soft);
-  color: #dce1ff;
+  color: var(--text-indigo);
   text-decoration: none;
   transition: border-color 0.16s ease, background 0.16s ease;
 }
 
 .history-page .history-empty-link:hover {
-  border-color: rgba(139, 156, 255, 0.6);
-  background: rgba(139, 156, 255, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 @media (max-width: 960px) {

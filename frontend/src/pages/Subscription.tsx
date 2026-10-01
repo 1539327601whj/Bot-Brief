@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ConfigProvider, TimePicker, theme } from 'antd'
+import { ConfigProvider, TimePicker } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { Link } from 'react-router-dom'
 import dayjs from '../utils/dayjs'
@@ -8,6 +8,8 @@ import { DEFAULT_WEEKDAY_FROM, DEFAULT_WEEKDAY_TO, WEEKDAY_OPTIONS, weekdaysOf }
 import { MAX_INTENT_LENGTH, normalizeIntent, topicIntentHint, topicOverview } from '../utils/topicOverview'
 import { defaultSiteVisible, topicSiteVisible } from '../utils/topicVisibility'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
+import { subscriptionTheme } from '../theme/antdTheme'
 import DemoNotice from '../components/DemoNotice'
 import { demoChannels, demoSubscription, demoTodayStatus } from '../demo/fixtures'
 import { earliestOnTimeLabel, todayStatusNeedsLiveRefresh, type TodayProgress, type TopicProgressItem } from '../utils/pushDisplay'
@@ -66,21 +68,6 @@ const CHANNEL_META: Record<ChannelType, string> = {
   feishu: '飞书',
 }
 
-const subscriptionTheme = {
-  algorithm: theme.darkAlgorithm,
-  token: {
-    colorPrimary: '#8b9cff',
-    colorPrimaryHover: '#a8b2ff',
-    colorBgBase: '#05070d',
-    colorBgContainer: '#0d111b',
-    colorBgElevated: '#111620',
-    colorBorder: 'rgba(255, 255, 255, 0.14)',
-    colorText: '#f4f7fb',
-    colorTextSecondary: '#9aa4b5',
-    borderRadius: 12,
-    boxShadowSecondary: '0 24px 80px rgba(0, 0, 0, 0.48)',
-  },
-}
 
 const toHHmm = (value?: string) => {
   const normalized = value ? value.slice(0, 5) : ''
@@ -174,6 +161,7 @@ const apiMessage = (error?: any, body?: any, fallback = '请求失败') => {
 
 export default function Subscription() {
   const { user, authReady, logout } = useAuth()
+  const { theme } = useTheme()
   const isDemo = user?.accountType === 'DEMO'
   const isAdmin = user?.role === 'ADMIN'
   const [data, setData] = useState<SubscriptionData>(normalizeSubscription({}))
@@ -744,7 +732,7 @@ export default function Subscription() {
   if (!authReady || loading) return <div className="loading">加载中...</div>
 
   return (
-    <ConfigProvider locale={zhCN} theme={subscriptionTheme}>
+    <ConfigProvider locale={zhCN} theme={subscriptionTheme(theme)}>
     <div className="subscription-page">
       {isDemo && <DemoNotice />}
       <div className="page-header">
@@ -888,8 +876,8 @@ export default function Subscription() {
         <h3>推送渠道通讯录</h3>
         <div className="channel-preview">
           <div>
-            {channels.length === 0 && <span style={{ color: '#8b949e' }}>还没有账号。不绑定也可以，简报只出现在网页。</span>}
-            {channels.length > 0 && <span>已保存 <b style={{ color: '#00d4aa' }}>{channels.length}</b> 个账号。同一个主题每种方式只绑一个；马斯克和黄仁勋这类不同主题可以共用同一个企业微信</span>}
+            {channels.length === 0 && <span style={{ color: 'var(--text-gh-muted)' }}>还没有账号。不绑定也可以，简报只出现在网页。</span>}
+            {channels.length > 0 && <span>已保存 <b style={{ color: 'var(--teal)' }}>{channels.length}</b> 个账号。同一个主题每种方式只绑一个；马斯克和黄仁勋这类不同主题可以共用同一个企业微信</span>}
           </div>
           <Link to="/channels" className="back-btn" style={{ marginBottom: 0 }}>管理通讯录 →</Link>
         </div>

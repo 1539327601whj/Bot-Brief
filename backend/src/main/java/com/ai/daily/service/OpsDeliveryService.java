@@ -55,6 +55,7 @@ public class OpsDeliveryService {
             }
             written++;
         }
+        log.info("运营投递记账完成 channel_type={} date={} written={}", channelType, date, written);
         return written;
     }
 

@@ -8,6 +8,7 @@ import com.ai.daily.service.EtfPriceHistoryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+@Slf4j
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -37,12 +39,15 @@ public class EtfPriceHistoryController {
             @RequestHeader(value = "X-Ingest-Token", required = false) String token,
             @RequestBody @Size(min = 1, max = 250) List<@Valid EtfPriceHistoryIngestDTO> prices) {
         if (IngestTokens.invalid(ingestToken, token)) {
+            log.warn("ETF 行情历史入库 token 无效");
             return Result.error(401, "入库 token 无效");
         }
         try {
             etfPriceHistoryService.upsertBatch(prices);
+            log.info("ETF 行情历史入库成功 count={}", prices.size());
             return Result.ok("ETF 行情历史已保存", null);
         } catch (IllegalArgumentException e) {
+            log.warn("ETF 行情历史入库参数非法 count={} reason={}", prices.size(), e.getMessage());
             return Result.error(400, e.getMessage());
         }
     }
@@ -54,11 +59,13 @@ public class EtfPriceHistoryController {
             @RequestParam(defaultValue = "7") int limit,
             @RequestParam(defaultValue = "QFQ") String adjustmentType) {
         if (IngestTokens.invalid(ingestToken, token)) {
+            log.warn("ETF 行情历史查询 token 无效");
             return Result.error(401, "查询 token 无效");
         }
         try {
             return Result.ok(etfPriceHistoryService.latest(fundCode, limit, adjustmentType));
         } catch (IllegalArgumentException e) {
+            log.warn("ETF 行情历史查询参数非法 fundCode={} reason={}", fundCode, e.getMessage());
             return Result.error(400, e.getMessage());
         }
     }
