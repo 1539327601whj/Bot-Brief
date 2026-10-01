@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  容器内构建用的 Maven 配置，只在 backend/Dockerfile 里 COPY 进镜像使用，不影响本地开发。
+
+  为什么需要它：腾讯云机器直连 repo.maven.apache.org 实测 2~18 kB/s，一次部署光是拉依赖
+  就 7 分半钟（2026-10-01 那次失败的部署跑满 10 分钟，其中 7 分 36 秒在下载）。换成国内镜像后
+  这一段降到秒级。
+
+  只镜像 central：backend/pom.xml 里没有声明任何 <repositories>，全部依赖都来自 central，
+  所以这一条就覆盖全了。写成 <mirrorOf>*</mirrorOf> 反而危险——将来 pom 里如果加了
+  别的仓库（比如某个里程碑版本），也会被强行改道到阿里云然后 404。
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <mirrors>
+    <mirror>
+      <id>aliyun-public</id>
+      <name>Aliyun public (mirror of central)</name>
+      <url>https://maven.aliyun.com/repository/public</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+
+</settings>

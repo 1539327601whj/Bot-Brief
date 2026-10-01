@@ -96,12 +96,19 @@ public class IndexFundPool {
     private final Map<String, Fund> byIndexCode;
     private final Map<String, Fund> byEtfCode;
 
+    /**
+     * 只此一个构造器，别拆。
+     *
+     * <p>Spring 遇到「有多个构造器、且谁都没标 {@code @Autowired}」时**不会挑**，而是回落到
+     * 无参构造器，然后抛 {@code NoSuchMethodException}——应用直接起不来。参数上的 {@code @Value}
+     * 不算数，Spring 只在构造器**本身**上找 {@code @Autowired}/{@code @Value}/{@code @Inject}。
+     *
+     * <p>原来这里分成「接 Resource 的公开构造器 + 接 List 的私有构造器」两级委托，就踩了这个坑。
+     * 那个私有构造器除了被上面委托没有任何调用方，所以直接合并——保持单构造器，这个坑就无从谈起。
+     * {@link IndexFundPoolContextTest} 守着这条。
+     */
     public IndexFundPool(@Value("classpath:screener/index-pool.json") Resource resource) {
-        this(parseAndValidate(readBytes(resource)));
-    }
-
-    private IndexFundPool(List<Fund> funds) {
-        this.funds = List.copyOf(funds);
+        this.funds = List.copyOf(parseAndValidate(readBytes(resource)));
 
         List<Fund> etf = new ArrayList<>();
         Map<String, Fund> byIndex = new LinkedHashMap<>();
