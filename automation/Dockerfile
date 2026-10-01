@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir \
 COPY scripts/logging_setup.py scripts/logging_setup.py
 COPY scripts/daily_report.py scripts/daily_report.py
 COPY scripts/etf_report.py scripts/etf_report.py
+COPY scripts/index_pool_sync.py scripts/index_pool_sync.py
 COPY scripts/etf_allocation_analyst.py scripts/etf_allocation_analyst.py
 COPY poll_loop.py .
 

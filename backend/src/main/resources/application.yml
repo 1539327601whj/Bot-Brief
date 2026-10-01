@@ -141,6 +141,11 @@ screener:
   universe-ttl-minutes: ${SCREENER_UNIVERSE_TTL_MINUTES:15}
   # 盘中（09:30–15:00）日线缓存时长；收盘后当天一直有效
   kline-intraday-ttl-minutes: ${SCREENER_KLINE_INTRADAY_TTL_MINUTES:20}
+  # 指数池估值分位（PE 分位）的整块缓存时长。
+  # 它是库里的数据、一天才变一次，所以不需要短；但也**不要调成一天**——
+  # 用户下午点一次、16:30 同步完再点，若还看到旧数就会以为这功能根本没更新。
+  # 一小时是「数几乎不变」和「用户相信它是新的」之间的折中。
+  valuation-ttl-minutes: ${SCREENER_VALUATION_TTL_MINUTES:60}
   # 池子大小：取最新交易日总市值前 N 只。
   # 这是拿覆盖面换请求量的旋钮——N 越大，市值门槛越低、越不容易漏掉中盘价值股，
   # 但行情批量请求次数按 N / quote-batch-size 增长，而请求数正是触发东财限流的东西。
@@ -150,4 +155,10 @@ screener:
   # 行情批量接口一次问多少只。调大能同比例减少请求次数。
   quote-batch-size: ${SCREENER_QUOTE_BATCH_SIZE:50}
   # 被行情源限流后的冷却时长。冷却期内不再外呼，有旧快照就用旧快照并标注数据时间。
+  # 冷却按源分开记（东财/腾讯/新浪各一条），所以腾讯挨限流不会连带锁掉东财的清单请求。
   rate-limit-cooldown-minutes: ${SCREENER_RATE_LIMIT_COOLDOWN_MINUTES:10}
+  # 一次扫描里，指数池日线最多向兜底源（腾讯）实时补抓多少只。
+  # 这是安全阀，不是性能旋钮：池子会扩到 200 条，而「每只一条日线」正是把 IP 封得更深的做法。
+  # 额度只覆盖指数池；个股那边只数由短名单天然限住，且已经带着明确原因降级。
+  # 用尽的会在口径摘要里写明少了几只。**不要因为「反正有兜底」就调大。**
+  index-pool-max-live-fetches: ${SCREENER_INDEX_POOL_MAX_LIVE_FETCHES:10}

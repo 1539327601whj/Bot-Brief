@@ -61,9 +61,18 @@ interface Selected {
   position: PricePosition | null
 }
 
+/**
+ * 一张指数卡。**单位是指数**，ETF 只是取价格位置与规模的手段。
+ *
+ * 每条可空数值都配了一个状态串，后端保证 `xStatus != null ⟺ 对应数值 == null`，
+ * 于是渲染时不需要任何「猜」：值为 null 就直接印状态串。前端**不再**有 `|| '—'` 这种兜底。
+ */
 interface IndexFundItem {
-  code: string
-  name: string
+  indexCode: string
+  indexName: string
+  category: string
+  etfCode: string | null
+  etfName: string | null
   tracking: string
   price: number | null
   pctChange: number | null
@@ -74,15 +83,41 @@ interface IndexFundItem {
   maxDrawdownInYear: number | null
   annualizedVolatility: number | null
   vsMa250: number | null
-  barCount: number | null
-  lastTradeDate: string | null
   peTtm: number | null
   pePercentile: number | null
+  priceStatus: string | null
+  pctChangeStatus: string | null
+  amountStatus: string | null
+  scaleStatus: string | null
+  positionStatus: string | null
+  peStatus: string | null
+  percentileStatus: string | null
+  quoteSource: string | null
+  positionSource: string | null
+  valuationSource: string | null
   percentileMethod: string | null
-  percentileStatus: string
   valuationTradeDate: string | null
+  barCount: number | null
+  lastTradeDate: string | null
   notes: string[]
 }
+
+/** 类别顺序。**顺序在这里写死**，不按数据里出现的先后——那会随池子内容变来变去。 */
+const CATEGORY_ORDER = ['broad', 'strategy', 'sector', 'theme', 'overseas', 'other']
+
+const CATEGORY_LABEL: Record<string, string> = {
+  broad: '宽基',
+  strategy: '红利与策略',
+  sector: '行业',
+  theme: '主题',
+  overseas: '海外',
+  other: '其它',
+}
+
+const categoryLabel = (c: string) => CATEGORY_LABEL[c] ?? c
+
+/** 每个类别首次渲染多少张。展开是纯本地 state，不进 URL、不发请求。 */
+const DEFAULT_PER_CATEGORY = 12
 
 interface VetoCount {
   rule: string
@@ -166,6 +201,47 @@ function signed(v: number | null | undefined, digits = 2) {
 function yi(v: number | null | undefined) {
   if (v === null || v === undefined) return '—'
   return `${Number(v).toFixed(2)} 亿`
+}
+
+/**
+ * 同一估值来源内部的排序：分位升序 → 规模降序 → 指数代码升序。
+ *
+ * 缺值的排在最后，**不当成最小或最大**：没有分位不等于分位为 0，
+ * 把它排到最前面会让人读成「最便宜的那几个，只是没数而已」。
+ * 末位的 `indexCode` 只是为了同样两条数据每次渲染顺序一致——顺序会跳的榜单没法核对。
+ */
+function compareIndexFund(a: IndexFundItem, b: IndexFundItem) {
+  if (a.pePercentile !== b.pePercentile) {
+    if (a.pePercentile === null) return 1
+    if (b.pePercentile === null) return -1
+    return a.pePercentile - b.pePercentile
+  }
+  if (a.scaleYi !== b.scaleYi) {
+    if (a.scaleYi === null) return 1
+    if (b.scaleYi === null) return -1
+    return b.scaleYi - a.scaleYi
+  }
+  return a.indexCode.localeCompare(b.indexCode)
+}
+
+/**
+ * 按估值来源分子组，各组内部排序。
+ *
+ * 组顺序按来源名固定（否则每次渲染顺序都可能变，没法核对）。**「未接入估值来源」那一组排最后**：
+ * 它没有分位可比，摆在最前面会被读成「这批指数里最靠前的几个」，而它恰恰是信息最少的一组。
+ */
+function subgroupsOf(items: IndexFundItem[]) {
+  const sources = [...new Set(items.map(f => f.valuationSource))]
+    .sort((a, b) => {
+      if (a === b) return 0
+      if (a === null) return 1      // 没接来源的排最后
+      if (b === null) return -1
+      return a.localeCompare(b)
+    })
+  return sources.map(source => ({
+    source,
+    items: items.filter(f => f.valuationSource === source).sort(compareIndexFund),
+  }))
 }
 
 /** 空字符串 = 用户没填 = 走后端默认，不能当成 0 发过去。 */
@@ -292,43 +368,105 @@ function StockCandidate({ item, rank }: { item: Selected; rank: number }) {
   )
 }
 
+/**
+ * 指数卡里的一格。
+ *
+ * **有值渲染值，无值渲染那一格自己的原因串**——指数卡里不再出现破折号。
+ * 后端保证 `status` 在 `value` 为 null 时非空；万一没有，也得把「没有原因」这件事
+ * 印出来，而不是留一格空白：空白的读法太多了，读者会以为是我们没取到、或者以为那是 0。
+ *
+ * 缺值的格子跨两列：原因串是一句话，而一列的宽度只有 104px，硬挤会变成竖着一列字。
+ */
+function Cell({ label, value, status, format }: {
+  label: string
+  value: number | null
+  status: string | null
+  format: (v: number) => string
+}) {
+  if (value === null || value === undefined) {
+    return (
+      <div className="stockpick-cell-wide">
+        <label>{label}</label>
+        <span className="stockpick-missing">{status || '未确认（后端未给出原因，请反馈）'}</span>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <label>{label}</label>
+      <span>{format(value)}</span>
+    </div>
+  )
+}
+
 function IndexFundCard({ item }: { item: IndexFundItem }) {
+  const pct = (v: number) => `${num(v, 1)}%`
+  const negativePct = (v: number) => `-${num(v, 1)}%`
+
   return (
     <article className="stockpick-card stockpick-index-card">
       <header className="stockpick-card-head">
         <div>
           <h4>
-            {item.name}
-            <span className="stockpick-code">{item.code}</span>
+            {item.indexName}
+            <span className="stockpick-code">{item.indexCode}</span>
           </h4>
           <div className="stockpick-meta">
-            <span>跟踪 {item.tracking}</span>
-            <span className="stockpick-badge risk-low">宽基 · 破产下市风险低</span>
+            <span className="stockpick-badge stockpick-cat">{categoryLabel(item.category)}</span>
+            {item.etfCode ? (
+              <span>
+                {item.etfName}<span className="stockpick-code">{item.etfCode}</span>
+                {' · 跟踪 '}{item.tracking}
+              </span>
+            ) : (
+              <span>池中暂无对应的可交易 ETF，本卡只有指数本身的估值</span>
+            )}
           </div>
         </div>
       </header>
 
       <div className="stockpick-numbers">
-        <div><label>最新价</label><span>{num(item.price, 3)}</span></div>
-        <div><label>当日</label><span>{signed(item.pctChange)}</span></div>
-        <div><label>成交额</label><span>{yi(item.amountYi)}</span></div>
-        <div><label>规模</label><span>{yi(item.scaleYi)}</span></div>
-        <div><label>一年价格分位</label><span>{item.pricePercentile === null ? '—' : `${num(item.pricePercentile, 1)}%`}</span></div>
-        <div><label>距一年最高点</label><span>{item.drawdownFromHigh === null ? '—' : `-${num(item.drawdownFromHigh, 1)}%`}</span></div>
-        <div><label>一年最大回撤</label><span>{item.maxDrawdownInYear === null ? '—' : `${num(item.maxDrawdownInYear, 1)}%`}</span></div>
-        <div><label>年化波动</label><span>{item.annualizedVolatility === null ? '—' : `${num(item.annualizedVolatility, 1)}%`}</span></div>
-        <div><label>PE(TTM)</label><span>{num(item.peTtm)}</span></div>
+        <Cell label="最新价" value={item.price} status={item.priceStatus} format={v => num(v, 3)} />
+        <Cell label="当日" value={item.pctChange} status={item.pctChangeStatus} format={signed} />
+        <Cell label="成交额" value={item.amountYi} status={item.amountStatus} format={yi} />
+        <Cell label="规模" value={item.scaleYi} status={item.scaleStatus} format={yi} />
+        <Cell label="一年价格分位" value={item.pricePercentile} status={item.positionStatus} format={pct} />
+        <Cell label="距一年最高点" value={item.drawdownFromHigh} status={item.positionStatus} format={negativePct} />
+        <Cell label="一年最大回撤" value={item.maxDrawdownInYear} status={item.positionStatus} format={pct} />
+        <Cell label="年化波动" value={item.annualizedVolatility} status={item.positionStatus} format={pct} />
+        <Cell label="对 MA250" value={item.vsMa250} status={item.positionStatus} format={signed} />
+        <Cell label="PE(TTM)" value={item.peTtm} status={item.peStatus} format={v => num(v)} />
+        <Cell label="PE 分位" value={item.pePercentile} status={item.percentileStatus} format={pct} />
+      </div>
+
+      {/*
+        「这条曲线有多旧」是读者该自己判断的事实，所以把日期和来源都摆出来。
+        不去猜「几天算旧」：交易日历在只看指数时拿不到，猜出来的阈值会在春节误报。
+      */}
+      <div className="stockpick-provenance">
         <div>
-          <label>PE 分位</label>
-          <span className={item.pePercentile === null ? 'stockpick-missing' : ''}>
-            {item.pePercentile === null ? item.percentileStatus : `${num(item.pePercentile, 1)}%`}
+          <label>价格</label>
+          <span>{item.quoteSource ?? '三个行情源都没取到'}</span>
+        </div>
+        <div>
+          <label>价格位置</label>
+          <span>
+            {item.positionSource ?? '未取到日线'}
+            {item.lastTradeDate && ` · 日线截止 ${item.lastTradeDate}`}
+            {item.barCount !== null && ` · ${item.barCount} 根`}
+          </span>
+        </div>
+        <div>
+          <label>估值口径</label>
+          <span>
+            每个指数只用一个来源：
+            {item.valuationSource ?? '未接入'}
+            {item.percentileMethod && ` · ${item.percentileMethod}`}
+            {item.valuationTradeDate ? ` · 数据日 ${item.valuationTradeDate}` : ''}
           </span>
         </div>
       </div>
 
-      {item.valuationTradeDate && (
-        <p className="stockpick-note">估值分位数据日：{item.valuationTradeDate}（{item.percentileMethod}）</p>
-      )}
       <List title="说明与缺口" items={item.notes} tone="risk" />
     </article>
   )
@@ -347,6 +485,10 @@ export default function StockPick() {
   // 每重试一次都是在把这个 IP 往更深的封禁里推。
   const [rateLimited, setRateLimited] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState<number | null>(null)
+  // 指数那一块的两个纯前端状态：筛选与展开。都不进 URL、不发请求——
+  // 服务端返回的是一次扫描的完整口径，客户端切片是即时的，少改一处协议。
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([])
   const startedAt = useRef(0)
 
   const run = useCallback(async (payload: Record<string, unknown>) => {
@@ -395,6 +537,40 @@ export default function StockPick() {
     ;[...result.steadyStocks, ...result.growthStocks].forEach(s => set.add(s.row.industry || '行业不可确认'))
     return [...set].sort()
   }, [result])
+
+  /**
+   * 指数按「类别 → 估值来源」组织好。
+   *
+   * **排序只在同一估值来源的子组内部做。** 跨口径排一个总榜是在比较不可比的数
+   * （实测中证500 两个源差 22%、科创50 差 75%），而榜单一出来，读者一定会横向读它。
+   * 章程 §5 明令禁止；这里用数据结构而不是注释来保证。
+   */
+  const indexGroups = useMemo(() => {
+    const funds = result?.indexFunds ?? []
+    const present = funds.map(f => f.category)
+    // 认不出的类别原样列在最后，不吞掉——吞掉就是「有条目悄悄不见了」
+    const order = [
+      ...CATEGORY_ORDER.filter(c => present.includes(c)),
+      ...[...new Set(present)].filter(c => !CATEGORY_ORDER.includes(c)),
+    ]
+    return {
+      all: order.map(category => {
+        const items = funds.filter(f => f.category === category)
+        const subgroups = subgroupsOf(items)
+        return {
+          category,
+          total: items.length,
+          subgroups,
+          // 子组优先拉平：这样「本类前 12 张」不会把某个口径整个切掉，
+          // 而每一组内部仍是排好序的。
+          items: subgroups.flatMap(sg => sg.items),
+        }
+      }),
+      etfBacked: funds.filter(f => f.etfCode !== null).length,
+    }
+  }, [result])
+
+  const etfBackedCount = indexGroups.etfBacked
 
   const patch = (part: Partial<Form>) => setForm(f => ({ ...f, ...part }))
 
@@ -592,11 +768,90 @@ export default function StockPick() {
             <section className="market-watch-section">
               <div className="market-watch-section-header">
                 <h3>指数基金（优先）</h3>
-                <span>宽基 7 只 · 破产与下市风险低于个股</span>
+                <span>
+                  共 {result.indexFunds.length} 个指数 · {etfBackedCount} 只有对应 ETF
+                  · 每个指数只用一个估值来源
+                </span>
               </div>
-              <div className="stockpick-grid">
-                {result.indexFunds.map(f => <IndexFundCard key={f.code} item={f} />)}
+              <p className="stockpick-caliber-warning">
+                ⚠ 不同来源的 PE 分位口径不同，不可横向比较——下面按来源分了子组，
+                排序只在子组内部进行。
+              </p>
+
+              {/*
+                刻意**不复用** .stockpick-chip：那个类的 .on 是「已排除」的意思，带删除线。
+                复用会让「选中宽基」看起来像「把宽基排除了」。
+              */}
+              <div className="stockpick-cat-chips">
+                <button
+                  type="button"
+                  className={`stockpick-filter-chip ${categoryFilter === 'all' ? 'on' : ''}`}
+                  onClick={() => setCategoryFilter('all')}
+                >
+                  全部（{result.indexFunds.length}）
+                </button>
+                {indexGroups.all.map(g => (
+                  <button
+                    key={g.category}
+                    type="button"
+                    className={`stockpick-filter-chip ${categoryFilter === g.category ? 'on' : ''}`}
+                    onClick={() => setCategoryFilter(g.category)}
+                  >
+                    {categoryLabel(g.category)}（{g.total}）
+                  </button>
+                ))}
               </div>
+
+              {(categoryFilter === 'all' ? indexGroups.all : indexGroups.all.filter(
+                g => g.category === categoryFilter,
+              )).map(g => {
+                const shown = expandedCategories.includes(g.category)
+                  ? g.items
+                  : g.items.slice(0, DEFAULT_PER_CATEGORY)
+                return (
+                  <div className="stockpick-cat-block" key={g.category}>
+                    <h4 className="stockpick-cat-title">
+                      {categoryLabel(g.category)}
+                      <span className="stockpick-code">{g.total} 个指数</span>
+                    </h4>
+                    {g.subgroups.map(sg => {
+                      const visible = shown.filter(f => f.valuationSource === sg.source)
+                      return (
+                        <div className="stockpick-source-group" key={sg.source ?? 'none'}>
+                          {/*
+                            子组标题**任何时候都渲染**，哪怕这一组的卡片被上限全切掉了。
+                            标题上写着这个口径有几个指数——一个口径整个消失比一张长列表难发现得多，
+                            而它消失的后果正是「跨口径比较」：读者会以为榜上就这些。
+                          */}
+                          <h5 className="stockpick-source-title">
+                            {sg.source ?? '未接入任何估值来源'}
+                            <span className="stockpick-code">
+                              口径 {sg.items[0]?.percentileMethod ?? '无'} ·{' '}
+                              {visible.length === sg.items.length
+                                ? `${sg.items.length} 个`
+                                : `${sg.items.length} 个，本页显示前 ${visible.length} 个`}
+                            </span>
+                          </h5>
+                          {visible.length > 0 && (
+                            <div className="stockpick-grid">
+                              {visible.map(f => <IndexFundCard key={f.indexCode} item={f} />)}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {g.items.length > DEFAULT_PER_CATEGORY && !expandedCategories.includes(g.category) && (
+                      <button
+                        type="button"
+                        className="stockpick-expand"
+                        onClick={() => setExpandedCategories(prev => [...prev, g.category])}
+                      >
+                        展开本类全部 {g.total} 个指数
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </section>
           )}
 

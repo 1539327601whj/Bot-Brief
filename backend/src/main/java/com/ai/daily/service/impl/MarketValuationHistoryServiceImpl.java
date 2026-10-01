@@ -7,12 +7,16 @@ import com.ai.daily.service.MarketValuationHistoryService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Slf4j
@@ -24,17 +28,27 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
             "DANJUAN_PE_TTM_PROVIDER"
     );
 
+    /** 与 EtfPriceHistoryServiceImpl 的批次上限保持一致，前端/脚本两边都按 250 切。 */
+    static final int MAX_BATCH = 250;
+
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+
     @Override
     public void upsert(MarketValuationIngestDTO dto) {
         validate(dto);
-        String indexCode = dto.getIndexCode().trim();
-        String percentileMethod = dto.getPercentileMethod().trim();
+        MarketValuationHistory history = toEntity(dto, ZonedDateTime.now(SHANGHAI).toLocalDateTime());
+        baseMapper.upsert(history);
+        log.info("指数估值入库 index_code={} trade_date={} percentile={}",
+                history.getIndexCode(), dto.getTradeDate(), dto.getPePercentile());
+    }
+
+    private MarketValuationHistory toEntity(MarketValuationIngestDTO dto, LocalDateTime now) {
         MarketValuationHistory history = new MarketValuationHistory();
-        history.setIndexCode(indexCode);
+        history.setIndexCode(dto.getIndexCode().trim());
         history.setIndexName(dto.getIndexName().trim());
         history.setPeTtm(dto.getPeTtm());
         history.setPePercentile(dto.getPePercentile());
-        history.setPercentileMethod(percentileMethod);
+        history.setPercentileMethod(dto.getPercentileMethod().trim());
         history.setTradeDate(dto.getTradeDate());
         if (dto.getValuationLevel() != null && !dto.getValuationLevel().isBlank()) {
             history.setValuationLevel(dto.getValuationLevel().trim());
@@ -42,10 +56,26 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
         if (dto.getSource() != null && !dto.getSource().isBlank()) {
             history.setSource(dto.getSource().trim());
         }
-        history.setCreatedAt(ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime());
-        baseMapper.upsert(history);
-        log.info("指数估值入库 index_code={} trade_date={} percentile={}",
-                indexCode, dto.getTradeDate(), dto.getPePercentile());
+        history.setCreatedAt(now);
+        return history;
+    }
+
+    @Override
+    @Transactional
+    public void upsertBatch(List<MarketValuationIngestDTO> valuations) {
+        if (valuations == null || valuations.isEmpty() || valuations.size() > MAX_BATCH) {
+            throw new IllegalArgumentException("估值批次必须包含 1-" + MAX_BATCH + " 条记录");
+        }
+        // 先全部校验再写：一半合法一半非法时，宁可一条都不写，
+        // 也不要留下「这批里哪些进去了」的模糊状态
+        valuations.forEach(this::validate);
+        LocalDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).toLocalDateTime();
+        List<MarketValuationHistory> histories = valuations.stream()
+                .map(dto -> toEntity(dto, now))
+                .toList();
+        baseMapper.upsertBatch(histories);
+        log.info("指数估值批量入库 count={} trade_date={}",
+                histories.size(), valuations.get(0).getTradeDate());
     }
 
     @Override
@@ -63,6 +93,32 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
                 .orderByDesc(MarketValuationHistory::getTradeDate)
                 .last("LIMIT " + Math.max(1, Math.min(limit, 800)))
                 .list();
+    }
+
+    @Override
+    public Map<String, MarketValuationHistory> latestForIndices(List<Key> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return Map.of();   // 空入参绝不能落到 SQL：`IN ()` 是语法错误
+        }
+        List<Key> valid = keys.stream()
+                .filter(k -> k != null && k.indexCode() != null && !k.indexCode().isBlank()
+                        && k.percentileMethod() != null && !k.percentileMethod().isBlank())
+                .map(k -> new Key(k.indexCode().trim(), k.percentileMethod().trim()))
+                .distinct()
+                .toList();
+        if (valid.isEmpty()) return Map.of();
+
+        Map<String, MarketValuationHistory> byIndex = new LinkedHashMap<>();
+        for (int i = 0; i < valid.size(); i += MAX_BATCH) {
+            List<MarketValuationHistory> rows = baseMapper.latestForIndices(
+                    valid.subList(i, Math.min(valid.size(), i + MAX_BATCH)));
+            for (MarketValuationHistory h : rows) {
+                // 同一个 indexCode 在池子里只钉一个口径，所以这里按 indexCode 归集不会互相覆盖；
+                // 真被覆盖了，说明池子里出现了「一个指数两个来源」，那是 IndexFundPool 校验就该拦住的事
+                byIndex.put(h.getIndexCode(), h);
+            }
+        }
+        return byIndex;
     }
 
     void validate(MarketValuationIngestDTO dto) {

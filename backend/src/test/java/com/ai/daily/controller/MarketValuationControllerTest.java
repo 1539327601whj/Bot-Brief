@@ -32,7 +32,19 @@ class MarketValuationControllerTest {
     void rejectsMissingAndWrongTokens() {
         assertThat(controller.ingest(null, mock(MarketValuationIngestDTO.class)).getCode()).isEqualTo(401);
         assertThat(controller.latest("wrong", "000300", "pe", 7).getCode()).isEqualTo(401);
+        assertThat(controller.ingestBatch("wrong", List.of(mock(MarketValuationIngestDTO.class))).getCode())
+                .isEqualTo(401);
         verifyNoInteractions(service);
+    }
+
+    @Test
+    void batchIngestIsOnlyReachableWithTheToken() {
+        List<MarketValuationIngestDTO> batch = List.of(
+                mock(MarketValuationIngestDTO.class), mock(MarketValuationIngestDTO.class));
+
+        assertThat(controller.ingestBatch("secret", batch).getCode()).isEqualTo(200);
+
+        verify(service).upsertBatch(batch);
     }
 
     @Test

@@ -1,0 +1,1601 @@
+{
+  "generatedAt": "2026-10-01T22:15:41+08:00",
+  "sources": {
+    "danjuanIndices": 63,
+    "sinaEtfs": 1693,
+    "seedEntries": 76
+  },
+  "summary": {
+    "candidates": 76,
+    "withEtf": 53,
+    "confirmed": 9,
+    "alreadyInPool": 7,
+    "noValuationSource": 0,
+    "withWarnings": 36
+  },
+  "howToUse": [
+    "人看着把条目搬进 backend/src/main/resources/screener/index-pool.json，",
+    "csindexVerifiedOn 为空的先跑一遍 verify_index_pool.py；",
+    "有 warnings 的条目搬进去之前先解决，否则会长出空白。"
+  ],
+  "candidates": [
+    {
+      "indexCode": "CSI931643",
+      "indexName": "科创创业50",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931643",
+      "danjuanCode": null,
+      "etfCode": "159781",
+      "market": 0,
+      "etfName": "科创创业",
+      "tracking": "科创创业50",
+      "confidence": "low",
+      "etfScaleYi": 159.72,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「科创创业」开头（命中 4 字），共 19 只，取规模最大的",
+        "其它候选：588380 科创创业ETF富国、588400 科创创业ETF嘉实、588300 科创创业50ETF招商"
+      ],
+      "warnings": [
+        "匹配到 19 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000009",
+      "indexName": "上证380",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000009",
+      "danjuanCode": null,
+      "etfCode": "530380",
+      "market": 1,
+      "etfName": "上证380ETF易方达",
+      "tracking": "上证380",
+      "confidence": "medium",
+      "etfScaleYi": 1.44,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「上证380」开头（命中 5 字），共 2 只，取规模最大的",
+        "其它候选：510290 上证380ETF南方"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000010",
+      "indexName": "上证180",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000010",
+      "danjuanCode": "SH000010",
+      "etfCode": "510180",
+      "market": 1,
+      "etfName": "上证180ETF华安",
+      "tracking": "上证180",
+      "confidence": "low",
+      "etfScaleYi": 170.04,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「上证180」开头（命中 5 字），共 10 只，取规模最大的",
+        "其它候选：510670 上证180ETF华夏、530680 上证180ETF兴业、530180 上证180ETF易方达"
+      ],
+      "warnings": [
+        "匹配到 10 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000016",
+      "indexName": "上证50",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000016",
+      "danjuanCode": "SH000016",
+      "etfCode": "510050",
+      "market": 1,
+      "etfName": "上证50ETF华夏",
+      "tracking": "上证50",
+      "confidence": "confirmed",
+      "etfScaleYi": 203.86,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：510050"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000300",
+      "indexName": "沪深300",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000300",
+      "danjuanCode": "SH000300",
+      "etfCode": "510300",
+      "market": 1,
+      "etfName": "沪深300ETF华泰柏瑞",
+      "tracking": "沪深300",
+      "confidence": "confirmed",
+      "etfScaleYi": 1068.98,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：510300"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000688",
+      "indexName": "科创50",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000688",
+      "danjuanCode": "SH000688",
+      "etfCode": "588000",
+      "market": 1,
+      "etfName": "科创50ETF华夏",
+      "tracking": "科创50",
+      "confidence": "confirmed",
+      "etfScaleYi": 941.14,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：588000"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000698",
+      "indexName": "科创100",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000698",
+      "danjuanCode": null,
+      "etfCode": "588220",
+      "market": 1,
+      "etfName": "科创100ETF鹏华",
+      "tracking": "科创100",
+      "confidence": "low",
+      "etfScaleYi": 65.24,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「科创100」开头（命中 5 字），共 14 只，取规模最大的",
+        "其它候选：588030 科创100ETF博时、588800 科创100ETF华夏、588190 科创100ETF银华"
+      ],
+      "warnings": [
+        "匹配到 14 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000852",
+      "indexName": "中证1000",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000852",
+      "danjuanCode": "SH000852",
+      "etfCode": "512100",
+      "market": 1,
+      "etfName": "中证1000ETF南方",
+      "tracking": "中证1000",
+      "confidence": "confirmed",
+      "etfScaleYi": 206.52,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：512100"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000903",
+      "indexName": "中证A100",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000903",
+      "danjuanCode": "SH000903",
+      "etfCode": "159845",
+      "market": 0,
+      "etfName": "中证1000",
+      "tracking": "中证A100",
+      "confidence": "low",
+      "etfScaleYi": 79.79,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证100」开头（命中 5 字），共 12 只，取规模最大的",
+        "其它候选：560010 中证1000ETF广发、560110 中证1000ETF汇添富、562530 中证1000价值ETF华夏"
+      ],
+      "warnings": [
+        "匹配到 12 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000905",
+      "indexName": "中证500",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000905",
+      "danjuanCode": "SH000905",
+      "etfCode": "510500",
+      "market": 1,
+      "etfName": "中证500ETF南方",
+      "tracking": "中证500",
+      "confidence": "confirmed",
+      "etfScaleYi": 419.28,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：510500"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000906",
+      "indexName": "中证800",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000906",
+      "danjuanCode": null,
+      "etfCode": "515800",
+      "market": 1,
+      "etfName": "中证800ETF汇添富",
+      "tracking": "中证800",
+      "confidence": "medium",
+      "etfScaleYi": 45.57,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证800」开头（命中 5 字），共 3 只，取规模最大的",
+        "其它候选：515810 中证800ETF易方达、159800 中证800"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000985",
+      "indexName": "中证全指",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000985",
+      "danjuanCode": null,
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "中证全指",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399001",
+      "indexName": "深证成指",
+      "category": "broad",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399001",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "深证成指",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399006",
+      "indexName": "创业板",
+      "category": "broad",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399006",
+      "etfCode": "159915",
+      "market": 0,
+      "etfName": "创业板",
+      "tracking": "创业板",
+      "confidence": "confirmed",
+      "etfScaleYi": 650.02,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：159915"
+      ],
+      "warnings": [
+        "池子里 SZ399006 叫「创业板指」，这条叫「创业板」——同一个 code 两个名字会写出两份估值，先确认是不是同一个指数"
+      ]
+    },
+    {
+      "indexCode": "SZ399317",
+      "indexName": "国证A指",
+      "category": "broad",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399317",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "国证A指",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399330",
+      "indexName": "深证100",
+      "category": "broad",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399330",
+      "etfCode": "159901",
+      "market": 0,
+      "etfName": "深100ETF",
+      "tracking": "深证100",
+      "confidence": "low",
+      "etfScaleYi": 35.93,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「深100」开头（命中 4 字），共 11 只，取规模最大的",
+        "其它候选：159961 深100、159212 深100NF、159721 深100MW"
+      ],
+      "warnings": [
+        "匹配到 11 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SZ399701",
+      "indexName": "基本面60",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399701",
+      "danjuanCode": "SZ399701",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "基本面60",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399702",
+      "indexName": "基本面120",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399702",
+      "danjuanCode": "SZ399702",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "基本面120",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "935600",
+      "indexName": "MSCI印度",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "935600",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "MSCI印度",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI716567",
+      "indexName": "MSCI中国",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "CSI716567",
+      "etfCode": "515160",
+      "market": 1,
+      "etfName": "MSCI中国ETF招商",
+      "tracking": "MSCI中国",
+      "confidence": "medium",
+      "etfScaleYi": 3.74,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「MSCI中国」开头（命中 6 字），共 5 只，取规模最大的",
+        "其它候选：512160 MSCI中国A股ETF南方、512380 MSCI中国ETF银华、512520 MSCI中国ETF华泰柏瑞"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSIH11136",
+      "indexName": "中国互联",
+      "category": "overseas",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "H11136",
+      "danjuanCode": "CSIH11136",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "中国互联",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSIH30533",
+      "indexName": "中概互联50",
+      "category": "overseas",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "H30533",
+      "danjuanCode": "CSIH30533",
+      "etfCode": "513050",
+      "market": 1,
+      "etfName": "中概互联网ETF易方达",
+      "tracking": "中概互联50",
+      "confidence": "medium",
+      "etfScaleYi": 350.87,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中概互联」开头（命中 4 字），共 3 只，取规模最大的",
+        "其它候选：159607 中概互联、513220 中概互联ETF招商"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "GDAXI",
+      "indexName": "德国DAX",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "GDAXI",
+      "etfCode": "513030",
+      "market": 1,
+      "etfName": "德国ETF华安",
+      "tracking": "德国DAX",
+      "confidence": "medium",
+      "etfScaleYi": 18.71,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「德国」开头（命中 2 字），共 2 只，取规模最大的",
+        "其它候选：159561 德国ETF"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "HKHSCEI",
+      "indexName": "国企指数",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "HKHSCEI",
+      "etfCode": "159850",
+      "market": 0,
+      "etfName": "H股50",
+      "tracking": "国企指数",
+      "confidence": "medium",
+      "etfScaleYi": 3.22,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「H股」开头（命中 2 字），共 2 只，取规模最大的",
+        "其它候选：159954 H股ETF"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "HKHSI",
+      "indexName": "恒生指数",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "HKHSI",
+      "etfCode": "513330",
+      "market": 1,
+      "etfName": "恒生互联网ETF华夏",
+      "tracking": "恒生指数",
+      "confidence": "low",
+      "etfScaleYi": 258.42,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「恒生」开头（命中 2 字），共 27 只，取规模最大的",
+        "其它候选：159920 恒生ETF、513060 恒生医疗ETF博时、159892 恒生生物"
+      ],
+      "warnings": [
+        "匹配到 27 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "HKHSSCNE",
+      "indexName": "新经济",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "HKHSSCNE",
+      "etfCode": "159822",
+      "market": 0,
+      "etfName": "新经济",
+      "tracking": "新经济",
+      "confidence": "high",
+      "etfScaleYi": 1.69,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「新经济」开头（命中 3 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "HKHSTECH",
+      "indexName": "恒生科技",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "HKHSTECH",
+      "etfCode": "513180",
+      "market": 1,
+      "etfName": "恒生科技ETF华夏",
+      "tracking": "恒生科技",
+      "confidence": "low",
+      "etfScaleYi": 381.09,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「恒生科技」开头（命中 4 字），共 12 只，取规模最大的",
+        "其它候选：513130 恒生科技ETF华泰柏瑞、513010 恒生科技ETF易方达、159740 恒生科技"
+      ],
+      "warnings": [
+        "匹配到 12 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "HSFML25",
+      "indexName": "香港大盘",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "HSFML25",
+      "etfCode": "520560",
+      "market": 1,
+      "etfName": "香港大盘30ETF华宝",
+      "tracking": "香港大盘",
+      "confidence": "high",
+      "etfScaleYi": 4.78,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「香港大盘」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "NDX",
+      "indexName": "纳指100",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "NDX",
+      "etfCode": "513100",
+      "market": 1,
+      "etfName": "纳指ETF国泰",
+      "tracking": "纳指100",
+      "confidence": "confirmed",
+      "etfScaleYi": 227.78,
+      "alreadyInPool": false,
+      "why": [
+        "seed 里人工确认的代表 ETF：513100"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SP500",
+      "indexName": "标普500",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SP500",
+      "etfCode": "513500",
+      "market": 1,
+      "etfName": "标普500ETF博时",
+      "tracking": "标普500",
+      "confidence": "confirmed",
+      "etfScaleYi": 277.53,
+      "alreadyInPool": false,
+      "why": [
+        "seed 里人工确认的代表 ETF：513500"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SPHCMSHP",
+      "indexName": "香港中小",
+      "category": "overseas",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SPHCMSHP",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "香港中小",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI930652",
+      "indexName": "中证电子",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930652",
+      "danjuanCode": "CSI930652",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "中证电子",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI931775",
+      "indexName": "房地产",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931775",
+      "danjuanCode": null,
+      "etfCode": "512200",
+      "market": 1,
+      "etfName": "房地产ETF南方",
+      "tracking": "房地产",
+      "confidence": "medium",
+      "etfScaleYi": 53.55,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「房地产」开头（命中 3 字），共 2 只，取规模最大的",
+        "其它候选：515060 房地产ETF华夏"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000932",
+      "indexName": "主要消费",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000932",
+      "danjuanCode": "SH000932",
+      "etfCode": "159672",
+      "market": 0,
+      "etfName": "主要消费",
+      "tracking": "主要消费",
+      "confidence": "high",
+      "etfScaleYi": 0.78,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「主要消费」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000933",
+      "indexName": "800医卫",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000933",
+      "danjuanCode": null,
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "800医卫",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SH000934",
+      "indexName": "800金地",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000934",
+      "danjuanCode": null,
+      "etfCode": "512640",
+      "market": 1,
+      "etfName": "金融地产ETF嘉实",
+      "tracking": "800金地",
+      "confidence": "medium",
+      "etfScaleYi": 0.5,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「金融地产」开头（命中 4 字），共 2 只，取规模最大的",
+        "其它候选：510650 金融地产ETF华夏"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000935",
+      "indexName": "800信息",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000935",
+      "danjuanCode": null,
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "800信息",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SH000978",
+      "indexName": "医药100",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000978",
+      "danjuanCode": "SH000978",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "医药100",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SH000986",
+      "indexName": "全指能源",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000986",
+      "danjuanCode": null,
+      "etfCode": "159981",
+      "market": 0,
+      "etfName": "能源化工",
+      "tracking": "全指能源",
+      "confidence": "medium",
+      "etfScaleYi": 34.28,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「能源」开头（命中 2 字），共 5 只，取规模最大的",
+        "其它候选：159930 能源ETF、158008 能源电池、159945 能源"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000987",
+      "indexName": "全指材料",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000987",
+      "danjuanCode": null,
+      "etfCode": "159944",
+      "market": 0,
+      "etfName": "材料ETF",
+      "tracking": "全指材料",
+      "confidence": "high",
+      "etfScaleYi": 0.41,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「材料」开头（命中 2 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000988",
+      "indexName": "全指工业",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000988",
+      "danjuanCode": null,
+      "etfCode": "560860",
+      "market": 1,
+      "etfName": "工业有色ETF万家",
+      "tracking": "全指工业",
+      "confidence": "low",
+      "etfScaleYi": 76.7,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「工业」开头（命中 2 字），共 11 只，取规模最大的",
+        "其它候选：159667 工业母机、159168 工业有色、159162 工业金属"
+      ],
+      "warnings": [
+        "匹配到 11 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000989",
+      "indexName": "全指可选",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000989",
+      "danjuanCode": "SH000989",
+      "etfCode": "159936",
+      "market": 0,
+      "etfName": "可选消费",
+      "tracking": "全指可选",
+      "confidence": "medium",
+      "etfScaleYi": 1.99,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「可选消费」开头（命中 4 字），共 2 只，取规模最大的",
+        "其它候选：562580 可选消费ETF华夏"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000991",
+      "indexName": "全指医药",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000991",
+      "danjuanCode": "SH000991",
+      "etfCode": "512010",
+      "market": 1,
+      "etfName": "医药ETF易方达",
+      "tracking": "全指医药",
+      "confidence": "low",
+      "etfScaleYi": 149.31,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「医药」开头（命中 2 字），共 9 只，取规模最大的",
+        "其它候选：159938 医药、159929 医药ETF、515950 医药50ETF富国"
+      ],
+      "warnings": [
+        "匹配到 9 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000993",
+      "indexName": "全指信息",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000993",
+      "danjuanCode": "SH000993",
+      "etfCode": "159939",
+      "market": 0,
+      "etfName": "信息技术",
+      "tracking": "全指信息",
+      "confidence": "medium",
+      "etfScaleYi": 7.95,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「信息技术」开头（命中 4 字），共 2 只，取规模最大的",
+        "其它候选：562560 信息技术ETF华夏"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399393",
+      "indexName": "国证地产",
+      "category": "sector",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399393",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "国证地产",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399396",
+      "indexName": "国证食品",
+      "category": "sector",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399396",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "国证食品",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399550",
+      "indexName": "央视50",
+      "category": "sector",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399550",
+      "etfCode": "159965",
+      "market": 0,
+      "etfName": "央视50",
+      "tracking": "央视50",
+      "confidence": "high",
+      "etfScaleYi": 0.34,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「央视50」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399610",
+      "indexName": "TMT50",
+      "category": "sector",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399610",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "TMT50",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399967",
+      "indexName": "中证军工",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399967",
+      "danjuanCode": "SZ399967",
+      "etfCode": "512660",
+      "market": 1,
+      "etfName": "军工ETF国泰",
+      "tracking": "中证军工",
+      "confidence": "medium",
+      "etfScaleYi": 75.2,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「军工」开头（命中 2 字），共 5 只，取规模最大的",
+        "其它候选：512710 军工龙头ETF富国、512680 军工ETF广发、512560 军工ETF易方达"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399975",
+      "indexName": "证券公司",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399975",
+      "danjuanCode": "SZ399975",
+      "etfCode": "512000",
+      "market": 1,
+      "etfName": "券商ETF华宝",
+      "tracking": "证券公司",
+      "confidence": "medium",
+      "etfScaleYi": 352.43,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「券商」开头（命中 2 字），共 3 只，取规模最大的",
+        "其它候选：159842 券商ETF、159848 证券公司"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399986",
+      "indexName": "中证银行",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399986",
+      "danjuanCode": "SZ399986",
+      "etfCode": "159253",
+      "market": 0,
+      "etfName": "中证银行",
+      "tracking": "中证银行",
+      "confidence": "high",
+      "etfScaleYi": 4.86,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证银行」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399989",
+      "indexName": "中证医疗",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399989",
+      "danjuanCode": "SZ399989",
+      "etfCode": "159847",
+      "market": 0,
+      "etfName": "中证医疗",
+      "tracking": "中证医疗",
+      "confidence": "high",
+      "etfScaleYi": 16.37,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证医疗」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399997",
+      "indexName": "中证白酒",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399997",
+      "danjuanCode": "SZ399997",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "中证白酒",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399998",
+      "indexName": "中证煤炭",
+      "category": "sector",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399998",
+      "danjuanCode": "SZ399998",
+      "etfCode": "515220",
+      "market": 1,
+      "etfName": "煤炭ETF国泰",
+      "tracking": "中证煤炭",
+      "confidence": "high",
+      "etfScaleYi": 98.43,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「煤炭」开头（命中 2 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI930740",
+      "indexName": "300红利低波",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930740",
+      "danjuanCode": "CSI930740",
+      "etfCode": "512890",
+      "market": 1,
+      "etfName": "红利低波ETF华泰柏瑞",
+      "tracking": "300红利低波",
+      "confidence": "low",
+      "etfScaleYi": 312.54,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「红利低波」开头（命中 4 字），共 13 只，取规模最大的",
+        "其它候选：515450 红利低波50ETF南方、563020 红利低波ETF易方达、515100 红利低波100ETF景顺"
+      ],
+      "warnings": [
+        "匹配到 13 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "CSI930782",
+      "indexName": "500低波",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930782",
+      "danjuanCode": "CSI930782",
+      "etfCode": "512260",
+      "market": 1,
+      "etfName": "中证500低波动ETF华安",
+      "tracking": "500低波",
+      "confidence": "high",
+      "etfScaleYi": 0.38,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证500低波动」开头（命中 8 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI931052",
+      "indexName": "国信价值",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931052",
+      "danjuanCode": null,
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "国信价值",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI931142",
+      "indexName": "东证竞争",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931142",
+      "danjuanCode": "CSI931142",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "东证竞争",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI931157",
+      "indexName": "红利成长LV",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931157",
+      "danjuanCode": "CSI931157",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "红利成长LV",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSIH30094",
+      "indexName": "消费红利",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "H30094",
+      "danjuanCode": "CSIH30094",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "消费红利",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SH000015",
+      "indexName": "上证红利",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000015",
+      "danjuanCode": "SH000015",
+      "etfCode": "510880",
+      "market": 1,
+      "etfName": "红利ETF华泰柏瑞",
+      "tracking": "上证红利",
+      "confidence": "confirmed",
+      "etfScaleYi": 188.63,
+      "alreadyInPool": true,
+      "why": [
+        "seed 里人工确认的代表 ETF：510880"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000821",
+      "indexName": "300红利",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000821",
+      "danjuanCode": null,
+      "etfCode": "512530",
+      "market": 1,
+      "etfName": "沪深300红利ETF建信",
+      "tracking": "300红利",
+      "confidence": "high",
+      "etfScaleYi": 1.53,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「沪深300红利」开头（命中 7 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000919",
+      "indexName": "300价值",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000919",
+      "danjuanCode": "SH000919",
+      "etfCode": "159510",
+      "market": 0,
+      "etfName": "300价值",
+      "tracking": "300价值",
+      "confidence": "medium",
+      "etfScaleYi": 0.8,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「300价值」开头（命中 5 字），共 3 只，取规模最大的",
+        "其它候选：562320 沪深300价值ETF银华、560330 沪深300价值ETF申万菱信"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000922",
+      "indexName": "中证红利",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000922",
+      "danjuanCode": "SH000922",
+      "etfCode": "515080",
+      "market": 1,
+      "etfName": "中证红利ETF招商",
+      "tracking": "中证红利",
+      "confidence": "high",
+      "etfScaleYi": 112.77,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「中证红利」开头（命中 4 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SH000925",
+      "indexName": "基本面50",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000925",
+      "danjuanCode": "SH000925",
+      "etfCode": "512750",
+      "market": 1,
+      "etfName": "基本面50ETF嘉实",
+      "tracking": "基本面50",
+      "confidence": "high",
+      "etfScaleYi": 0.66,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「基本面50」开头（命中 5 字），共 1 只，取规模最大的"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399324",
+      "indexName": "深证红利",
+      "category": "strategy",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399324",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "深证红利",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "CSI930713",
+      "indexName": "人工智能",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930713",
+      "danjuanCode": null,
+      "etfCode": "515070",
+      "market": 1,
+      "etfName": "人工智能ETF华夏",
+      "tracking": "人工智能",
+      "confidence": "medium",
+      "etfScaleYi": 79.4,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「人工智能」开头（命中 4 字），共 5 只，取规模最大的",
+        "其它候选：515980 人工智能ETF华富、561460 人工智能ETF天弘、517800 人工智能50ETF方正富邦"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI930901",
+      "indexName": "动漫游戏",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930901",
+      "danjuanCode": null,
+      "etfCode": "159869",
+      "market": 0,
+      "etfName": "游戏ETF",
+      "tracking": "动漫游戏",
+      "confidence": "medium",
+      "etfScaleYi": 82.79,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「游戏」开头（命中 2 字），共 4 只，取规模最大的",
+        "其它候选：516010 游戏ETF国泰、516770 游戏ETF华泰柏瑞、517770 游戏传媒ETF浦银"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI930997",
+      "indexName": "新能源车",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "930997",
+      "danjuanCode": null,
+      "etfCode": "515030",
+      "market": 1,
+      "etfName": "新能源车ETF华夏",
+      "tracking": "新能源车",
+      "confidence": "medium",
+      "etfScaleYi": 20.61,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「新能源车」开头（命中 4 字），共 4 只，取规模最大的",
+        "其它候选：515700 新能源车ETF平安、516390 新能源车ETF汇添富、516660 新能源车ETF华安"
+      ],
+      "warnings": [
+        "蛋卷目录里有同名指数 SZ399417，可以考虑补 danjuanCode"
+      ]
+    },
+    {
+      "indexCode": "CSI931079",
+      "indexName": "5G通信",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931079",
+      "danjuanCode": "CSI931079",
+      "etfCode": "159994",
+      "market": 0,
+      "etfName": "5GETF",
+      "tracking": "5G通信",
+      "confidence": "medium",
+      "etfScaleYi": 44.21,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「5G」开头（命中 2 字），共 2 只，取规模最大的",
+        "其它候选：159811 5G50ETF"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI931087",
+      "indexName": "科技龙头",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931087",
+      "danjuanCode": "CSI931087",
+      "etfCode": "516050",
+      "market": 1,
+      "etfName": "科技龙头ETF工银",
+      "tracking": "科技龙头",
+      "confidence": "medium",
+      "etfScaleYi": 2.07,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「科技龙头」开头（命中 4 字），共 2 只，取规模最大的",
+        "其它候选：159723 科技龙头"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "CSI931151",
+      "indexName": "光伏产业",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "931151",
+      "danjuanCode": null,
+      "etfCode": "515790",
+      "market": 1,
+      "etfName": "光伏ETF华泰柏瑞",
+      "tracking": "光伏产业",
+      "confidence": "low",
+      "etfScaleYi": 46.62,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「光伏」开头（命中 2 字），共 17 只，取规模最大的",
+        "其它候选：159857 光伏ETF、515370 光伏ETF华夏、516880 光伏ETF银华"
+      ],
+      "warnings": [
+        "匹配到 17 只，名称太泛，必须人工确认"
+      ]
+    },
+    {
+      "indexCode": "SH000827",
+      "indexName": "中证环保",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000827",
+      "danjuanCode": "SH000827",
+      "etfCode": "512580",
+      "market": 1,
+      "etfName": "环保ETF广发",
+      "tracking": "中证环保",
+      "confidence": "medium",
+      "etfScaleYi": 5.96,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「环保」开头（命中 2 字），共 2 只，取规模最大的",
+        "其它候选：159861 环保ETF"
+      ],
+      "warnings": []
+    },
+    {
+      "indexCode": "SZ399417",
+      "indexName": "国证新能源车",
+      "category": "theme",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "csindexCode": null,
+      "danjuanCode": "SZ399417",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "国证新能源车",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399812",
+      "indexName": "养老产业",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399812",
+      "danjuanCode": "SZ399812",
+      "etfCode": null,
+      "market": null,
+      "etfName": null,
+      "tracking": "养老产业",
+      "confidence": "none",
+      "etfScaleYi": null,
+      "alreadyInPool": false,
+      "why": [],
+      "warnings": [
+        "没有按名称找到代表 ETF；没有 ETF 的指数只出估值分位，价格与规模全空"
+      ]
+    },
+    {
+      "indexCode": "SZ399971",
+      "indexName": "中证传媒",
+      "category": "theme",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "399971",
+      "danjuanCode": "SZ399971",
+      "etfCode": "512980",
+      "market": 1,
+      "etfName": "传媒ETF广发",
+      "tracking": "中证传媒",
+      "confidence": "medium",
+      "etfScaleYi": 46.82,
+      "alreadyInPool": false,
+      "why": [
+        "名称以「传媒」开头（命中 2 字），共 3 只，取规模最大的",
+        "其它候选：159805 传媒ETF、516190 传媒ETF华夏"
+      ],
+      "warnings": []
+    }
+  ]
+}

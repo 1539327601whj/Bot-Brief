@@ -1,0 +1,88 @@
+{
+  "indices": [
+    {
+      "indexCode": "SH000300",
+      "indexName": "沪深300",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000300",
+      "etfCode": "510300",
+      "market": 1,
+      "etfName": "沪深300ETF",
+      "tracking": "沪深300"
+    },
+    {
+      "indexCode": "SH000905",
+      "indexName": "中证500",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000905",
+      "etfCode": "510500",
+      "market": 1,
+      "etfName": "中证500ETF",
+      "tracking": "中证500"
+    },
+    {
+      "indexCode": "SH000016",
+      "indexName": "上证50",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000016",
+      "etfCode": "510050",
+      "market": 1,
+      "etfName": "上证50ETF",
+      "tracking": "上证50"
+    },
+    {
+      "indexCode": "SZ399006",
+      "indexName": "创业板指",
+      "category": "broad",
+      "valuationSource": "danjuan",
+      "percentileMethod": "DANJUAN_PE_TTM_PROVIDER",
+      "danjuanCode": "SZ399006",
+      "etfCode": "159915",
+      "market": 0,
+      "etfName": "创业板ETF",
+      "tracking": "创业板指"
+    },
+    {
+      "indexCode": "SH000688",
+      "indexName": "科创50",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000688",
+      "etfCode": "588000",
+      "market": 1,
+      "etfName": "科创50ETF",
+      "tracking": "科创50"
+    },
+    {
+      "indexCode": "SH000852",
+      "indexName": "中证1000",
+      "category": "broad",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000852",
+      "etfCode": "512100",
+      "market": 1,
+      "etfName": "中证1000ETF",
+      "tracking": "中证1000"
+    },
+    {
+      "indexCode": "SH000015",
+      "indexName": "上证红利",
+      "category": "strategy",
+      "valuationSource": "csindex",
+      "percentileMethod": "CSI_PE_TTM_ROLLING_10Y",
+      "csindexCode": "000015",
+      "etfCode": "510880",
+      "market": 1,
+      "etfName": "红利ETF",
+      "tracking": "上证红利"
+    }
+  ]
+}

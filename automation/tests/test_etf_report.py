@@ -497,6 +497,89 @@ class ValuationTests(unittest.TestCase):
         merged = report.merge_pe_history(history, percentile_method=report.CSI_PE_TTM_ROLLING_10Y)
         self.assertEqual([item["tradeDate"] for item in merged], ["2026-07-25"])
 
+    @patch.object(report, "http_get")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_danjuan_items_are_fetched_once_and_shared_by_every_index(self, _, get):
+        # 池子里 60+ 个指数各发一次 = 在一个按 IP 限流的源上自己找封禁
+        report._DANJUAN_ITEMS_CACHE.clear()
+        get.return_value = response({"result_code": 0, "data": {"items": [
+            {"index_code": "SH000300", "pe": 13.1, "pe_percentile": 0.6, "date": "2026-07-26"},
+            {"index_code": "NDX", "pe": 30.0, "pe_percentile": 0.9, "date": "2026-07-26"},
+        ]}})
+
+        first = report.fetch_danjuan_items()
+        second = report.fetch_danjuan_items()
+
+        self.assertEqual(get.call_count, 1)
+        self.assertIs(first, second)
+        self.assertEqual(set(first), {"SH000300", "NDX"})
+
+    @patch.object(report, "http_get")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_danjuan_lookup_is_case_insensitive(self, _, get):
+        report._DANJUAN_ITEMS_CACHE.clear()
+        get.return_value = response({"result_code": 0, "data": {"items": [
+            {"index_code": "sh000300", "pe": 13.1, "pe_percentile": 0.6, "date": "2026-07-26"},
+        ]}})
+
+        self.assertIn("SH000300", report.fetch_danjuan_items())
+
+    @patch.object(report, "http_get")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_an_empty_danjuan_payload_is_an_error_not_a_pool_of_misses(self, _, get):
+        # 当成「都查不到」的话，池子里每条会各自转去归档源重试，把限流引到那边
+        report._DANJUAN_ITEMS_CACHE.clear()
+        get.return_value = response({"result_code": 0, "data": {"items": []}})
+        with self.assertRaisesRegex(RuntimeError, "未返回任何指数"):
+            report.fetch_danjuan_items()
+
+    def test_valuation_source_is_required_and_must_be_known(self):
+        # 缺省成蛋卷的后果很具体：沪深300 的分位会从 48.8% 悄悄变成 60.6%，且不报错
+        with self.assertRaisesRegex(RuntimeError, "valuation_source"):
+            report.valuation_source_of({"name": "沪深300", "valuation_index_code": "SH000300"})
+        with self.assertRaisesRegex(RuntimeError, "valuation_source"):
+            report.valuation_source_of({**ETF, "valuation_source": "xueqiu"})
+        self.assertEqual(report.valuation_source_of(ETF), report.VALUATION_SOURCE_CSINDEX)
+        self.assertEqual(report.valuation_source_of(report.ETF_LIST[1]), report.VALUATION_SOURCE_DANJUAN)
+
+    @patch.object(report, "fetch_csindex_pe_history")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_csindex_source_asks_for_that_index_not_always_csi300(self, _, history):
+        # 参数化之前这个函数写死 000300；池子扩出去以后每只指数都会去取沪深300 的 PE
+        history.return_value = [{
+            "tradeDate": "2026-07-26", "peTtm": 25.1, "pePercentile": 73.8,
+            "percentileMethod": report.CSI_PE_TTM_ROLLING_10Y, "source": report.CSI_PE_SOURCE_LABEL,
+        }]
+        etf = {**ETF, "csindex_code": "000905", "index_name": "中证500指数"}
+
+        valuation, _ = report.fetch_source_valuation(etf)
+
+        history.assert_called_once_with("000905")
+        self.assertEqual(valuation["pe_percentile"], 73.8)
+
+    @patch.object(report, "fetch_csindex_pe_history")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_a_csindex_entry_without_its_code_fails_instead_of_using_csi300(self, _, history):
+        etf = {**ETF, "csindex_code": None}
+        with self.assertRaisesRegex(RuntimeError, "csindex_code"):
+            report.fetch_source_valuation(etf)
+        history.assert_not_called()
+
+    # fetch_archived_valuation_on_or_before 也要 patch：主源取到新鲜值之后，这个函数还会
+    # 去归档源补历史基线（6 个日期点），不 patch 就会真的打到 raw.githubusercontent.com。
+    @patch.object(report, "fetch_archived_valuation_on_or_before", return_value=None)
+    @patch.object(report, "fetch_valuation_from_danjuan")
+    @patch.object(report, "now_beijing", return_value=NOW)
+    def test_offshore_indices_stay_on_danjuan(self, _, fetch, __):
+        fetch.return_value = {
+            "pe_ttm": 30.0, "pe_percentile": 90.0, "updated_at": "2026-07-26",
+            "percentile_method": report.DANJUAN_PE_TTM_PROVIDER,
+            "percentileMethod": report.DANJUAN_PE_TTM_PROVIDER,
+        }
+        valuation, _ = report.fetch_source_valuation(report.ETF_LIST[1], backend_history=[])
+        self.assertEqual(valuation["pe_percentile"], 90.0)
+        fetch.assert_called_once()
+
     @patch.object(report, "fetch_cached_etf_prices", return_value=[])
     @patch.object(report, "fetch_etf_premium", return_value={})
     @patch.object(report, "fetch_price_context", return_value={})

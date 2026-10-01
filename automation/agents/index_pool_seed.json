@@ -1,0 +1,910 @@
+{
+  "notes": [
+    "指数池的人工知识表：指数名 ↔ 中证官网代码 / 蛋卷代码。",
+    "它是 build_index_pool.py 唯一的「该指数叫什么、代码是什么」来源——机器不许猜代码。",
+    "csindexCode 一律要求现场验过（csindexVerifiedOn 记的是验证日期）。",
+    "csindexVerifiedOn 为空 = 还没验过，验过之前不要把它搬进正式池子。",
+    "取不到的已知例子：深证/国证自编指数（399001 深证成指、399006 创业板指、399330 深证100、",
+    "399317 国证A指、399324 深证红利、399393 国证地产、399396 国证食品、399417 新能源车、",
+    "399550 央视50、399610 TMT50）与 000170 50AH优选——这些只能走蛋卷。",
+    "注意不是按码段一刀切：399701/399702/399812/399967/399971/399975/399986/399989/399997/399998",
+    "都取得到，所以必须逐个验，别照前缀推。",
+    "etfCode 是人工确认过的代表 ETF；留空表示交给生成器按名称提案，人再确认。",
+    "indexCode 的推导规则见 build_index_pool.py：有 danjuanCode 用它，否则 SH/SZ + csindexCode。",
+    "  这样现有 7 条（SH000300/SH000905/SZ399006…）的 code 与今天完全一致，老数据不用迁移。",
+    "蛋卷对个别指数会返回 PE=0（如 SZ399393 国证地产），同步时会被跳过并留原因串，不是 bug。",
+    "候选收窄成正式池子的路径：build_index_pool.py 只产候选（index-pool-candidates.json），",
+    "  人工收窄的结果写在 index-pool-proposed.json（形状与正式池子完全一致，可直接覆盖过去），",
+    "  搬进正式池子之前必须 py -3 automation/scripts/verify_index_pool.py --pool automation/agents/index-pool-proposed.json。",
+    "indexCode 的前缀由号段定（399/980→SZ，000/950→SH，其余中证自编→CSI），海外用蛋卷自己的标识。",
+    "  不要照抄蛋卷的代码：同一个 93 号段它写过 SH930901 也写过 CSI930740，照抄会让一个指数长出两个 key。",
+    "名字自证按「去掉『指数』后缀后精确相等」比，不用包含；俗名写进本表的 aliases。"
+  ],
+  "seed": [
+    {
+      "indexName": "沪深300",
+      "aliases": [
+        "沪深300"
+      ],
+      "category": "broad",
+      "csindexCode": "000300",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000300",
+      "etfCode": "510300"
+    },
+    {
+      "indexName": "中证500",
+      "aliases": [
+        "中证500"
+      ],
+      "category": "broad",
+      "csindexCode": "000905",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000905",
+      "etfCode": "510500"
+    },
+    {
+      "indexName": "中证1000",
+      "aliases": [
+        "中证1000"
+      ],
+      "category": "broad",
+      "csindexCode": "000852",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000852",
+      "etfCode": "512100"
+    },
+    {
+      "indexName": "上证50",
+      "aliases": [
+        "上证50"
+      ],
+      "category": "broad",
+      "csindexCode": "000016",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000016",
+      "etfCode": "510050"
+    },
+    {
+      "indexName": "上证180",
+      "aliases": [
+        "上证180"
+      ],
+      "category": "broad",
+      "csindexCode": "000010",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000010",
+      "etfCode": ""
+    },
+    {
+      "indexName": "上证380",
+      "aliases": [
+        "上证380"
+      ],
+      "category": "broad",
+      "csindexCode": "000009",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证800",
+      "aliases": [
+        "中证800"
+      ],
+      "category": "broad",
+      "csindexCode": "000906",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证A100",
+      "aliases": [
+        "中证A100",
+        "中证100"
+      ],
+      "category": "broad",
+      "csindexCode": "000903",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000903",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证全指",
+      "aliases": [
+        "中证全指"
+      ],
+      "category": "broad",
+      "csindexCode": "000985",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "科创50",
+      "aliases": [
+        "科创50",
+        "科创板50"
+      ],
+      "category": "broad",
+      "csindexCode": "000688",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000688",
+      "etfCode": "588000"
+    },
+    {
+      "indexName": "科创100",
+      "aliases": [
+        "科创100"
+      ],
+      "category": "broad",
+      "csindexCode": "000698",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "科创创业50",
+      "aliases": [
+        "科创创业50",
+        "双创50",
+        "科创创业"
+      ],
+      "category": "broad",
+      "csindexCode": "931643",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "创业板",
+      "aliases": [
+        "创业板"
+      ],
+      "category": "broad",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399006",
+      "etfCode": "159915"
+    },
+    {
+      "indexName": "深证成指",
+      "aliases": [
+        "深证成指",
+        "深成指"
+      ],
+      "category": "broad",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399001",
+      "etfCode": ""
+    },
+    {
+      "indexName": "深证100",
+      "aliases": [
+        "深证100",
+        "深100"
+      ],
+      "category": "broad",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399330",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国证A指",
+      "aliases": [
+        "国证A指"
+      ],
+      "category": "broad",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399317",
+      "etfCode": ""
+    },
+    {
+      "indexName": "基本面60",
+      "aliases": [
+        "基本面60",
+        "深证F60"
+      ],
+      "category": "broad",
+      "csindexCode": "399701",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399701",
+      "etfCode": ""
+    },
+    {
+      "indexName": "基本面120",
+      "aliases": [
+        "基本面120",
+        "深证F120"
+      ],
+      "category": "broad",
+      "csindexCode": "399702",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399702",
+      "etfCode": ""
+    },
+    {
+      "indexName": "上证红利",
+      "aliases": [
+        "上证红利",
+        "红利指数"
+      ],
+      "category": "strategy",
+      "csindexCode": "000015",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000015",
+      "etfCode": "510880"
+    },
+    {
+      "indexName": "中证红利",
+      "aliases": [
+        "中证红利"
+      ],
+      "category": "strategy",
+      "csindexCode": "000922",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000922",
+      "etfCode": ""
+    },
+    {
+      "indexName": "300红利",
+      "aliases": [
+        "300红利",
+        "沪深300红利"
+      ],
+      "category": "strategy",
+      "csindexCode": "000821",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "300红利低波",
+      "aliases": [
+        "红利低波",
+        "300红利低波"
+      ],
+      "category": "strategy",
+      "csindexCode": "930740",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI930740",
+      "etfCode": ""
+    },
+    {
+      "indexName": "300价值",
+      "aliases": [
+        "300价值",
+        "沪深300价值"
+      ],
+      "category": "strategy",
+      "csindexCode": "000919",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000919",
+      "etfCode": ""
+    },
+    {
+      "indexName": "基本面50",
+      "aliases": [
+        "基本面50"
+      ],
+      "category": "strategy",
+      "csindexCode": "000925",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000925",
+      "etfCode": ""
+    },
+    {
+      "indexName": "深证红利",
+      "aliases": [
+        "深证红利"
+      ],
+      "category": "strategy",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399324",
+      "etfCode": ""
+    },
+    {
+      "indexName": "500低波",
+      "aliases": [
+        "中证500低波动",
+        "500低波",
+        "500SNLV"
+      ],
+      "category": "strategy",
+      "csindexCode": "930782",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI930782",
+      "etfCode": ""
+    },
+    {
+      "indexName": "消费红利",
+      "aliases": [
+        "消费红利"
+      ],
+      "category": "strategy",
+      "csindexCode": "H30094",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSIH30094",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国信价值",
+      "aliases": [
+        "国信价值"
+      ],
+      "category": "strategy",
+      "csindexCode": "931052",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "红利成长LV",
+      "aliases": [
+        "红利成长LV",
+        "红利成长"
+      ],
+      "category": "strategy",
+      "csindexCode": "931157",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI931157",
+      "etfCode": ""
+    },
+    {
+      "indexName": "东证竞争",
+      "aliases": [
+        "东证竞争"
+      ],
+      "category": "strategy",
+      "csindexCode": "931142",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI931142",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指医药",
+      "aliases": [
+        "全指医药",
+        "医药"
+      ],
+      "category": "sector",
+      "csindexCode": "000991",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000991",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指信息",
+      "aliases": [
+        "全指信息",
+        "信息技术"
+      ],
+      "category": "sector",
+      "csindexCode": "000993",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000993",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指可选",
+      "aliases": [
+        "全指可选",
+        "可选消费"
+      ],
+      "category": "sector",
+      "csindexCode": "000989",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000989",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指能源",
+      "aliases": [
+        "全指能源",
+        "能源"
+      ],
+      "category": "sector",
+      "csindexCode": "000986",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指材料",
+      "aliases": [
+        "全指材料",
+        "材料"
+      ],
+      "category": "sector",
+      "csindexCode": "000987",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "全指工业",
+      "aliases": [
+        "全指工业",
+        "工业"
+      ],
+      "category": "sector",
+      "csindexCode": "000988",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "主要消费",
+      "aliases": [
+        "主要消费",
+        "800消费"
+      ],
+      "category": "sector",
+      "csindexCode": "000932",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000932",
+      "etfCode": ""
+    },
+    {
+      "indexName": "800医卫",
+      "aliases": [
+        "800医卫",
+        "医药卫生"
+      ],
+      "category": "sector",
+      "csindexCode": "000933",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "800金地",
+      "aliases": [
+        "800金地",
+        "金融地产"
+      ],
+      "category": "sector",
+      "csindexCode": "000934",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "800信息",
+      "aliases": [
+        "800信息"
+      ],
+      "category": "sector",
+      "csindexCode": "000935",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "医药100",
+      "aliases": [
+        "医药100"
+      ],
+      "category": "sector",
+      "csindexCode": "000978",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000978",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证电子",
+      "aliases": [
+        "中证电子",
+        "CS电子"
+      ],
+      "category": "sector",
+      "csindexCode": "930652",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI930652",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证银行",
+      "aliases": [
+        "中证银行"
+      ],
+      "category": "sector",
+      "csindexCode": "399986",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399986",
+      "etfCode": ""
+    },
+    {
+      "indexName": "证券公司",
+      "aliases": [
+        "证券公司",
+        "券商"
+      ],
+      "category": "sector",
+      "csindexCode": "399975",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399975",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证医疗",
+      "aliases": [
+        "中证医疗"
+      ],
+      "category": "sector",
+      "csindexCode": "399989",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399989",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证军工",
+      "aliases": [
+        "中证军工",
+        "军工"
+      ],
+      "category": "sector",
+      "csindexCode": "399967",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399967",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证白酒",
+      "aliases": [
+        "中证白酒",
+        "白酒"
+      ],
+      "category": "sector",
+      "csindexCode": "399997",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399997",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证煤炭",
+      "aliases": [
+        "中证煤炭",
+        "煤炭"
+      ],
+      "category": "sector",
+      "csindexCode": "399998",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399998",
+      "etfCode": ""
+    },
+    {
+      "indexName": "房地产",
+      "aliases": [
+        "房地产"
+      ],
+      "category": "sector",
+      "csindexCode": "931775",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国证地产",
+      "aliases": [
+        "国证地产"
+      ],
+      "category": "sector",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399393",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国证食品",
+      "aliases": [
+        "国证食品"
+      ],
+      "category": "sector",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399396",
+      "etfCode": ""
+    },
+    {
+      "indexName": "央视50",
+      "aliases": [
+        "央视50"
+      ],
+      "category": "sector",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399550",
+      "etfCode": ""
+    },
+    {
+      "indexName": "TMT50",
+      "aliases": [
+        "TMT50"
+      ],
+      "category": "sector",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399610",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证环保",
+      "aliases": [
+        "中证环保",
+        "环保"
+      ],
+      "category": "theme",
+      "csindexCode": "000827",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SH000827",
+      "etfCode": ""
+    },
+    {
+      "indexName": "人工智能",
+      "aliases": [
+        "人工智能",
+        "CS人工智"
+      ],
+      "category": "theme",
+      "csindexCode": "930713",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "5G通信",
+      "aliases": [
+        "5G通信",
+        "5G通讯",
+        "5G"
+      ],
+      "category": "theme",
+      "csindexCode": "931079",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI931079",
+      "etfCode": ""
+    },
+    {
+      "indexName": "光伏产业",
+      "aliases": [
+        "光伏产业",
+        "光伏"
+      ],
+      "category": "theme",
+      "csindexCode": "931151",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "新能源车",
+      "aliases": [
+        "新能源车",
+        "新能源汽车"
+      ],
+      "category": "theme",
+      "csindexCode": "930997",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国证新能源车",
+      "aliases": [
+        "国证新能源车"
+      ],
+      "category": "theme",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SZ399417",
+      "etfCode": ""
+    },
+    {
+      "indexName": "科技龙头",
+      "aliases": [
+        "科技龙头"
+      ],
+      "category": "theme",
+      "csindexCode": "931087",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSI931087",
+      "etfCode": ""
+    },
+    {
+      "indexName": "动漫游戏",
+      "aliases": [
+        "动漫游戏",
+        "游戏"
+      ],
+      "category": "theme",
+      "csindexCode": "930901",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中证传媒",
+      "aliases": [
+        "中证传媒",
+        "传媒"
+      ],
+      "category": "theme",
+      "csindexCode": "399971",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399971",
+      "etfCode": ""
+    },
+    {
+      "indexName": "养老产业",
+      "aliases": [
+        "养老产业"
+      ],
+      "category": "theme",
+      "csindexCode": "399812",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "SZ399812",
+      "etfCode": ""
+    },
+    {
+      "indexName": "纳指100",
+      "aliases": [
+        "纳指100",
+        "纳指",
+        "纳斯达克100"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "NDX",
+      "etfCode": "513100"
+    },
+    {
+      "indexName": "标普500",
+      "aliases": [
+        "标普500",
+        "标普"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SP500",
+      "etfCode": "513500"
+    },
+    {
+      "indexName": "恒生指数",
+      "aliases": [
+        "恒生指数",
+        "恒生"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "HKHSI",
+      "etfCode": ""
+    },
+    {
+      "indexName": "恒生科技",
+      "aliases": [
+        "恒生科技",
+        "恒生科技指数",
+        "恒科"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "HKHSTECH",
+      "etfCode": ""
+    },
+    {
+      "indexName": "国企指数",
+      "aliases": [
+        "国企指数",
+        "H股"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "HKHSCEI",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中概互联50",
+      "aliases": [
+        "中概互联50",
+        "中概互联",
+        "中国互联网50"
+      ],
+      "category": "overseas",
+      "csindexCode": "H30533",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSIH30533",
+      "etfCode": ""
+    },
+    {
+      "indexName": "中国互联",
+      "aliases": [
+        "中国互联"
+      ],
+      "category": "overseas",
+      "csindexCode": "H11136",
+      "csindexVerifiedOn": "2026-10-01",
+      "danjuanCode": "CSIH11136",
+      "etfCode": ""
+    },
+    {
+      "indexName": "MSCI中国",
+      "aliases": [
+        "MSCI中国"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "CSI716567",
+      "etfCode": ""
+    },
+    {
+      "indexName": "德国DAX",
+      "aliases": [
+        "德国DAX",
+        "DAX",
+        "德国"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "GDAXI",
+      "etfCode": ""
+    },
+    {
+      "indexName": "MSCI印度",
+      "aliases": [
+        "MSCI印度",
+        "印度"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "935600",
+      "etfCode": ""
+    },
+    {
+      "indexName": "香港大盘",
+      "aliases": [
+        "香港大盘"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "HSFML25",
+      "etfCode": ""
+    },
+    {
+      "indexName": "香港中小",
+      "aliases": [
+        "香港中小"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "SPHCMSHP",
+      "etfCode": ""
+    },
+    {
+      "indexName": "新经济",
+      "aliases": [
+        "新经济"
+      ],
+      "category": "overseas",
+      "csindexCode": "",
+      "csindexVerifiedOn": "",
+      "danjuanCode": "HKHSSCNE",
+      "etfCode": ""
+    }
+  ]
+}

@@ -32,6 +32,9 @@ coverage/
 __pycache__/
 *.pyc
 
+# 指数池同步的「本机今天已跑过」哨兵（本地状态，不进仓库）
+.index_pool_sync_marker
+
 # WorkBuddy local data (contains sensitive info)
 .workbuddy/
 

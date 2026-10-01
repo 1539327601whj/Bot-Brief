@@ -56,6 +56,19 @@ import java.util.Set;
 @Component
 public class MarketDataClient {
 
+    /** 这个源在兜底链与冷却表里的名字。冷却按源分开记，所以名字必须唯一且稳定。 */
+    public static final String PROVIDER_EASTMONEY = "eastmoney";
+
+    /**
+     * 日线来自**本地预取库**（{@code etf_price_history}），不是本次外呼。
+     *
+     * <p>它必须有自己的名字：这条链的每一层都往口径摘要里报「这批数是谁给的」，
+     * 而「本地库」与「腾讯兜底」的区别正是用户最该知道的那件事——
+     * 一个背后有每日同步在保证新鲜度，另一个是点击时临时抓的。
+     * 混用同一个名字会让「点击时有没有外呼」这件事在页面上看不出来。
+     */
+    public static final String PROVIDER_LOCAL = "local";
+
     private static final String UT = "fa5fd1943c7bdc76815634f86e88ea48";
 
     /** 自己解析响应用的。字段只取我们点名的那些，多给的（清单偶尔会多塞几列）不该让解析失败。 */
@@ -131,22 +144,40 @@ public class MarketDataClient {
         this.quoteBatchSize = Math.max(1, quoteBatchSize);
     }
 
+    /** 日线取多少根。兜底源必须用同一个数，否则两条线的「一年」是两个长度。 */
+    int klineLimit() {
+        return klineLimit;
+    }
+
     /** 一次日线抓取的结果：成功给 bars，失败给出可读原因（不抛，由上层决定降级还是淘汰）。 */
     public record KlineOutcome(List<PricePositionCalculator.Bar> bars, String failureReason,
-                               boolean throttled) {
+                               boolean throttled, String provider) {
         public boolean ok() { return bars != null && !bars.isEmpty(); }
 
+        /** 无 provider 参数的工厂一律记东财——这个类的既有调用点打的都是东财那条线。 */
         public static KlineOutcome ok(List<PricePositionCalculator.Bar> bars) {
-            return new KlineOutcome(bars, null, false);
+            return ok(bars, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineOutcome ok(List<PricePositionCalculator.Bar> bars, String provider) {
+            return new KlineOutcome(bars, null, false, provider);
         }
 
         public static KlineOutcome failed(String reason) {
-            return new KlineOutcome(List.of(), reason, false);
+            return failed(reason, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineOutcome failed(String reason, String provider) {
+            return new KlineOutcome(List.of(), reason, false, provider);
         }
 
         /** 被限流导致的失败。上层据此进入冷却，避免下一次点击又打一遍。 */
         public static KlineOutcome throttled(String reason) {
-            return new KlineOutcome(List.of(), reason, true);
+            return throttled(reason, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineOutcome throttled(String reason, String provider) {
+            return new KlineOutcome(List.of(), reason, true, provider);
         }
     }
 
@@ -350,9 +381,17 @@ public class MarketDataClient {
     // 指数基金批量行情
     // ==================================================================
 
-    /** 单只指数基金的行情（可能缺失）。 */
+    /**
+     * 单只指数基金的行情（可能缺失）。{@code provider} 是这份行情实际来自哪个源——
+     * 兜底链启用后「有值」和「值可信」不再等价：新浪那一路的 {@code marketCap} 恒为 null
+     * （它只给价与成交额），页面必须说得出规模那格是空的、空在哪。
+     *
+     * <p>缺失一律是 null，**任何情况下都不能兜 0**：0 会被当成真实数值参与判断，
+     * 章程明令缺失不能变成 0。
+     */
     public record EtfQuote(String code, String name, BigDecimal price, BigDecimal pctChange,
-                           BigDecimal amount, BigDecimal marketCap, BigDecimal peTtm, BigDecimal pb) {}
+                           BigDecimal amount, BigDecimal marketCap, BigDecimal peTtm, BigDecimal pb,
+                           String provider) {}
 
     /**
      * 批量取 7 只宽基 ETF 的行情。**尽力而为**：失败返回空 Map，
@@ -372,7 +411,7 @@ public class MarketDataClient {
                     if (row == null) continue;
                     out.put(row.getCode(), new EtfQuote(row.getCode(), row.getName(), row.getPrice(),
                             row.getPctChange(), row.getAmount(), row.getTotalMarketCap(),
-                            row.getPeTtm(), row.getPb()));
+                            row.getPeTtm(), row.getPb(), PROVIDER_EASTMONEY));
                 }
             }
         } catch (RuntimeException e) {
@@ -414,20 +453,7 @@ public class MarketDataClient {
             if (!(klines instanceof List<?> list)) {
                 return KlineOutcome.failed("日线为空，价格位置未确认");
             }
-            List<PricePositionCalculator.Bar> bars = new ArrayList<>();
-            for (Object o : list) {
-                if (!(o instanceof String line)) continue;
-                // "日期,开,收,高,低,量,额,振幅"
-                String[] parts = line.split(",");
-                if (parts.length < 3) continue;
-                BigDecimal close = parseDecimal(parts[2]);
-                if (close == null || close.signum() <= 0) continue;
-                try {
-                    bars.add(new PricePositionCalculator.Bar(LocalDate.parse(parts[0]), close));
-                } catch (RuntimeException ignored) {
-                    // 单根日期解析失败就跳过，不影响整段
-                }
-            }
+            List<PricePositionCalculator.Bar> bars = parseDelimitedBars(list);
             if (bars.isEmpty()) return KlineOutcome.failed("日线无有效收盘价，价格位置未确认");
             return KlineOutcome.ok(bars);
         } catch (MarketDataException.MarketDataRateLimitedException e) {
@@ -656,6 +682,49 @@ public class MarketDataClient {
         row.setPeTtm(dec(item.get("f115")));
         row.setDividendYield(dec(item.get("f133")));
         return row;
+    }
+
+    /**
+     * 把日线行解析成 {@code Bar}，**东财与腾讯共用这一份**。
+     *
+     * <p>两个源的形状不同但字段位置**恰好一致**，这是能共用一份的前提（两边都实测过）：
+     * <ul>
+     *   <li>东财 {@code klines}：一行一个 CSV 字符串 {@code "2026-09-30,4.421,4.432,…"}</li>
+     *   <li>腾讯 {@code qfqday}：一行一个数组 {@code ["2026-09-30","4.421","4.432",…]}</li>
+     * </ul>
+     * 都是 {@code [0]=日期、[1]=开、[2]=收}。腾讯那条分支**不许自己再写一套解析**：
+     * 抄一遍必然在某天只改一边（比如这边加了「close ≤ 0 跳过」那边没加），
+     * 于是同一个界面上的两条曲线用了两套脏数据规则，而没有任何地方会报错。
+     *
+     * <p>单根坏数据只跳过这一根，不影响整段——但全段都坏由调用方判空，见
+     * {@link #fetchKline}。
+     */
+    static List<PricePositionCalculator.Bar> parseDelimitedBars(List<?> rows) {
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>();
+        if (rows == null) return bars;
+        for (Object row : rows) {
+            String[] parts = delimitedParts(row);
+            if (parts == null || parts.length < 3) continue;
+            BigDecimal close = parseDecimal(parts[2]);
+            if (close == null || close.signum() <= 0) continue;
+            LocalDate date = parseDate(parts[0]);
+            if (date == null) continue;
+            bars.add(new PricePositionCalculator.Bar(date, close));
+        }
+        return bars;
+    }
+
+    /** 一行日线 → 格子数组。认识 CSV 字符串与数组两种形状，其余一律返回 null 跳过。 */
+    private static String[] delimitedParts(Object row) {
+        if (row instanceof String line) return line.split(",");
+        if (row instanceof List<?> cells) {
+            String[] out = new String[cells.size()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = cells.get(i) == null ? null : String.valueOf(cells.get(i));
+            }
+            return out;
+        }
+        return null;
     }
 
     /** 东财用 "-" 表示缺失。缺失必须是 null，不能变成 0——0 会被当成真实数值参与判断。 */

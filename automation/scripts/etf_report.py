@@ -39,6 +39,9 @@ ETF_LIST = [
         "sina_code": "sh510300",
         "index_name": "沪深300指数",
         "valuation_index_code": "SH000300",
+        # 口径来源写死在这里：中证官网自算滚动分位。见 stock_screening_rules.md §5.3
+        "valuation_source": "csindex",
+        "csindex_code": "000300",
         "valuation_env_prefix": "CSI300",
         "percentile_method": "CSI_PE_TTM_ROLLING_10Y",
         "qdii": False,
@@ -50,6 +53,7 @@ ETF_LIST = [
         "sina_code": "sh513100",
         "index_name": "纳斯达克100指数",
         "valuation_index_code": "NDX",
+        "valuation_source": "danjuan",
         "valuation_env_prefix": "NASDAQ100",
         "percentile_method": "DANJUAN_PE_TTM_PROVIDER",
         "qdii": True,
@@ -61,6 +65,7 @@ ETF_LIST = [
         "sina_code": "sh513500",
         "index_name": "标普500指数",
         "valuation_index_code": "SP500",
+        "valuation_source": "danjuan",
         "valuation_env_prefix": "SP500",
         "percentile_method": "DANJUAN_PE_TTM_PROVIDER",
         "qdii": True,
@@ -93,6 +98,12 @@ CURRENT_VALUATION_MAX_STALENESS_DAYS = 15
 VALUATION_ARCHIVE_URL = "https://raw.githubusercontent.com/caibingcheng/djeva/master/json/{date}.json"
 CSI_PE_TTM_ROLLING_10Y = "CSI_PE_TTM_ROLLING_10Y"
 DANJUAN_PE_TTM_PROVIDER = "DANJUAN_PE_TTM_PROVIDER"
+# 估值口径来源。**每个指数只钉一个**：两个源在中证500 上差 22%、科创50 上差 75%，
+# 同一个指数换来换去会让分位跳变而页面上看不出来。见 stock_screening_rules.md §5.3。
+VALUATION_SOURCE_CSINDEX = "csindex"
+VALUATION_SOURCE_DANJUAN = "danjuan"
+CSI_PE_SOURCE_LABEL = "中证指数官网PE(TTM)"
+DANJUAN_PE_SOURCE_LABEL = "蛋卷基金指数估值"
 PRICE_ADJUSTMENT_TYPE = "QFQ"
 PRICE_HISTORY_LIMIT = 800
 PRICE_CACHE_QUERY_LIMIT = 800
@@ -1212,7 +1223,7 @@ def danjuan_headers() -> dict[str, str]:
 def valuation_from_danjuan_item(
     etf: dict[str, str],
     item: dict[str, Any],
-    source: str = "蛋卷基金指数估值",
+    source: str = DANJUAN_PE_SOURCE_LABEL,
 ) -> dict[str, Any]:
     pe_value = to_optional_float(item.get("pe"))
     raw_percentile = to_optional_float(item.get("pe_percentile"))
@@ -1240,7 +1251,21 @@ def valuation_from_danjuan_item(
     }, DANJUAN_PE_TTM_PROVIDER)
 
 
-def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
+_DANJUAN_ITEMS_CACHE: dict[str, dict[str, dict[str, Any]]] = {}
+
+
+def fetch_danjuan_items() -> dict[str, dict[str, Any]]:
+    """一次拿回蛋卷**全部**指数估值，返回 ``index_code.upper() -> item``，按当天日期缓存。
+
+    蛋卷那个接口**一次就回 63 个指数**。逐个指数各发一次请求是纯浪费，而且池子一扩到
+    60+ 条，请求数会线性涨上去——对一个按 IP 限流的源来说这是在自找封禁。
+    缓存键是日期：估值本身就是一天一个数，同一天内重复用同一份快照没有精度损失。
+    """
+    cache_key = now_beijing().date().isoformat()
+    cached = _DANJUAN_ITEMS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     resp = http_get(
         "https://danjuanfunds.com/djapi/index_eva/dj",
         timeout=15,
@@ -1252,12 +1277,23 @@ def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
         raise RuntimeError("蛋卷估值响应格式异常")
     if str(body.get("result_code", 0)) not in ("0", "200"):
         raise RuntimeError(f"蛋卷估值业务错误: {body.get('result_code')} {body.get('result_msg', '')}")
-    items = (body.get("data") or {}).get("items") or []
-    target_code = etf["valuation_index_code"].upper()
-    item = next(
-        (item for item in items if str(item.get("index_code", "")).upper() == target_code),
-        None,
-    )
+    raw_items = (body.get("data") or {}).get("items") or []
+    by_code = {
+        str(item.get("index_code", "")).upper(): item
+        for item in raw_items
+        if item.get("index_code")
+    }
+    if not by_code:
+        raise RuntimeError("蛋卷估值未返回任何指数")
+
+    # 只留当天这一份：进程（poll_loop）会跑一整天，别让旧日期的快照一直堆着
+    _DANJUAN_ITEMS_CACHE.clear()
+    _DANJUAN_ITEMS_CACHE[cache_key] = by_code
+    return by_code
+
+
+def fetch_valuation_from_danjuan(etf: dict[str, str]) -> dict[str, Any]:
+    item = fetch_danjuan_items().get(etf["valuation_index_code"].upper())
     if not item:
         raise RuntimeError(f"蛋卷估值未找到 {etf['valuation_index_code']}")
     valuation = valuation_from_danjuan_item(etf, item)
@@ -1273,17 +1309,26 @@ def subtract_years(value: date, years: int) -> date:
         return value.replace(year=value.year - years, day=28)
 
 
-def fetch_csi300_pe_history() -> list[dict[str, Any]]:
+def fetch_csindex_pe_history(csindex_code: str) -> list[dict[str, Any]]:
+    """中证/国证系指数的 PE(TTM) 日频历史，分位由本项目按滚动窗口自算。
+
+    实测对任意中证/国证代码都可用（000300/000905/000852/000688/000016/000015/930740/H30533）。
+    **代价是每次约 320KB、0.5–1.2 秒**，所以调用方必须自己控频，见 index_pool_sync.py。
+
+    滚动窗口是 ``min(CSI300_PE_WINDOW_YEARS 年, 该指数实际可用的历史长度)``——
+    科创50 只有约 6 年，它的分位就是 6 年窗口的，不是 10 年。方法名仍写 10Y，
+    所以卡片上必须能看出该指数的历史长度。
+    """
     resp = http_get(
         "https://www.csindex.com.cn/csindex-home/perf/indexCsiDsPe",
-        params={"indexCode": "000300"},
+        params={"indexCode": csindex_code},
         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.csindex.com.cn/"},
         timeout=20,
     )
     resp.raise_for_status()
     body = resp.json()
     if str(body.get("code")) != "200" or not body.get("success"):
-        raise RuntimeError(f"中证指数PE接口业务错误: {body.get('code')} {body.get('msg', '')}")
+        raise RuntimeError(f"中证指数PE接口业务错误({csindex_code}): {body.get('code')} {body.get('msg', '')}")
 
     points = []
     today = now_beijing().date()
@@ -1297,7 +1342,7 @@ def fetch_csi300_pe_history() -> list[dict[str, Any]]:
             points.append((parsed_date, pe_value))
     points.sort(key=lambda point: point[0])
     if not points:
-        raise RuntimeError("中证指数未返回有效PE历史")
+        raise RuntimeError(f"中证指数 {csindex_code} 未返回有效PE历史")
 
     history = []
     window_values: list[float] = []
@@ -1318,9 +1363,14 @@ def fetch_csi300_pe_history() -> list[dict[str, Any]]:
             "pePercentile": percentile,
             "percentileMethod": CSI_PE_TTM_ROLLING_10Y,
             "percentile_method": CSI_PE_TTM_ROLLING_10Y,
-            "source": f"中证指数官网PE(TTM)，滚动{CSI300_PE_WINDOW_YEARS}年分位",
+            "source": f"{CSI_PE_SOURCE_LABEL}，滚动{CSI300_PE_WINDOW_YEARS}年分位",
         })
     return history
+
+
+def fetch_csi300_pe_history() -> list[dict[str, Any]]:
+    """沪深300 的薄包装。新代码请直接用 :func:`fetch_csindex_pe_history`。"""
+    return fetch_csindex_pe_history("000300")
 
 
 _VALUATION_ARCHIVE_CACHE: dict[str, Optional[list[dict[str, Any]]]] = {}
@@ -1411,12 +1461,30 @@ def valuation_to_history_item(valuation: dict[str, Any]) -> Optional[dict[str, A
     }
 
 
+def valuation_source_of(etf: dict[str, Any]) -> str:
+    """该指数的估值口径来源，**必填**。
+
+    不许缺省成蛋卷：沪深300 用中证官网自算是 48.8%，用蛋卷是 60.6%，同一天。
+    默默地换了源，页面上只会看到一个变了的分位，没有任何报错。
+    """
+    source = etf.get("valuation_source")
+    if source not in (VALUATION_SOURCE_CSINDEX, VALUATION_SOURCE_DANJUAN):
+        raise RuntimeError(
+            f"{etf.get('name') or etf.get('code')} 的 valuation_source 缺失或非法: {source!r}；"
+            f"只能是 {VALUATION_SOURCE_CSINDEX} 或 {VALUATION_SOURCE_DANJUAN}"
+        )
+    return source
+
+
 def fetch_source_valuation(
     etf: dict[str, str],
     backend_history: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if etf["valuation_index_code"] == "SH000300":
-        history = fetch_csi300_pe_history()
+    if valuation_source_of(etf) == VALUATION_SOURCE_CSINDEX:
+        csindex_code = etf.get("csindex_code")
+        if not csindex_code:
+            raise RuntimeError(f"{etf['name']} 的 valuation_source=csindex 但缺 csindex_code")
+        history = fetch_csindex_pe_history(csindex_code)
         latest = history[-1]
         percentile = latest["pePercentile"]
         valuation = validate_valuation({
@@ -2773,6 +2841,16 @@ def main() -> None:
         if not sync_price_history():
             sys.exit(1)
         logger.info("\n✅ ETF 价格历史回填完成！(%s)", now_beijing().strftime('%H:%M:%S'))
+        return
+    if env_enabled("ETF_POOL_SYNC_ONLY"):
+        # 指数池的手动入口。放在这里是为了跟 ETF_SYNC_ONLY 一样能用手动工作流触发；
+        # 生产上的每日触发在 poll_loop，**不能挂在下面的订阅到期分支上**——没订阅的
+        # 部署也要刷新池子，否则「低估精选」整天拿的都是昨天的数。
+        import index_pool_sync
+        logger.info("📡 正在同步指数池（估值 + 代表 ETF 日线）...")
+        if not index_pool_sync.sync_index_pool(force=env_enabled("INDEX_POOL_FORCE")):
+            logger.error("❌ 指数池同步失败")
+            sys.exit(1)
         return
     if should_skip_weekend_report(current_time, dry_run):
         # 周末休市是设计内的正常路径，不是降级，所以给 info：error.log 只留真正的问题

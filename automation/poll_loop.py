@@ -18,6 +18,11 @@ from logging_setup import setup_logging  # noqa: E402
 
 logger = setup_logging("poller")
 
+# 指数池每天 16:30 后同步一次（收盘 + 估值数据源更新完毕）。
+# **只按日期门控，与订阅无关**：没有订阅的部署也要刷新池子，挂到订阅到期分支上就永远不跑。
+INDEX_POOL_SYNC_HOUR = 16
+INDEX_POOL_SYNC_MINUTE = 30
+
 
 def now_beijing():
     return datetime.now(BEIJING_TZ)
@@ -36,7 +41,43 @@ def load_daily_report():
     return daily_report
 
 
-def run_once(daily_report=None):
+def load_index_pool_sync():
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import index_pool_sync
+    return index_pool_sync
+
+
+def should_sync_index_pool(now, latest_trade_date):
+    """今天该不该同步指数池。**纯函数**，时间与库里的值都由调用方给。
+
+    幂等门用的是库里最新一条 `tradeDate`：它已经是今天就说明今天跑过了。
+    周末直接跳过（休市，重跑只会拿到同一批数据，还白打几十次中证官网）；
+    节假日识别不了，会白跑一轮并原地覆写同一行——代价是流量，不是数据正确性。
+    """
+    if now.weekday() >= 5:
+        return False
+    if (now.hour, now.minute) < (INDEX_POOL_SYNC_HOUR, INDEX_POOL_SYNC_MINUTE):
+        return False
+    return latest_trade_date != now.date().isoformat()
+
+
+def sync_index_pool_once(index_pool_sync=None, now=None):
+    """轮询循环里的指数池同步。**任何异常都不许冒出来**——它跟在订阅生成后面跑，
+    漏做一次订阅和进程崩掉是两件事，不能混在一起。"""
+    try:
+        module = index_pool_sync if index_pool_sync is not None else load_index_pool_sync()
+        current = now if now is not None else now_beijing()
+        latest = module.latest_valuation_trade_date(module.PROBE_INDEX_CODE)
+        if not should_sync_index_pool(current, latest):
+            return False
+        return bool(module.sync_index_pool())
+    except Exception:
+        logger.exception("指数池同步异常")
+        return False
+
+
+def run_once(daily_report=None, index_pool_sync=None):
     os.environ["MODE"] = "poll"
     report = daily_report if daily_report is not None else load_daily_report()
     try:
@@ -44,6 +85,7 @@ def run_once(daily_report=None):
     except SystemExit as exc:
         if exc.code not in (0, None):
             logger.warning("本轮轮询退出码 %s", exc.code)
+    sync_index_pool_once(index_pool_sync=index_pool_sync)
 
 
 def start_heartbeat(daily_report):

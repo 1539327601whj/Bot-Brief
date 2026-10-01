@@ -11,19 +11,27 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 @Service
 public class EtfPriceHistoryServiceImpl extends ServiceImpl<EtfPriceHistoryMapper, EtfPriceHistory> implements EtfPriceHistoryService {
 
-    static final String QFQ = "QFQ";
+    static final String QFQ = EtfPriceHistoryService.QFQ;
+
+    /**
+     * 一次 {@code IN} 里最多塞多少个代码。与 {@code upsertBatch} 的上限同一个数：
+     * 池子是按 200 条设计的，但**不该由「池子会不会长大」来决定这条查询还能不能用**——
+     * 超了就分批，而不是撞上 MySQL 的占位符/报文上限再回来查。
+     */
+    static final int MAX_BATCH = 250;
 
     @Override
     @Transactional
     public void upsertBatch(List<EtfPriceHistoryIngestDTO> prices) {
-        if (prices == null || prices.isEmpty() || prices.size() > 250) {
-            throw new IllegalArgumentException("ETF 行情批次必须包含 1-250 条记录");
+        if (prices == null || prices.isEmpty() || prices.size() > MAX_BATCH) {
+            throw new IllegalArgumentException("ETF 行情批次必须包含 1-" + MAX_BATCH + " 条记录");
         }
         prices.forEach(this::validate);
         LocalDateTime now = LocalDateTime.now();
@@ -63,6 +71,31 @@ public class EtfPriceHistoryServiceImpl extends ServiceImpl<EtfPriceHistoryMappe
                 .orderByDesc(EtfPriceHistory::getTradeDate)
                 .last("LIMIT " + Math.max(1, Math.min(limit, 800)))
                 .list();
+    }
+
+    @Override
+    public List<EtfPriceHistory> latestBatch(List<String> fundCodes, LocalDate from, String adjustmentType) {
+        if (fundCodes == null || fundCodes.isEmpty()) {
+            // 空入参绝不能落到 SQL：`IN ()` 是语法错误，会把「这次没有指数要读」变成一次异常
+            return List.of();
+        }
+        String type = normalizeAdjustmentType(adjustmentType);
+        if (from == null) {
+            throw new IllegalArgumentException("from 不能为空");
+        }
+        List<String> codes = fundCodes.stream()
+                .filter(c -> c != null && !c.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (codes.isEmpty()) return List.of();
+
+        List<EtfPriceHistory> all = new ArrayList<>(codes.size() * 8);
+        for (int i = 0; i < codes.size(); i += MAX_BATCH) {
+            all.addAll(baseMapper.latestBatch(
+                    codes.subList(i, Math.min(codes.size(), i + MAX_BATCH)), from, type));
+        }
+        return all;
     }
 
     void validate(EtfPriceHistoryIngestDTO dto) {

@@ -48,11 +48,13 @@ public class SecurityConfig {
                                 "/api/reports/poller-heartbeat", "/api/reports/dispatch-due",
                                 "/api/reports/record-delivery",
                                 "/api/reports/generation-status",
-                                "/api/market-valuations/ingest", "/api/etf-prices/ingest").permitAll()
+                                "/api/market-valuations/ingest", "/api/market-valuations/ingest-batch",
+                                "/api/etf-prices/ingest").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/reports/subscribed-topics", "/api/reports/due-generations").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
-                                "/api/market-valuations/*/latest", "/api/etf-prices/*/latest", "/api/health").permitAll()
+                                "/api/market-valuations/*/latest", "/api/etf-prices/*/latest",
+                                "/api/index-pool", "/api/health").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/api/push/wechat", "/api/reports").denyAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
