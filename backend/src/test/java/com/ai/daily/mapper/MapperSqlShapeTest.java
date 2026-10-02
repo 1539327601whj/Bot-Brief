@@ -33,6 +33,8 @@ class MapperSqlShapeTest {
     private static final String PREFETCH_STOCKS = "com.ai.daily.mapper.ScreenerUniverseStockMapper.upsertBatch";
     private static final String PREFETCH_STOCKS_READ = "com.ai.daily.mapper.ScreenerUniverseStockMapper.findByTradeDate";
     private static final String PREFETCH_HEADER = "com.ai.daily.mapper.ScreenerUniverseSnapshotMapper.upsert";
+    private static final String HISTORY_OLDEST_KEPT = "com.ai.daily.mapper.ScreenerScanHistoryMapper.oldestKeptId";
+    private static final String HISTORY_TRIM = "com.ai.daily.mapper.ScreenerScanHistoryMapper.deleteOlderThan";
 
     /** 明细表 28 列、头表 10 列；下面两条测试按它们算占位符个数。改表结构必改这里。 */
     private static final int PREFETCH_STOCK_COLUMNS = 28;
@@ -44,6 +46,7 @@ class MapperSqlShapeTest {
         new MybatisMapperAnnotationBuilder(config, EtfPriceHistoryMapper.class).parse();
         new MybatisMapperAnnotationBuilder(config, ScreenerUniverseStockMapper.class).parse();
         new MybatisMapperAnnotationBuilder(config, ScreenerUniverseSnapshotMapper.class).parse();
+        new MybatisMapperAnnotationBuilder(config, ScreenerScanHistoryMapper.class).parse();
         return config;
     }
 
@@ -193,6 +196,40 @@ class MapperSqlShapeTest {
         // 漏掉一列不会报错，只会让读回来的对象少一个字段（变 null），
         // 于是筛选规则悄悄换了个样子而页面上看不出来
         assertThat(countOf(flat, ",")).isEqualTo(29 - 1);
+    }
+
+    // ================= 筛选历史裁剪的两条语句 =================
+
+    /**
+     * 砍历史用的「保留窗最老一行」。
+     *
+     * <p>三条边界都得靠 SQL 自己成立（表空、不足 keep 行、刚好 keep 行），所以这里钉住
+     * {@code COALESCE} 与派生表别名：少了别名 MySQL 直接报语法错，少了 COALESCE
+     * 表空时会返回 NULL，而 Java 侧收的是 {@code long}——那是一次运行时的拆箱失败。
+     */
+    @Test
+    void theHistoryRetentionWindowIsAStandaloneSelectWithItsOwnAlias() {
+        MybatisConfiguration config = parseAll();
+
+        String flat = normalize(boundSql(config, HISTORY_OLDEST_KEPT, Map.of("keep", 100)).getSql());
+
+        assertThat(flat).contains("SELECT COALESCE(MIN(id), 0) FROM");
+        assertThat(flat).contains("FROM screener_scan_history ORDER BY id DESC LIMIT ?");
+        // 派生表没有别名就是个语法错，而这行 SQL 只在真正跑起来时才被解析
+        assertThat(flat).contains(") t");
+        assertThat(countOf(flat, "?")).isEqualTo(1);
+    }
+
+    /** 删除语句本身不能带同表子查询：MySQL 在 DELETE 上不允许又删又查同一张表（1093）。 */
+    @Test
+    void theHistoryTrimDeletesByAValuePassedInFromJava() {
+        MybatisConfiguration config = parseAll();
+
+        String flat = normalize(boundSql(config, HISTORY_TRIM, Map.of("oldestKeptId", 900L)).getSql());
+
+        assertThat(flat).contains("DELETE FROM screener_scan_history WHERE id < ?");
+        assertThat(flat).doesNotContain("SELECT");
+        assertThat(countOf(flat, "?")).isEqualTo(1);
     }
 
     private static ScreenerUniverseStock stock(String code) {

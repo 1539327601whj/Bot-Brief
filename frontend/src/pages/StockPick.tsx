@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -100,6 +100,72 @@ interface IndexFundItem {
   barCount: number | null
   lastTradeDate: string | null
   notes: string[]
+  /**
+   * 本次条件下的判定，取值见后端 `ScreeningRules.IndexQualification`。
+   *
+   * 四个取值里 `no_conditions`（用户一条指数条件都没填）**不渲染徽章**：
+   * 那种情况下每张卡都挂一个「未设条件」只是噪音，整段用一句标题说明更清楚。
+   */
+  qualification: 'qualified' | 'blocked' | 'unconfirmed' | 'no_conditions'
+  /** 被哪条挡下 / 哪条判不了。`blocked`、`unconfirmed` 时非空。 */
+  qualificationReasons: string[]
+}
+
+/** 回显当时生效的条件（解析默认值之后）。后端一直有这一块，前端此前漏声明了。 */
+interface ScreenerParamsView {
+  mode: string
+  bucket: string
+  perBucket: number
+  peMax: number | null
+  pePercentileMax: number | null
+  marketCapMinYi: number | null
+  pbMax: number | null
+  dividendYieldMin: number | null
+  roeMin: number | null
+  debtRatioMax: number | null
+  excludedIndustries: string[]
+  revenueGrowthMin: number | null
+  profitGrowthMin: number | null
+}
+
+/**
+ * 筛选历史一行。
+ *
+ * 字段与后端 `ScreenerHistoryDTO.Item` 一一对应：**只有摘要列，没有整页快照**——
+ * 快照几十 KB，列表页读它纯属浪费。要点开某一条时才去取详情。
+ */
+interface HistoryRef {
+  code: string
+  name: string | null
+  qualified: boolean
+}
+
+interface HistoryItem {
+  id: number
+  scannedAt: string
+  scannedByEmail: string | null
+  mode: string
+  bucket: string
+  perBucket: number
+  scanned: number
+  afterVetoes: number
+  steadyPool: number
+  growthPool: number
+  shortlistFetched: number
+  indexCount: number
+  qualifiedIndexCount: number
+  indices: HistoryRef[]
+  steadyStocks: HistoryRef[]
+  growthStocks: HistoryRef[]
+  appliedParams: ScreenerParamsView | null
+}
+
+interface HistoryPage {
+  records: HistoryItem[]
+  total: number
+  pages: number
+  current: number
+  size: number
 }
 
 /** 类别顺序。**顺序在这里写死**，不按数据里出现的先后——那会随池子内容变来变去。 */
@@ -139,6 +205,7 @@ interface Summary {
 interface ScanResult {
   dataTime: string
   priceAsOf: string
+  appliedParams: ScreenerParamsView | null
   summary: Summary
   indexFunds: IndexFundItem[]
   steadyStocks: Selected[]
@@ -151,7 +218,8 @@ interface Form {
   bucket: string
   perBucket: string
   peMax: string
-  pricePercentileMax: string
+  /** PE 分位上限 %。**只作用于指数基金**：个股在东财口径下没有自身的 PE 历史分位。 */
+  pePercentileMax: string
   marketCapMinYi: string
   pbMax: string
   dividendYieldMin: string
@@ -167,7 +235,7 @@ const DEFAULT_FORM: Form = {
   bucket: 'both',
   perBucket: '3',
   peMax: '',
-  pricePercentileMax: '',
+  pePercentileMax: '',
   marketCapMinYi: '',
   pbMax: '',
   dividendYieldMin: '',
@@ -204,13 +272,29 @@ function yi(v: number | null | undefined) {
 }
 
 /**
- * 同一估值来源内部的排序：分位升序 → 规模降序 → 指数代码升序。
+ * 本次判定的排序权重：**合格在前，其次判不了，最后是被条件挡下的**。
+ *
+ * 不合格的那些**不隐藏**（隐藏就回到了「池子里只有这几个」的错觉）——放在后面，
+ * 并挂着被谁挡下的原因。判不了的排在被挡下之前：它既不是坏消息也不是好消息。
+ */
+const QUAL_RANK: Record<IndexFundItem['qualification'], number> = {
+  qualified: 0,
+  unconfirmed: 1,
+  blocked: 2,
+  no_conditions: 0, // 一条条件都没填时没有判定，不该因此被排到后面
+}
+
+/**
+ * 同一估值来源内部的排序：判定 → 分位升序 → 规模降序 → 指数代码升序。
  *
  * 缺值的排在最后，**不当成最小或最大**：没有分位不等于分位为 0，
  * 把它排到最前面会让人读成「最便宜的那几个，只是没数而已」。
  * 末位的 `indexCode` 只是为了同样两条数据每次渲染顺序一致——顺序会跳的榜单没法核对。
  */
 function compareIndexFund(a: IndexFundItem, b: IndexFundItem) {
+  const ra = QUAL_RANK[a.qualification] ?? 0
+  const rb = QUAL_RANK[b.qualification] ?? 0
+  if (ra !== rb) return ra - rb
   if (a.pePercentile !== b.pePercentile) {
     if (a.pePercentile === null) return 1
     if (b.pePercentile === null) return -1
@@ -244,6 +328,20 @@ function subgroupsOf(items: IndexFundItem[]) {
   }))
 }
 
+/** 本次判定的统计。页面上「共 N 个指数」必须拆成入选/挡下/未确认，否则扩容看不出来。 */
+function qualCounts(items: IndexFundItem[]) {
+  const by = (q: IndexFundItem['qualification']) => items.filter(f => f.qualification === q).length
+  const counts = {
+    total: items.length,
+    qualified: by('qualified'),
+    blocked: by('blocked'),
+    unconfirmed: by('unconfirmed'),
+    noConditions: by('no_conditions'),
+  }
+  // 一条指数条件都没填时后端不做判定，四类计数里只会有 noConditions —— 页面上要说这件事
+  return { ...counts, judged: counts.qualified + counts.blocked + counts.unconfirmed > 0 }
+}
+
 /** 空字符串 = 用户没填 = 走后端默认，不能当成 0 发过去。 */
 function buildPayload(form: Form) {
   const payload: Record<string, unknown> = {
@@ -257,7 +355,7 @@ function buildPayload(form: Form) {
     if (Number.isFinite(n)) payload[key] = n
   }
   putNumber('peMax', form.peMax)
-  putNumber('pricePercentileMax', form.pricePercentileMax)
+  putNumber('pePercentileMax', form.pePercentileMax)
   putNumber('marketCapMinYi', form.marketCapMinYi)
   putNumber('pbMax', form.pbMax)
   putNumber('dividendYieldMin', form.dividendYieldMin)
@@ -267,6 +365,80 @@ function buildPayload(form: Form) {
   putNumber('profitGrowthMin', form.profitGrowthMin)
   if (form.excludedIndustries.length > 0) payload.excludedIndustries = form.excludedIndustries
   return payload
+}
+
+/**
+ * 回显「本次真正生效的条件」。
+ *
+ * 留空的三格要写出**它到底变成了什么**：`peMax` / `marketCapMinYi` / `pbMax` /
+ * `debtRatioMax` 留空是「按档位默认」，而 `pePercentileMax` 留空是「不限」——
+ * 指数没有档位。都写成「未填」等于把两个不同的含义糊成一件事。
+ */
+function paramRows(p: ScreenerParamsView): Array<[string, string]> {
+  const rows: Array<[string, string]> = [
+    ['类别', p.mode === 'index_only' ? '只看指数基金' : p.mode === 'stock_only' ? '只看个股' : '指数基金优先'],
+    ['档位', p.bucket === 'steady' ? '只看稳健低估' : p.bucket === 'growth' ? '只看低估成长' : '两档都出'],
+    ['每档只数', String(p.perBucket)],
+    ['PE(TTM) 上限', p.peMax === null
+      ? '按档位默认（稳健 30 / 成长 45）；指数不限'
+      : num(p.peMax)],
+    ['PE 分位上限', p.pePercentileMax === null ? '不限' : `${num(p.pePercentileMax)}%（只作用于指数）`],
+    ['市值下限', p.marketCapMinYi === null
+      ? '按档位默认（稳健 200 亿 / 成长 50 亿）；指数不限'
+      : `${num(p.marketCapMinYi)} 亿`],
+  ]
+  if (p.pbMax !== null) rows.push(['PB 上限', num(p.pbMax)])
+  if (p.dividendYieldMin !== null) rows.push(['股息率下限', `${num(p.dividendYieldMin)}%`])
+  if (p.roeMin !== null) rows.push(['ROE 下限', `${num(p.roeMin)}%`])
+  if (p.debtRatioMax !== null) rows.push(['资产负债率上限', `${num(p.debtRatioMax)}%`])
+  else rows.push(['资产负债率上限', '按档位默认（稳健 65% / 成长 75%）'])
+  if (p.revenueGrowthMin !== null) rows.push(['营收同比下限', `${num(p.revenueGrowthMin)}%`])
+  if (p.profitGrowthMin !== null) rows.push(['净利同比下限', `${num(p.profitGrowthMin)}%`])
+  rows.push(['排除行业', p.excludedIndustries.length > 0 ? p.excludedIndustries.join('、') : '不排除'])
+  return rows
+}
+
+/**
+ * 条件面板 ← 当时的生效条件。
+ *
+ * 数字回填成字符串，null 回填成空串（空串 = 没填 = 走后端默认）。
+ * **不要**把 null 写成 '0'：那会变成「PE 上限 0」，一个永远筛不出东西的条件。
+ */
+function formFromParams(p: ScreenerParamsView): Form {
+  const s = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v))
+  return {
+    mode: p.mode,
+    bucket: p.bucket,
+    perBucket: String(p.perBucket),
+    peMax: s(p.peMax),
+    pePercentileMax: s(p.pePercentileMax),
+    marketCapMinYi: s(p.marketCapMinYi),
+    pbMax: s(p.pbMax),
+    dividendYieldMin: s(p.dividendYieldMin),
+    roeMin: s(p.roeMin),
+    debtRatioMax: s(p.debtRatioMax),
+    excludedIndustries: p.excludedIndustries ?? [],
+    revenueGrowthMin: s(p.revenueGrowthMin),
+    profitGrowthMin: s(p.profitGrowthMin),
+  }
+}
+
+const MODE_LABEL: Record<string, string> = {
+  index_first: '指数基金优先',
+  index_only: '只看指数基金',
+  stock_only: '只看个股',
+}
+const BUCKET_LABEL: Record<string, string> = {
+  both: '两档都出',
+  steady: '只看稳健低估',
+  growth: '只看低估成长',
+}
+
+/** 一行入选标的：`名称(代码)`，超过 `limit` 个就用「等」收尾，不换行堆成一片。 */
+function refLine(refs: HistoryRef[], limit = 8): string {
+  if (refs.length === 0) return '无'
+  const shown = refs.slice(0, limit).map(r => `${r.name || r.code}(${r.code})`)
+  return refs.length > limit ? `${shown.join('、')} 等 ${refs.length} 个` : shown.join('、')
 }
 
 function FactorBars({ item }: { item: Selected }) {
@@ -287,7 +459,11 @@ function FactorBars({ item }: { item: Selected }) {
   )
 }
 
-function List({ title, items, tone }: { title: string; items: string[]; tone: 'reason' | 'risk' }) {
+/**
+ * 一个小标题 + 列表。`tone` 决定标题的颜色：`reason` 绿（通过类）、`risk` 黄（风险/降级）、
+ * `info` 蓝（「判不了」这类既非通过也非失败的信息，用绿色会被读成入选理由）。
+ */
+function List({ title, items, tone }: { title: string; items: string[]; tone: 'reason' | 'risk' | 'info' }) {
   if (items.length === 0) return null
   return (
     <div className={`stockpick-list stockpick-list-${tone}`}>
@@ -399,9 +575,27 @@ function Cell({ label, value, status, format }: {
   )
 }
 
+/**
+ * 判定 → 徽章。〔`no_conditions` 返回 null：一条指数条件都没填时不做判定，
+ * 每张卡挂个「未设条件」只是噪音，整段用一句标题说明就够了。〕
+ */
+function qualBadge(q: IndexFundItem['qualification']): { text: string; cls: string } | null {
+  switch (q) {
+    case 'qualified':
+      return { text: '本次入选', cls: 'qual-ok' }
+    case 'blocked':
+      return { text: '被条件挡下', cls: 'qual-blocked' }
+    case 'unconfirmed':
+      return { text: '数据不足 · 未确认', cls: 'qual-pending' }
+    default:
+      return null
+  }
+}
+
 function IndexFundCard({ item }: { item: IndexFundItem }) {
   const pct = (v: number) => `${num(v, 1)}%`
   const negativePct = (v: number) => `-${num(v, 1)}%`
+  const qual = qualBadge(item.qualification)
 
   return (
     <article className="stockpick-card stockpick-index-card">
@@ -413,6 +607,7 @@ function IndexFundCard({ item }: { item: IndexFundItem }) {
           </h4>
           <div className="stockpick-meta">
             <span className="stockpick-badge stockpick-cat">{categoryLabel(item.category)}</span>
+            {qual && <span className={`stockpick-badge ${qual.cls}`}>{qual.text}</span>}
             {item.etfCode ? (
               <span>
                 {item.etfName}<span className="stockpick-code">{item.etfCode}</span>
@@ -467,6 +662,17 @@ function IndexFundCard({ item }: { item: IndexFundItem }) {
         </div>
       </div>
 
+      {/*
+        被挡下 / 判不了的原因**必须贴在卡上**：只把徽章换个颜色，读者仍然不知道
+        是「PE 太高」还是「PE 分位太高」，于是会以为这条判定是随机的。
+      */}
+      {item.qualification === 'blocked' && (
+        <List title="被这些条件挡下" items={item.qualificationReasons} tone="risk" />
+      )}
+      {item.qualification === 'unconfirmed' && (
+        <List title="数据不足，这几条没判成" items={item.qualificationReasons} tone="info" />
+      )}
+
       <List title="说明与缺口" items={item.notes} tone="risk" />
     </article>
   )
@@ -493,6 +699,16 @@ export default function StockPick() {
   const [expandedCategories, setExpandedCategories] = useState<string[]>([])
   const startedAt = useRef(0)
 
+  // 筛选历史：后端每次成功筛选落一行，这里只读。
+  const [history, setHistory] = useState<HistoryPage | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historyPage, setHistoryPage] = useState(1)
+  // 跑完一次筛选要让列表重取一次，否则刚跑完的那条要刷新页面才看得见
+  const [historyKey, setHistoryKey] = useState(0)
+  // 当前正在回放的那条（点了「恢复这次结果」之后），用来在那一行上做标记
+  const [replayedId, setReplayedId] = useState<number | null>(null)
+
   const run = useCallback(async (payload: Record<string, unknown>) => {
     // 双保险：按钮已经置灰了，但这里再挡一次。真正生效的那道在服务端
     // （见 StockScreenerController）——只靠前端置灰，拿着 token 直接调接口照样能跑。
@@ -505,6 +721,10 @@ export default function StockPick() {
       const res = await api.post('/stock-screener/scan', payload)
       if (res.data?.code === 200 && res.data.data) {
         setResult(res.data.data as ScanResult)
+        // 这一次已经被后端记进历史了，让列表跟着刷新（回到第一页，新的在最上面）
+        setReplayedId(null)
+        setHistoryPage(1)
+        setHistoryKey(k => k + 1)
       } else if (res.data?.code === 429) {
         setResult(null)
         setRateLimited(res.data?.message || '行情源正在限流，请稍后再试')
@@ -526,6 +746,82 @@ export default function StockPick() {
       setLoading(false)
     }
   }, [isAdmin])
+
+  /**
+   * 拉历史列表。
+   *
+   * 与「进页面自动跑一次筛选」**不是一回事**：这条只读自己库里的台账，不碰任何行情源，
+   * 所以每次进页面拉一次是安全的（不会消耗东财那边的配额）。
+   * Demo 也进得来这个页面，看历史与看页面同权限；能不能跑由服务端决定。
+   */
+  useEffect(() => {
+    if (!canSee) return
+    const controller = new AbortController()
+
+    setHistoryLoading(true)
+    setHistoryError('')
+    api.get(`/stock-screener/history?page=${historyPage}&size=10`, { signal: controller.signal })
+      .then(res => {
+        if (controller.signal.aborted) return
+        if (res.data?.code !== 200 || !res.data.data) {
+          setHistory(null)
+          setHistoryError(res.data?.message || '筛选历史加载失败，请稍后重试')
+          return
+        }
+        const d = res.data.data
+        setHistory({
+          records: d.records ?? [],
+          total: d.total ?? 0,
+          pages: d.pages ?? 0,
+          current: d.current ?? historyPage,
+          size: d.size ?? 10,
+        })
+      })
+      .catch(err => {
+        if (controller.signal.aborted) return
+        setHistory(null)
+        setHistoryError(err?.response?.data?.message || '筛选历史加载失败，请稍后重试')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [canSee, historyPage, historyKey])
+
+  /**
+   * 回放某一次筛选：取那条的整页快照，连带把条件面板也填回当时那一套。
+   *
+   * **只读历史，不重新算**：重算会打一次行情源，而且结果可能因为行情变了而与当时不同——
+   * 那就不再是「那一次」了。快照里存的就是当初的返回体。
+   */
+  const replay = useCallback(async (id: number) => {
+    setHistoryError('')
+    try {
+      const res = await api.get(`/stock-screener/history/${id}`)
+      if (res.data?.code !== 200 || !res.data.data?.result) {
+        setHistoryError(res.data?.message || '这次历史回放失败')
+        return
+      }
+      const snapshot = res.data.data.result as ScanResult
+      // 条件在两处都有（列表项一份、整页快照一份），**只认一个来源**：
+      // 面板渲染的是快照里的那一份，条件面板就也用同一份，否则万一两者哪天不一致，
+      // 页面会一边显示 A 一边显示 B，而看不出谁是对的。列表项那份只作兜底。
+      const applied = (snapshot?.appliedParams
+        ?? res.data.data.item?.appliedParams ?? null) as ScreenerParamsView | null
+      setResult(snapshot)
+      if (applied) setForm(formFromParams(applied))
+      setReplayedId(id)
+      setError(null)
+      setRateLimited(null)
+      // 回放的是历史那一页，不是「刚跑完」：用时那句要清掉，免得两个时间对不上
+      setElapsed(null)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } }
+      setHistoryError(err.response?.data?.message || '这次历史回放失败')
+    }
+  }, [])
 
   // 这里刻意**没有**「进页面自动跑一次」。东财按 IP 计时限流，自动跑等于每进出一次
   // 这个页面就消耗一次配额——反复进出本身就是撞上限流的主要来源。
@@ -566,16 +862,19 @@ export default function StockPick() {
           category,
           total: items.length,
           subgroups,
+          counts: qualCounts(items),
           // 子组优先拉平：这样「本类前 12 张」不会把某个口径整个切掉，
           // 而每一组内部仍是排好序的。
           items: subgroups.flatMap(sg => sg.items),
         }
       }),
       etfBacked: funds.filter(f => f.etfCode !== null).length,
+      counts: qualCounts(funds),
     }
   }, [result])
 
   const etfBackedCount = indexGroups.etfBacked
+  const indexCounts = indexGroups.counts
 
   const patch = (part: Partial<Form>) => setForm(f => ({ ...f, ...part }))
 
@@ -653,17 +952,17 @@ export default function StockPick() {
           <label>
             <span>PE(TTM) 上限</span>
             <input value={form.peMax} onChange={e => patch({ peMax: e.target.value })}
-              placeholder="留空按档位默认" inputMode="decimal" />
+              placeholder="留空按档位默认 · 指数同用" inputMode="decimal" />
           </label>
           <label>
-            <span>价格分位上限 %</span>
-            <input value={form.pricePercentileMax} onChange={e => patch({ pricePercentileMax: e.target.value })}
-              placeholder="留空不限" inputMode="decimal" />
+            <span>PE 分位上限 %</span>
+            <input value={form.pePercentileMax} onChange={e => patch({ pePercentileMax: e.target.value })}
+              placeholder="留空不限 · 只作用于指数" inputMode="decimal" />
           </label>
           <label>
             <span>市值下限（亿）</span>
             <input value={form.marketCapMinYi} onChange={e => patch({ marketCapMinYi: e.target.value })}
-              placeholder="留空按档位默认" inputMode="decimal" />
+              placeholder="留空按档位默认 · 指数按基金规模判" inputMode="decimal" />
           </label>
         </div>
 
@@ -792,15 +1091,55 @@ export default function StockPick() {
             </section>
           )}
 
+          {/*
+            条件回显放在最前面：这一轮修的就是「条件像没生效」。填了值却看不到结果变化的
+            时候，第一件要能确认的事是「服务端收到的到底是哪一套」——包括那些留空的格子
+            实际变成了什么（按档位默认 / 不限）。
+          */}
+          {result.appliedParams && (
+            <section className="market-watch-section">
+              <div className="market-watch-section-header">
+                <h3>本次生效条件</h3>
+                <span>留空的格子在这里写出它实际变成了什么</span>
+              </div>
+              <div className="stockpick-numbers stockpick-summary-numbers stockpick-params-numbers">
+                {paramRows(result.appliedParams).map(([label, value]) => (
+                  <div key={label}><label>{label}</label><span>{value}</span></div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {result.indexFunds.length > 0 && (
             <section className="market-watch-section">
               <div className="market-watch-section-header">
                 <h3>指数基金（优先）</h3>
+                {/*
+                  计数按判定拆开，**不再只报总数**：只报「共 N 个」时，扩池或改条件
+                  在标题上看不出任何变化，而这正是上次让人以为「条件没用」的地方。
+                */}
                 <span>
-                  共 {result.indexFunds.length} 个指数 · {etfBackedCount} 只有对应 ETF
-                  · 每个指数只用一个估值来源
+                  {indexCounts.judged ? (
+                    <>
+                      共 {indexCounts.total} 个指数 · 本次入选 {indexCounts.qualified} ·
+                      被条件挡下 {indexCounts.blocked} · 数据不足未确认 {indexCounts.unconfirmed}
+                      {' · '}{etfBackedCount} 只有对应 ETF
+                    </>
+                  ) : (
+                    <>
+                      共 {indexCounts.total} 个指数 · {etfBackedCount} 只有对应 ETF
+                      · 每个指数只用一个估值来源
+                    </>
+                  )}
                 </span>
               </div>
+              {!indexCounts.judged && (
+                <p className="stockpick-note">
+                  上面「PE(TTM) 上限 / PE 分位上限 / 市值下限」三格都没填，
+                  所以这次没有对指数做任何入选判定，下面按分位从低到高列出。
+                  填了任一条，卡片上就会标出谁入选、谁被挡下、为什么。
+                </p>
+              )}
               <p className="stockpick-caliber-warning">
                 ⚠ 不同来源的 PE 分位口径不同，不可横向比较——下面按来源分了子组，
                 排序只在子组内部进行。
@@ -840,10 +1179,17 @@ export default function StockPick() {
                   <div className="stockpick-cat-block" key={g.category}>
                     <h4 className="stockpick-cat-title">
                       {categoryLabel(g.category)}
-                      <span className="stockpick-code">{g.total} 个指数</span>
+                      <span className="stockpick-code">
+                        {g.total} 个指数
+                        {g.counts.judged && `（入选 ${g.counts.qualified}）`}
+                      </span>
                     </h4>
                     {g.subgroups.map(sg => {
                       const visible = shown.filter(f => f.valuationSource === sg.source)
+                      // 计数按整组算，不按本页显示的那几张：标题说「12 个，显示前 8 个」，
+                      // 那么「入选几个」也该是这 12 个里的数。
+                      // 另外因为排序把合格的放在最前，被截断时先露出来的正是入选的那几支。
+                      const counts = qualCounts(sg.items)
                       return (
                         <div className="stockpick-source-group" key={sg.source ?? 'none'}>
                           {/*
@@ -858,6 +1204,7 @@ export default function StockPick() {
                               {visible.length === sg.items.length
                                 ? `${sg.items.length} 个`
                                 : `${sg.items.length} 个，本页显示前 ${visible.length} 个`}
+                              {counts.judged && ` · 入选 ${counts.qualified}`}
                             </span>
                           </h5>
                           {visible.length > 0 && (
@@ -949,6 +1296,103 @@ export default function StockPick() {
           </section>
         </>
       )}
+
+      {/*
+        历史放在最后：它是「回头看」，不该把当前结果挤下去。
+        每次成功筛选后端都会落一行（含具体时间与完整快照），这里只读不写。
+      */}
+      <section className="market-watch-section stockpick-history">
+        <div className="market-watch-section-header">
+          <h3>筛选历史</h3>
+          <span>
+            {history ? `最近 ${history.total} 次 · 每次成功筛选留一行，保留最新的一份` : '每次成功筛选都会记下时间与当时的结果'}
+          </span>
+        </div>
+
+        {historyLoading && history === null && (
+          <p className="stockpick-note">正在读取筛选历史…</p>
+        )}
+
+        {historyError && (
+          <p className="stockpick-history-error">{historyError}</p>
+        )}
+
+        {history && history.records.length === 0 && !historyError && (
+          <p className="stockpick-note">
+            还没有历史记录。跑一次筛选之后，这里会出现那一行（含点击时刻）。
+          </p>
+        )}
+
+        {history && history.records.length > 0 && (
+          <>
+            <ul className="stockpick-history-list">
+              {history.records.map(h => (
+                <li key={h.id} className={replayedId === h.id ? 'on' : ''}>
+                  <div className="stockpick-history-head">
+                    <b>{h.scannedAt}</b>
+                    <span className="stockpick-history-operator">
+                      {h.scannedByEmail || '触发人未记录'}
+                    </span>
+                    {replayedId === h.id && <span className="stockpick-badge qual-pending">正在看这一次</span>}
+                  </div>
+                  <div className="stockpick-history-line">
+                    {MODE_LABEL[h.mode] ?? h.mode} · {BUCKET_LABEL[h.bucket] ?? h.bucket} · 每档 {h.perBucket} 只
+                  </div>
+                  <div className="stockpick-history-line">
+                    扫描 {h.scanned} · 通过排雷 {h.afterVetoes} ·
+                    指数入选 {h.qualifiedIndexCount}/{h.indexCount} ·
+                    稳健池 {h.steadyPool} · 成长池 {h.growthPool}
+                  </div>
+                  <div className="stockpick-history-line">
+                    <em>指数</em> {refLine(h.indices)}
+                  </div>
+                  {h.steadyStocks.length > 0 && (
+                    <div className="stockpick-history-line">
+                      <em>稳健</em> {refLine(h.steadyStocks)}
+                    </div>
+                  )}
+                  {h.growthStocks.length > 0 && (
+                    <div className="stockpick-history-line">
+                      <em>成长</em> {refLine(h.growthStocks)}
+                    </div>
+                  )}
+                  <div className="stockpick-history-actions">
+                    <button type="button" className="stockpick-history-replay"
+                      onClick={() => replay(h.id)}>
+                      恢复这次结果
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {history.pages > 1 && (
+              <div className="stockpick-history-pager">
+                <button type="button" disabled={historyPage <= 1}
+                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}>
+                  上一页
+                </button>
+                <span>第 {history.current} / {history.pages} 页</span>
+                <button type="button" disabled={historyPage >= history.pages}
+                  onClick={() => setHistoryPage(p => p + 1)}>
+                  下一页
+                </button>
+              </div>
+            )}
+
+            {/*
+              回放出来的那一页是**当时**的行情：卡片上的数据时间不会变成现在。
+              不说这句，用户会以为「恢复」等于「重算」。
+            */}
+            {replayedId !== null && (
+              <p className="stockpick-note">
+                上面的结果是把那一次的快照原样放回来（含当时的行情与条件），
+                没有重新请求行情源，也不是重算——要看现在的数就点「开始筛选」。
+              </p>
+            )}
+          </>
+        )}
+      </section>
     </div>
   )
 }

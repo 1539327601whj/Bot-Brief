@@ -102,7 +102,7 @@ class StockScreenerServiceTest {
                 null, null, provider);
     }
 
-    /** 七只指数 ETF 全部由某个源提供。 */
+    /** 池内每只指数 ETF 都由某个源提供。条数不写死——池子会扩，写死的数字只会烂在注释里。 */
     private Map<String, MarketDataClient.EtfQuote> allFrom(String provider) {
         Map<String, MarketDataClient.EtfQuote> m = new java.util.LinkedHashMap<>();
         for (IndexFundPool.Fund f : indexPool.withEtf()) m.put(f.etfCode(), quote(f.etfCode(), provider));
@@ -509,7 +509,7 @@ class StockScreenerServiceTest {
 
     @Test
     void indexBarsComeFromTheLocalLibraryWithoutASingleOutboundCall() {
-        // 池子里 7 只 ETF 全都在库里 → 点击时**一次外呼都不该有**。
+        // 池子里每只 ETF 全都在库里 → 点击时**一次外呼都不该有**。
         // 这条正是「200 条池子跑得动」的全部依据。
         stubDb(poolEtfCodes(indexPool).toArray(String[]::new));
         ScreenerParams p = new ScreenerParams();
@@ -787,8 +787,8 @@ class StockScreenerServiceTest {
 
     @Test
     void sinaIsOnlyAskedForWhatTencentAlsoMissed() {
-        // 一层一层往下补：腾讯只补到 1 只，新浪就只该被问剩下的 6 只，
-        // 而不是把 7 只再问一遍——兜底链的第二价值就是别把外呼量乘三
+        // 一层一层往下补：腾讯只补到 1 只，新浪就只该被问剩下的那些，
+        // 而不是整池再问一遍——兜底链的第二价值就是别把外呼量乘三
         Map<String, MarketDataClient.EtfQuote> fromTencent = new java.util.LinkedHashMap<>();
         List<String> codes = poolEtfCodes(indexPool);
         fromTencent.put(codes.get(0), quote(codes.get(0), AltQuoteSource.PROVIDER_TENCENT));
@@ -895,7 +895,13 @@ class StockScreenerServiceTest {
         ScreenerParams p = new ScreenerParams();
         p.setMode("index_only");
 
-        ScreenerResultDTO result = service(3).scan(p);
+        // 额度必须给满整池：这条要证的是「兜底这条路走得通」，不是「额度怎么截断」——
+        // 后者由 theFallbackBudgetIsCappedAndSaysHowManyItLeftOut 用 cap=2 单独盯着。
+        // 池子 7 → 42 之后，默认额度 10 会把它悄悄变成前者的副本：多出来的 32 只拿不到
+        // 价格位置，allSatisfy 就会在这里报「某只 pricePercentile 是 null」，
+        // 而真正坏掉的其实一个都没有。用整池大小当额度，这条测试才与池子大小无关。
+        ScreenerResultDTO result = service(3, new ScreenerCache(15, 20, 60, 10),
+                indexPool.withEtf().size()).scan(p);
 
         assertThat(result.indexFunds()).isNotEmpty();
         assertThat(result.indexFunds()).allSatisfy(f -> {

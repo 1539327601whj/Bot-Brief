@@ -25,10 +25,19 @@ public class ScreenerParams {
     /** 每档输出只数，默认 3 */
     private Integer perBucket;
 
-    /** PE(TTM) 上限，留空按档位默认（稳健 30 / 成长 45） */
+    /** PE(TTM) 上限，留空按档位默认（稳健 30 / 成长 45）。对指数只在显式填写时生效。 */
     private BigDecimal peMax;
-    /** 价格分位上限 %（0-100），留空 = 不限 */
-    private BigDecimal pricePercentileMax;
+    /**
+     * PE 分位上限 %（0-100），留空 = 不限。
+     *
+     * <p><b>只对指数基金生效。</b>个股在东财口径下没有自身的 PE 历史分位
+     * （见章程 §7），所以这个条件对个股既不能判通过也不能判挡下——指数块把它算作
+     * 「未确认」，个股块根本不读它。
+     *
+     * <p>字段曾叫 {@code pricePercentileMax}（价格分位上限），但那个参数**从未被任何规则读过**，
+     * 填了等于没填。改名时一并删掉，不留兼容别名：唯一调用方是本项目前端。
+     */
+    private BigDecimal pePercentileMax;
     /** 市值下限（亿元），留空按档位默认（稳健 200 / 成长 50） */
     private BigDecimal marketCapMinYi;
 
@@ -80,7 +89,7 @@ public class ScreenerParams {
         }
 
         p.peMax = positiveOrNull(peMax, "PE 上限");
-        p.pricePercentileMax = percentOrNull(pricePercentileMax, "价格分位上限");
+        p.pePercentileMax = percentOrNull(pePercentileMax, "PE 分位上限");
         p.marketCapMinYi = positiveOrNull(marketCapMinYi, "市值下限");
         p.pbMax = positiveOrNull(pbMax, "PB 上限");
         p.dividendYieldMin = anyOrNull(dividendYieldMin, "股息率下限");

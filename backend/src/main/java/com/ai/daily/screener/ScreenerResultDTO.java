@@ -24,6 +24,23 @@ public record ScreenerResultDTO(
         String disclaimer
 ) {
 
+    /**
+     * 复制一份，往口径摘要的降级列表末尾追加一句。
+     *
+     * <p>给「筛选历史没存下来」这类**结果之外**的失败用：结果本身是好的，不该因此变成错误页，
+     * 但也不能悄悄不说——章程 §6 第 4 条：缺了就是缺了，标出来。
+     */
+    public ScreenerResultDTO withExtraDegradation(String line) {
+        Summary s = summary();
+        java.util.List<String> degradations = new java.util.ArrayList<>(s.degradations());
+        degradations.add(line);
+        return new ScreenerResultDTO(
+                dataTime, priceAsOf, appliedParams,
+                new Summary(s.scanned(), s.afterVetoes(), s.steadyPool(), s.growthPool(),
+                        s.shortlistFetched(), s.vetoCounts(), degradations, s.notes()),
+                indexFunds, steadyStocks, growthStocks, disclaimer);
+    }
+
     /** 口径摘要。**各规则剔除数之和 + 进入打分数 = 扫描总数**，对不上就是 bug。 */
     public record Summary(
             int scanned,
@@ -107,6 +124,26 @@ public record ScreenerResultDTO(
              * 不同估值来源的口径不同，不可横向比较」——这句话在每张卡上都要有，
              * 因为它防的是本页最容易被误读的那件事。
              */
-            List<String> notes
+            List<String> notes,
+
+            /**
+             * 本次条件下的判定：{@code qualified} / {@code blocked} / {@code unconfirmed} /
+             * {@code no_conditions}，取值见 {@link ScreeningRules.IndexQualification}。**永不 null。**
+             *
+             * <p>它是「算出来的判断」，不是「取到的数值」，所以**不参与**本记录那条
+             * {@code xStatus != null ⟺ 对应数值 == null} 的缺值不变式。
+             *
+             * <p>被挡下的指数**照样返回**（不再从结果里消失）：页面上要能看见
+             * 「谁被哪条条件挡下了」，否则一次筛选看起来就像「池子里只有这几个」。
+             */
+            String qualification,
+
+            /**
+             * 被哪条条件挡下、或哪条条件判不了。
+             *
+             * <p>规则：{@code qualification} 为 {@code blocked} / {@code unconfirmed} 时非空，
+             * 为 {@code qualified} / {@code no_conditions} 时为空列表。
+             */
+            List<String> qualificationReasons
     ) {}
 }

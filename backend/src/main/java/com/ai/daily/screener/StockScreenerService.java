@@ -50,6 +50,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code scan} 自己一行都不落；读**自己盘后预取好的**数据是允许的，见
  * {@link ScreenerPrefetchPolicy}——它省掉的正是这台服务器被按 IP 限流的那部分外呼。
  * 预取任务本身在 {@link ScreenerPrefetchTask}，与本类是「写」和「读」两头，别混。
+ *
+ * <p><b>本页唯一的一处写</b>在 {@code StockScreenerController#recordHistory}：每次成功筛选
+ * 落一行筛选历史（{@link ScreenerHistoryService}）。它刻意放在控制器而不在这里——
+ * 写失败时那边能把「历史没存下来」追加进降级说明，而这里必须保持「只算、不落」，
+ * 否则规则的正确性就要跟着库的状态走。看到本类里没有 insert 是对的，别去「补上」。
  */
 @Slf4j
 @Service
@@ -269,7 +274,7 @@ public class StockScreenerService {
 
         // ---- 指数基金块 ----
         List<ScreenerResultDTO.IndexFundItem> indexFunds = p.wantsIndexFunds()
-                ? buildIndexFunds(positions, klines, degradations, notes)
+                ? buildIndexFunds(p, positions, klines, degradations, notes)
                 : List.of();
 
         // ---- 口径摘要 ----
@@ -690,12 +695,14 @@ public class StockScreenerService {
      * @param klines 日线取数结果，**只为了取 {@code provider}**——卡片上要印「价格位置来自哪里」。
      */
     private List<ScreenerResultDTO.IndexFundItem> buildIndexFunds(
+            ScreenerParams p,
             Map<String, PricePosition> positions,
             Map<String, MarketDataClient.KlineOutcome> klines,
             List<String> degradations,
             List<String> notes) {
         Map<String, MarketDataClient.EtfQuote> quotes = fetchIndexQuotes(degradations, notes);
         ValuationRead valuations = latestValuations(degradations);
+        describeIndexConditions(p, notes);
 
         List<ScreenerResultDTO.IndexFundItem> items = new ArrayList<>();
         for (IndexFundPool.Fund f : indexPool.funds()) {
@@ -727,6 +734,16 @@ public class StockScreenerService {
                     valuationDate = h.getTradeDate();
                 }
             }
+
+            // ---- 本次条件下的判定 ----
+            //
+            // 判定用的是**已经取到的数**，所以必须放在行情与估值都取完之后。
+            // 缺值走 unconfirmed，绝不当作通过、也绝不写成被挡下——理由见
+            // ScreeningRules.qualifyIndex 的 javadoc 与章程 §6。
+            boolean hasValuationRow = f.hasValuation() && valuations.rows().get(f.indexCode()) != null;
+            ScreeningRules.IndexVerdict verdict = ScreeningRules.qualifyIndex(
+                    f.hasValuation(), valuations.failure() != null, hasValuationRow,
+                    peTtm, pePercentile, scaleYi, p);
 
             String noEtf = "该指数没有对应的可交易 ETF，所以取不到行情，也取不到价格位置与规模";
 
@@ -856,7 +873,9 @@ public class StockScreenerService {
                     percentileMethod, valuationDate,
                     hasPosition ? pos.getBarCount() : null,
                     hasPosition ? pos.getLastTradeDate() : null,
-                    cardNotes));
+                    cardNotes,
+                    qualificationName(verdict.state()),
+                    verdict.reasons()));
         }
         return items;
     }
@@ -867,6 +886,44 @@ public class StockScreenerService {
      * <p>认不出来的名字**原样给出**：哪天池子里多了一个来源，页面上会直接显出那个生名字，
      * 比换成「未知来源」更有用——后者会让人以为是我们没记录，其实记录一直在池子文件里。
      */
+    /**
+     * 把「本次哪些条件对指数生效」写进口径摘要。
+     *
+     * <p>为什么必须写出来：指数块以前完全不看条件，用户填了 PE 上限却看到 PE 30+ 的指数照列，
+     * 只会得出「条件没用」的结论（而这确实曾经是 bug）。现在条件生效了，但**留空即不限**——
+     * 不把「哪些条件这次真的在起作用」印出来，读者没法分辨「没被挡下」和「根本没设条件」。
+     */
+    private static void describeIndexConditions(ScreenerParams p, List<String> notes) {
+        List<String> on = new ArrayList<>();
+        if (p.getPeMax() != null) {
+            on.add("PE(TTM) ≤ " + ScreeningRules.strip(p.getPeMax()));
+        }
+        if (p.getPePercentileMax() != null) {
+            on.add("PE 分位 ≤ " + ScreeningRules.strip(p.getPePercentileMax()) + "%");
+        }
+        if (p.getMarketCapMinYi() != null) {
+            on.add("代表 ETF 规模 ≥ " + ScreeningRules.strip(p.getMarketCapMinYi())
+                    + " 亿（与个股市值下限不是同一个口径）");
+        }
+        if (on.isEmpty()) {
+            notes.add("本次没有对指数生效的条件（PE(TTM) 上限、PE 分位上限、市值下限都留空了）："
+                    + "指数只列出、不判定。填上任一条就能看到谁在其中、谁被挡下");
+            return;
+        }
+        notes.add("对指数生效的条件：" + String.join(" · ", on)
+                + "；留空的条件不限。缺数据的指数标「未确认」，既不算合格也不算被挡下");
+    }
+
+    /** 判定枚举 → 前端读的小写串。改名要连带改前端 `QUAL_RANK` 与章程 §5。 */
+    private static String qualificationName(ScreeningRules.IndexQualification state) {
+        return switch (state) {
+            case QUALIFIED -> "qualified";
+            case BLOCKED -> "blocked";
+            case UNCONFIRMED -> "unconfirmed";
+            case NO_CONDITIONS -> "no_conditions";
+        };
+    }
+
     private static String valuationSourceLabel(String source) {
         if (source == null) return null;
         return switch (source) {
@@ -929,8 +986,8 @@ public class StockScreenerService {
     /**
      * 指数行情兜底链：东财 push2 → 腾讯 → 新浪。
      *
-     * <p><b>每一层只补上一层缺的那几只，不是整批重打。</b>「7 只里挂了 2 只」只产生 2 只的兜底外呼，
-     * 而不是把 7 只再问两遍——兜底链的第一价值是消掉空白，第二价值是别把外呼量乘三。
+     * <p><b>每一层只补上一层缺的那几只，不是整批重打。</b>「整批里挂了 2 只」只产生 2 只的兜底外呼，
+     * 而不是整批再问两遍——兜底链的第一价值是消掉空白，第二价值是别把外呼量乘三。
      *
      * <p>兜底源被限流时**只记它自己**的冷却（见 {@link ScreenerCache}）：腾讯挨的限流
      * 不该顺手把东财的清单请求也锁死，那会让页面上的「东财在限流」变成一句假话。

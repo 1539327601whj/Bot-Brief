@@ -167,6 +167,10 @@ screener:
   # 额度只覆盖指数池；个股那边只数由短名单天然限住，且已经带着明确原因降级。
   # 用尽的会在口径摘要里写明少了几只。**不要因为「反正有兜底」就调大。**
   index-pool-max-live-fetches: ${SCREENER_INDEX_POOL_MAX_LIVE_FETCHES:10}
+  # 筛选历史保留多少条（每次成功筛选一行，含完整结果快照，一行几十 KB）。
+  # 写入时按「保留最新 N 条」裁剪，没有定时任务。表见 backend/sql/V14__screener_scan_history.sql。
+  history:
+    keep: ${SCREENER_HISTORY_KEEP:100}
   # 盘后预取：收盘后把「清单 + 基本面」取回落库，盘后点击就不必再向东财外呼。
   # 表见 backend/sql/V13__screener_prefetch.sql，写侧是 ScreenerPrefetchTask。
   prefetch:

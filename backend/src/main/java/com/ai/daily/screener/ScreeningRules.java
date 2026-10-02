@@ -535,7 +535,130 @@ public final class ScreeningRules {
     }
 
     // ==================================================================
-    // 六、可读的理由与风险（全部由数字生成，不含任何定性预测）
+    // 六、指数块的条件判定
+    // ==================================================================
+
+    /**
+     * 一个指数在本次条件下的判定。
+     *
+     * <p>为什么要有第四态 {@link #NO_CONDITIONS}：用户可能一条对指数生效的条件都没填。
+     * 那种情况下把每个指数都标成「本次入选」是在替用户宣布一件他没说过的事——
+     * 页面上必须写「本次未对指数设条件，不作判定」，而不是默认全部合格。
+     */
+    public enum IndexQualification {
+        /** 填了的条件全部有值、且全部通过。 */
+        QUALIFIED,
+        /** 至少一条填了的条件拿现值判为不通过。**只由「有值的失败」产生，缺值永远不会走到这里。** */
+        BLOCKED,
+        /** 没有一条判为不通过，但至少一条填了的条件缺值——判不了，既不算合格也不算被挡下。 */
+        UNCONFIRMED,
+        /** 一条对指数生效的条件都没填，本次不对指数作判定。 */
+        NO_CONDITIONS
+    }
+
+    /**
+     * 判定结果。
+     *
+     * <p><b>不变式：{@code state} 为 {@link IndexQualification#BLOCKED} 或
+     * {@link IndexQualification#UNCONFIRMED} ⟺ {@code reasons} 非空。</b>
+     * {@code QUALIFIED} 与 {@code NO_CONDITIONS} 一律给空列表。
+     */
+    public record IndexVerdict(IndexQualification state, List<String> reasons) {
+
+        public boolean isQualified() {
+            return state == IndexQualification.QUALIFIED;
+        }
+    }
+
+    /**
+     * 判定一个指数是否满足本次条件，并说清凭什么。
+     *
+     * <p><b>只有这三个条件对指数生效，且都只在用户显式填了的时候才生效：</b>
+     * PE(TTM) 上限、PE 分位上限、市值下限（对指数是**代表 ETF 的基金规模**）。
+     * 留空即不限——章程 §3 里 30 / 45 那套默认值是**按个股档位（稳健/成长）定的**，
+     * 指数没有档位，凭空给它造一个默认上限就是造规则，见章程 §6 第 4 条与 §7。
+     *
+     * <p><b>缺值一律走 {@link IndexQualification#UNCONFIRMED}，绝不当作通过、也绝不写成被挡下</b>
+     * （章程 §6：「缺了就是缺了，标出来」）。这条在指数池扩容后尤其要紧：新加的指数在
+     * 每日同步写库之前没有估值行，若把缺值当不合格，它们会被静默剔掉，页面上看起来
+     * 就像「池子扩了却没变化」。
+     *
+     * @param hasValuationSource 该指数在池子里配了 PE 数据源
+     * @param valuationReadFailed 本次批量读估值库是否失败（与「库里没这条」是两件事）
+     * @param hasValuationRow 库里是否有该指数的行
+     * @param peTtm 指数自身的 PE(TTM)，取自估值库
+     * @param pePercentile 指数自身的 PE 历史分位，取自估值库
+     * @param scaleYi 代表 ETF 的基金规模（亿元），**不是该指数的总市值**
+     * @param p 已经 {@code normalized()} 过的参数；本方法不处理 null 参数语义
+     */
+    public static IndexVerdict qualifyIndex(
+            boolean hasValuationSource, boolean valuationReadFailed, boolean hasValuationRow,
+            BigDecimal peTtm, BigDecimal pePercentile, BigDecimal scaleYi, ScreenerParams p) {
+        List<String> failures = new ArrayList<>();
+        List<String> unknowns = new ArrayList<>();
+
+        BigDecimal peCap = p.getPeMax();
+        if (peCap != null) {
+            if (peTtm != null && peTtm.compareTo(peCap) > 0) {
+                failures.add("PE(TTM) " + strip(peTtm) + " 高于你设定的上限 " + strip(peCap));
+            } else if (peTtm == null) {
+                unknowns.add(valuationUnknown("PE(TTM)", hasValuationSource, valuationReadFailed, hasValuationRow));
+            }
+        }
+
+        BigDecimal pctCap = p.getPePercentileMax();
+        if (pctCap != null) {
+            if (pePercentile != null && pePercentile.compareTo(pctCap) > 0) {
+                failures.add("PE 分位 " + fmt(pePercentile) + "% 高于你设定的上限 " + strip(pctCap) + "%");
+            } else if (pePercentile == null) {
+                unknowns.add(valuationUnknown("PE 分位", hasValuationSource, valuationReadFailed, hasValuationRow));
+            }
+        }
+
+        BigDecimal capFloor = p.getMarketCapMinYi();
+        if (capFloor != null) {
+            if (scaleYi != null && scaleYi.compareTo(capFloor) < 0) {
+                failures.add("代表 ETF 规模 " + fmt(scaleYi) + " 亿低于你设定的下限 " + strip(capFloor)
+                        + " 亿（这一格是基金规模，与个股市值下限不是同一个口径）");
+            } else if (scaleYi == null) {
+                unknowns.add("代表 ETF 规模未确认（行情未取到，或该指数没有可交易 ETF），"
+                        + "无法判定是否 ≥ " + strip(capFloor) + " 亿");
+            }
+        }
+
+        // 已经被挡下的，连同「另外还有一条判不了」一起说：只报一条会让读者以为条件只有这一条。
+        List<String> reasons = new ArrayList<>(failures);
+        reasons.addAll(unknowns);
+        if (!failures.isEmpty()) {
+            return new IndexVerdict(IndexQualification.BLOCKED, List.copyOf(reasons));
+        }
+        if (!unknowns.isEmpty()) {
+            return new IndexVerdict(IndexQualification.UNCONFIRMED, List.copyOf(reasons));
+        }
+        if (peCap == null && pctCap == null && capFloor == null) {
+            return new IndexVerdict(IndexQualification.NO_CONDITIONS, List.of());
+        }
+        return new IndexVerdict(IndexQualification.QUALIFIED, List.of());
+    }
+
+    /** 「为什么这一格判不了」——按原因分开说，与卡片上那格的状态串是两回事。 */
+    private static String valuationUnknown(String label, boolean hasValuationSource,
+                                           boolean valuationReadFailed, boolean hasValuationRow) {
+        String why;
+        if (!hasValuationSource) {
+            why = "该指数未接入 PE 数据源";
+        } else if (valuationReadFailed) {
+            why = "本次读取本地估值库失败";
+        } else if (!hasValuationRow) {
+            why = "库里暂无该指数的估值记录（每日同步写入后才有）";
+        } else {
+            why = "库里有该指数的记录，但这一格是空的";
+        }
+        return why + "，" + label + "未确认，本次条件判不了";
+    }
+
+    // ==================================================================
+    // 七、可读的理由与风险（全部由数字生成，不含任何定性预测）
     // ==================================================================
 
     private static Selected build(StockRow row, Bucket bucket, Scored scored, ScreenerParams p,

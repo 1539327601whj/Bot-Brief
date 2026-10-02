@@ -203,3 +203,30 @@ CREATE TABLE IF NOT EXISTS screener_universe_stock (
     UNIQUE KEY uk_screener_universe_stock (snapshot_trade_date, stock_code),
     INDEX idx_screener_universe_stock_code (stock_code, snapshot_trade_date DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='低估精选全市场快照明细';
+
+-- 「低估精选」筛选历史：管理员每点一次「开始筛选」，成功就落一行。
+-- 与 V14__screener_scan_history.sql 内容一致，改一处必须同时改另一处。
+-- 只增不改的审计台账：列表页读摘要列，详情读 result_json 整页回放。
+CREATE TABLE IF NOT EXISTS screener_scan_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    scanned_at DATETIME NOT NULL COMMENT '本次计算时间（Asia/Shanghai）',
+    scanned_by_user_id BIGINT DEFAULT NULL COMMENT '触发筛选的用户 ID',
+    scanned_by_email VARCHAR(255) DEFAULT NULL COMMENT '触发人展示用',
+    mode VARCHAR(20) NOT NULL COMMENT 'index_first / index_only / stock_only',
+    bucket VARCHAR(20) NOT NULL COMMENT 'both / steady / growth',
+    per_bucket INT NOT NULL COMMENT '每档输出只数',
+    params_json LONGTEXT NOT NULL COMMENT '生效参数快照（解析默认值之后，回填条件面板用）',
+    scanned_count INT NOT NULL COMMENT '扫描总数',
+    after_vetoes INT NOT NULL COMMENT '通过排雷数',
+    steady_pool INT NOT NULL COMMENT '稳健档池子',
+    growth_pool INT NOT NULL COMMENT '成长档池子',
+    shortlist_fetched INT NOT NULL COMMENT '抓取日线只数',
+    index_count INT NOT NULL COMMENT '指数池条目数',
+    qualified_index_count INT NOT NULL COMMENT '其中本次入选（合格）的指数数',
+    selection_json LONGTEXT NOT NULL COMMENT '入选清单：指数/稳健/成长的代码与名称',
+    result_json LONGTEXT NOT NULL COMMENT '完整结果快照，可整页恢复',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_screener_history_mode CHECK (mode IN ('index_first','index_only','stock_only')),
+    CONSTRAINT chk_screener_history_bucket CHECK (bucket IN ('both','steady','growth')),
+    INDEX idx_screener_history_scanned_at (scanned_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='低估精选筛选历史';

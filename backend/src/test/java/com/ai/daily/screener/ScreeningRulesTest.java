@@ -411,7 +411,7 @@ class ScreeningRulesTest {
         }).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> {
             ScreenerParams p = new ScreenerParams();
-            p.setPricePercentileMax(new BigDecimal("150"));
+            p.setPePercentileMax(new BigDecimal("150"));
             p.normalized();
         }).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> {
@@ -770,5 +770,141 @@ class ScreeningRulesTest {
         assertThat(picked).hasSize(1);
         assertThat(picked.get(0).degradations())
                 .anyMatch(d -> d.contains("价格位置"));
+    }
+
+    // ================= 指数块的条件判定 =================
+
+    private static ScreenerParams indexCaps(String peMax, String pePercentileMax, String capFloorYi) {
+        ScreenerParams p = new ScreenerParams();
+        if (peMax != null) p.setPeMax(new BigDecimal(peMax));
+        if (pePercentileMax != null) p.setPePercentileMax(new BigDecimal(pePercentileMax));
+        if (capFloorYi != null) p.setMarketCapMinYi(new BigDecimal(capFloorYi));
+        return p.normalized();
+    }
+
+    /** 数据齐全 + 条件都过 → 合格。 */
+    @Test
+    void anIndexWithCompleteDataPassingEveryCapIsQualified() {
+        ScreeningRules.IndexVerdict v = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("13.15"), new BigDecimal("48.8"), new BigDecimal("1068.98"),
+                indexCaps("30", "50", "100"));
+
+        assertThat(v.state()).isEqualTo(ScreeningRules.IndexQualification.QUALIFIED);
+        assertThat(v.reasons()).isEmpty();
+        assertThat(v.isQualified()).isTrue();
+    }
+
+    /**
+     * 「一条指数条件都没填」必须自成一态。
+     *
+     * <p>若把它算成合格，页面会把池子里每个指数都标成「本次入选」——那是替用户
+     * 宣布一件他没说过的事。
+     */
+    @Test
+    void withNoIndexConditionAtAllNothingIsJudgeable() {
+        ScreeningRules.IndexVerdict v = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("13.15"), new BigDecimal("48.8"), new BigDecimal("1068.98"),
+                ScreenerParams.defaults());
+
+        assertThat(v.state()).isEqualTo(ScreeningRules.IndexQualification.NO_CONDITIONS);
+        assertThat(v.reasons()).isEmpty();
+        assertThat(v.isQualified()).isFalse();
+    }
+
+    @Test
+    void eachCapCanBlockOnItsOwnAndTheReasonNamesTheNumber() {
+        ScreeningRules.IndexVerdict byPe = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("35.83"), new BigDecimal("27.5"), new BigDecimal("653.84"),
+                indexCaps("30", null, null));
+        assertThat(byPe.state()).isEqualTo(ScreeningRules.IndexQualification.BLOCKED);
+        assertThat(byPe.reasons()).singleElement().asString().contains("35.83").contains("30");
+
+        ScreeningRules.IndexVerdict byPercentile = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("35.83"), new BigDecimal("61.2"), new BigDecimal("203.86"),
+                indexCaps(null, "30", null));
+        assertThat(byPercentile.state()).isEqualTo(ScreeningRules.IndexQualification.BLOCKED);
+        assertThat(byPercentile.reasons()).singleElement().asString().contains("61.2").contains("30");
+
+        ScreeningRules.IndexVerdict byScale = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("10.95"), new BigDecimal("19.1"), new BigDecimal("8.20"),
+                indexCaps(null, null, "100"));
+        assertThat(byScale.state()).isEqualTo(ScreeningRules.IndexQualification.BLOCKED);
+        // 指数卡上这一格是**基金规模**，与个股市值下限不是同一个口径，理由串必须说出来。
+        // 数字按 ScreeningRules.strip() 的既有写法去掉尾零，所以这里断言的是 8.2 而不是 8.20。
+        assertThat(byScale.reasons()).singleElement().asString().contains("8.2").contains("不是同一个口径");
+    }
+
+    @Test
+    void severalFailingCapsAreAllReported() {
+        ScreeningRules.IndexVerdict v = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("80"), new BigDecimal("90"), new BigDecimal("5"),
+                indexCaps("30", "50", "100"));
+
+        assertThat(v.state()).isEqualTo(ScreeningRules.IndexQualification.BLOCKED);
+        assertThat(v.reasons()).hasSize(3);
+    }
+
+    /**
+     * 这条是整个三态设计的理由所在，也是章程 §6 第 4 条在指数块上的落点。
+     *
+     * <p>池子扩容后，新加的指数在每日同步写库之前**没有估值行**。若把缺值当不合格，
+     * 它们会被静默剔掉，页面上看起来就像「池子扩了却没变化」。
+     */
+    @Test
+    void aMissingValuationIsUnconfirmedNeverBlockedAndNeverQualified() {
+        // 池子里没配估值来源
+        assertThat(ScreeningRules.qualifyIndex(false, false, false,
+                null, null, new BigDecimal("500"), indexCaps("30", "50", null)).state())
+                .isEqualTo(ScreeningRules.IndexQualification.UNCONFIRMED);
+        // 本次读库失败（与「库里没这条」是两件事）
+        assertThat(ScreeningRules.qualifyIndex(true, true, false,
+                null, null, new BigDecimal("500"), indexCaps("30", "50", null)).state())
+                .isEqualTo(ScreeningRules.IndexQualification.UNCONFIRMED);
+        // 库里还没这个指数的行（扩容后的常态）
+        ScreeningRules.IndexVerdict noRow = ScreeningRules.qualifyIndex(true, false, false,
+                null, null, new BigDecimal("500"), indexCaps("30", null, null));
+        assertThat(noRow.state()).isEqualTo(ScreeningRules.IndexQualification.UNCONFIRMED);
+        assertThat(noRow.reasons()).isNotEmpty();
+        assertThat(noRow.isQualified()).isFalse();
+        // 有行但那一格是空的
+        assertThat(ScreeningRules.qualifyIndex(true, false, true,
+                null, new BigDecimal("20"), new BigDecimal("500"), indexCaps("30", null, null)).state())
+                .isEqualTo(ScreeningRules.IndexQualification.UNCONFIRMED);
+    }
+
+    @Test
+    void aMissingScaleIsUnconfirmedOnlyWhenTheScaleCapWasActuallySet() {
+        // 没填市值下限就不该因为「规模取不到」被判未确认
+        assertThat(ScreeningRules.qualifyIndex(true, false, true,
+                new BigDecimal("13.15"), new BigDecimal("20"), null, indexCaps("30", null, null)).state())
+                .isEqualTo(ScreeningRules.IndexQualification.QUALIFIED);
+        // 填了就必须判：规模那格没数 → 判不了
+        assertThat(ScreeningRules.qualifyIndex(true, false, true,
+                new BigDecimal("13.15"), new BigDecimal("20"), null, indexCaps(null, null, "100")).state())
+                .isEqualTo(ScreeningRules.IndexQualification.UNCONFIRMED);
+    }
+
+    /**
+     * 一条判为不通过、另一条缺值时，状态是不合格，但**两条都要说出来**。
+     * 只报被挡下的那条，读者会以为条件只有一条。
+     */
+    @Test
+    void aDefiniteFailureWinsOverAnUnjudgeableOneButBothAreListed() {
+        ScreeningRules.IndexVerdict v = ScreeningRules.qualifyIndex(
+                true, false, true, new BigDecimal("80"), null, new BigDecimal("500"),
+                indexCaps("30", "50", null));
+
+        assertThat(v.state()).isEqualTo(ScreeningRules.IndexQualification.BLOCKED);
+        assertThat(v.reasons()).hasSize(2);
+        assertThat(v.reasons().get(0)).contains("PE(TTM)");
+        assertThat(v.reasons().get(1)).contains("判不了");
+    }
+
+    /** 边界：正好等于上限算通过（与个股那边 V12 的 `>` 语义一致）。 */
+    @Test
+    void aValueExactlyOnTheCapPasses() {
+        assertThat(ScreeningRules.qualifyIndex(true, false, true,
+                new BigDecimal("30"), new BigDecimal("50"), new BigDecimal("100"), indexCaps("30", "50", "100")).state())
+                .isEqualTo(ScreeningRules.IndexQualification.QUALIFIED);
     }
 }

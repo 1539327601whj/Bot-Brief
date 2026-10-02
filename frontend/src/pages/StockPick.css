@@ -346,6 +346,28 @@
   color: var(--warning);
 }
 
+/* ---------- 本次筛选的判定（指数卡） ----------
+   三态各给一种颜色，且与「风险等级」那两个 .risk-* 分开：
+   它们是两个维度（风险是档位自带的，判定是用户这次填的条件算出来的）。 */
+
+.stockpick-badge.qual-ok {
+  border: 1px solid rgba(var(--success-rgb), 0.4);
+  background: rgba(var(--success-rgb), 0.14);
+  color: var(--success);
+}
+
+.stockpick-badge.qual-blocked {
+  border: 1px solid rgba(var(--danger-rgb), 0.4);
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger);
+}
+
+.stockpick-badge.qual-pending {
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-strong);
+}
+
 .stockpick-score {
   color: var(--accent-strong);
   font-weight: 650;
@@ -632,10 +654,33 @@
   color: var(--text-muted);
 }
 
+/* 「判不了」既不是通过也不是失败：绿色会被读成入选理由，黄色会被读成风险 */
+.stockpick-list-info h5 {
+  color: var(--accent);
+}
+
 /* ---------- 口径摘要 ---------- */
 
 .stockpick-summary-numbers {
   margin-bottom: 16px;
+}
+
+/*
+ 「本次生效条件」那几格放的是**一句话**（「按档位默认（稳健 30 / 成长 45）；指数不限」），
+ 不是短数值：`.stockpick-numbers span` 的 `word-break: break-all` + 104px 的单列宽度
+ 会把它断成「成长 4 / 5）」这种看着像打错字的样子。所以这里放宽列宽、放开断词，
+ 与 `.stockpick-missing` 同一套处理。
+ */
+.stockpick-params-numbers {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.stockpick-params-numbers span {
+  /* 选择器要比 `.stockpick-numbers span` 更具体才压得住那条 break-all */
+  word-break: normal;
+  overflow-wrap: break-word;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .stockpick-veto-grid {
@@ -697,6 +742,120 @@
   color: var(--text-muted);
   font-size: 12.5px;
   line-height: 1.75;
+}
+
+/* ---------- 筛选历史 ---------- */
+
+.stockpick-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.stockpick-history-list > li {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(var(--tint-rgb), 0.03);
+}
+
+/* 正在回放的那一条：左边一道强调色，和卡片上的徽章是同一件事的两种提示 */
+.stockpick-history-list > li.on {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.07);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.stockpick-history-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.stockpick-history-head b {
+  color: var(--text);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stockpick-history-operator {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.stockpick-history-line {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.stockpick-history-line em {
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-strong);
+  font-style: normal;
+  font-size: 11.5px;
+}
+
+.stockpick-history-actions {
+  margin-top: 9px;
+}
+
+.stockpick-history-replay {
+  padding: 6px 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--accent-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stockpick-history-replay:hover {
+  background: rgba(var(--accent-rgb), 0.18);
+}
+
+.stockpick-history-error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--danger-rgb), 0.32);
+  border-radius: 12px;
+  background: rgba(var(--danger-rgb), 0.08);
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.stockpick-history-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.stockpick-history-pager button {
+  padding: 5px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: rgba(var(--tint-rgb), 0.04);
+  color: var(--text-pale);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.stockpick-history-pager button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 @media (max-width: 720px) {
