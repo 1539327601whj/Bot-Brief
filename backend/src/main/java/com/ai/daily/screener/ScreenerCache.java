@@ -117,6 +117,25 @@ public class ScreenerCache {
         return universe != null && universeAt != null && isFresh(universeAt);
     }
 
+    /**
+     * 把**本地预取库**里的快照放进这一层缓存。与 {@link #universe(Supplier)} 的唯一区别：
+     * <b>不碰冷却</b>。
+     *
+     * <p>为什么必须是个独立方法、不能复用它：{@code universe(loader)} 成功时会
+     * {@code cooldowns.remove(PROVIDER_EASTMONEY)}（见上面那行注释）。而「从自己的库里读到了一份
+     * 昨天收盘后存下的数据」**根本不证明东财那条线现在通了**——顺手把冷却抹掉，等于拿一次本地
+     * 读操作替东财宣布解封，玩家随后点进去就会又撞一次限流。缓存的键和冷却的键是两件事，
+     * 一个成功不能顺带清另一个。
+     *
+     * <p>不在这里打日志：这条路径每次盘后点击都会走到，info 级别会把日志刷满；
+     * 「这次数据取自预取库」由上层写进 {@code summary.notes} 展示给用户看，那才是该被看见的地方。
+     */
+    public void putUniverseFromPrefetch(MarketDataClient.UniverseSnapshot snapshot) {
+        if (snapshot == null) return;
+        universe = snapshot;
+        universeAt = LocalDateTime.now(SHANGHAI);
+    }
+
     /** 手上这份快照，不管新不新。被限流时拿它兜底。 */
     public Optional<MarketDataClient.UniverseSnapshot> universeOrStale() {
         return Optional.ofNullable(universe);

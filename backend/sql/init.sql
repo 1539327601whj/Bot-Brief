@@ -146,3 +146,60 @@ CREATE TABLE IF NOT EXISTS competitor_account (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_competitor_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='竞品账号表';
+
+-- 「低估精选」盘后预取的清单 + 基本面快照。头一行每交易日、明细每标的每交易日。
+-- 与 V13__screener_prefetch.sql 内容一致，改一处必须同时改另一处。
+CREATE TABLE IF NOT EXISTS screener_universe_snapshot (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trade_date DATE NOT NULL COMMENT '清单所属交易日',
+    prefetch_date DATE NOT NULL COMMENT '预取执行的自然日',
+    pool_size INT NOT NULL COMMENT '本次请求的池子大小 N',
+    listed_count INT NOT NULL COMMENT '清单取到的条数',
+    missing_count INT NOT NULL COMMENT '清单有、行情没取到、已剔除的条数',
+    cap_floor DECIMAL(24, 4) DEFAULT NULL COMMENT '池内最小总市值（元）',
+    source VARCHAR(100) NOT NULL COMMENT '数据来源',
+    fetched_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT chk_screener_universe_counts CHECK (pool_size > 0 AND listed_count >= 0 AND missing_count >= 0),
+    CONSTRAINT chk_screener_universe_source_not_blank CHECK (CHAR_LENGTH(TRIM(source)) > 0),
+    UNIQUE KEY uk_screener_universe_trade_date (trade_date),
+    INDEX idx_screener_universe_prefetch_date (prefetch_date),
+    INDEX idx_screener_universe_fetched_at (fetched_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='低估精选全市场快照头';
+
+CREATE TABLE IF NOT EXISTS screener_universe_stock (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    snapshot_trade_date DATE NOT NULL,
+    stock_code VARCHAR(16) NOT NULL,
+    stock_name VARCHAR(100) DEFAULT NULL,
+    market TINYINT NOT NULL,
+    is_etf TINYINT NOT NULL DEFAULT 0,
+    industry VARCHAR(100) DEFAULT NULL,
+    price DECIMAL(18, 6) DEFAULT NULL,
+    pct_change DECIMAL(12, 4) DEFAULT NULL,
+    amount DECIMAL(24, 4) DEFAULT NULL,
+    turnover_rate DECIMAL(12, 4) DEFAULT NULL,
+    total_market_cap DECIMAL(24, 4) DEFAULT NULL,
+    float_market_cap DECIMAL(24, 4) DEFAULT NULL,
+    pb DECIMAL(18, 6) DEFAULT NULL,
+    pe_ttm DECIMAL(18, 6) DEFAULT NULL,
+    roe DECIMAL(12, 4) DEFAULT NULL,
+    revenue_growth DECIMAL(12, 4) DEFAULT NULL,
+    profit_growth DECIMAL(12, 4) DEFAULT NULL,
+    gross_margin DECIMAL(12, 4) DEFAULT NULL,
+    debt_ratio DECIMAL(12, 4) DEFAULT NULL,
+    dividend_yield DECIMAL(12, 4) DEFAULT NULL,
+    bps DECIMAL(18, 6) DEFAULT NULL,
+    list_date DATE DEFAULT NULL,
+    change_60d DECIMAL(12, 4) DEFAULT NULL,
+    ytd_change DECIMAL(12, 4) DEFAULT NULL,
+    source VARCHAR(100) NOT NULL,
+    fetched_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT chk_screener_stock_market CHECK (market IN (0, 1)),
+    CONSTRAINT chk_screener_stock_source_not_blank CHECK (CHAR_LENGTH(TRIM(source)) > 0),
+    UNIQUE KEY uk_screener_universe_stock (snapshot_trade_date, stock_code),
+    INDEX idx_screener_universe_stock_code (stock_code, snapshot_trade_date DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='低估精选全市场快照明细';

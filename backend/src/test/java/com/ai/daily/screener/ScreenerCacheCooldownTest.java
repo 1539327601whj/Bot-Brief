@@ -94,6 +94,42 @@ class ScreenerCacheCooldownTest {
         assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)).isTrue();
     }
 
+    /**
+     * 从本地预取库填缓存时**不许**顺手解封东财。
+     *
+     * <p>与上一条是一对：那条是「外呼成功可以解封」，这条是「读自己的库不算成功」。
+     * 读一份昨天收盘后存下的数据，完全不能说明东财此刻通不通；若这里也清冷却，
+     * 结果就是预取读得越多、冷却越早被抹掉，玩家的下一次点击正好撞在限流上——
+     * 一个「越优化越挨打」的循环。
+     */
+    @Test
+    void fillingTheCacheFromPrefetchDoesNotClearEastmoneysCooldown() {
+        ScreenerCache cache = cache();
+        cache.enterCooldown(EASTMONEY);
+
+        cache.putUniverseFromPrefetch(new MarketDataClient.UniverseSnapshot(
+                List.of(), 0, 0, LocalDate.of(2026, 9, 30), null));
+
+        assertThat(cache.inCooldown(EASTMONEY)).isTrue();
+        // 但数据要真的进缓存：这条路径的意义就是让盘后点击不必外呼
+        assertThat(cache.universeFresh()).isTrue();
+        assertThat(cache.universeOrStale()).isPresent();
+        assertThat(cache.universeTakenAt()).isPresent();
+    }
+
+    @Test
+    void puttingANullSnapshotFromPrefetchIsIgnoredInsteadOfClearingTheCache() {
+        ScreenerCache cache = cache();
+        cache.universe(() -> new MarketDataClient.UniverseSnapshot(
+                List.of(), 0, 0, LocalDate.of(2026, 9, 24), null));
+        var before = cache.universeOrStale().orElseThrow();
+
+        cache.putUniverseFromPrefetch(null);
+
+        // 由「读到一份空数据」把已有的好数据抹成 null，是只有在这种地方才会发生的坏法
+        assertThat(cache.universeOrStale()).contains(before);
+    }
+
     @Test
     void remainingMinutesRoundsUpSoItNeverSaysZeroWhileStillCoolingDown() {
         ScreenerCache cache = cache();

@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -41,10 +42,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 指数基金块 → 组装口径摘要。
  *
  * <p><b>取数兜底链</b>：指数行情走 东财 → 腾讯 → 新浪，指数日线走
- * 内存缓存 → **本地预取库** → 东财 → 腾讯（有额度上限）。
+ * 内存缓存 → **本地预取库** → 东财 → 腾讯（有额度上限）；
+ * 全市场快照走 内存缓存 → **本地预取库**（只在盘后） → 东财实时。
  * 每层只补上一层缺的那几只；用了哪几个源写进口径摘要，不藏在代码里。
  *
- * <p><b>不落库、不推送、不定时。</b>每次调用都是一次独立的实时计算。
+ * <p><b>不写库、不推送、不定时。</b>每次调用都是一次独立的计算。这里的「不写库」是
+ * {@code scan} 自己一行都不落；读**自己盘后预取好的**数据是允许的，见
+ * {@link ScreenerPrefetchPolicy}——它省掉的正是这台服务器被按 IP 限流的那部分外呼。
+ * 预取任务本身在 {@link ScreenerPrefetchTask}，与本类是「写」和「读」两头，别混。
  */
 @Slf4j
 @Service
@@ -76,6 +81,8 @@ public class StockScreenerService {
     private final EtfPriceHistoryService etfPriceHistoryService;
     private final IndexFundPool indexPool;
     private final AltQuoteSource altQuoteSource;
+    private final ScreenerPrefetchService prefetchService;
+    private final boolean prefetchReadEnabled;
     private final int indexPoolMaxLiveFetches;
     private final ExecutorService fetchPool;
 
@@ -86,6 +93,8 @@ public class StockScreenerService {
             EtfPriceHistoryService etfPriceHistoryService,
             IndexFundPool indexPool,
             AltQuoteSource altQuoteSource,
+            ScreenerPrefetchService prefetchService,
+            @Value("${screener.prefetch.read-enabled:true}") boolean prefetchReadEnabled,
             @Value("${screener.fetch-threads:5}") int fetchThreads,
             @Value("${screener.index-pool-max-live-fetches:10}") int indexPoolMaxLiveFetches) {
         this.marketDataClient = marketDataClient;
@@ -94,6 +103,8 @@ public class StockScreenerService {
         this.etfPriceHistoryService = etfPriceHistoryService;
         this.indexPool = indexPool;
         this.altQuoteSource = altQuoteSource;
+        this.prefetchService = prefetchService;
+        this.prefetchReadEnabled = prefetchReadEnabled;
         // 兜底额度：池子扩到 200 条时，「每只一条日线」的外呼量正是把 IP 封得更深的做法。
         // 这个数字是安全阀，**不要因为「反正有兜底」就调大**。
         this.indexPoolMaxLiveFetches = Math.max(0, indexPoolMaxLiveFetches);
@@ -130,7 +141,14 @@ public class StockScreenerService {
         List<StockRow> universe = new ArrayList<>();
         MarketDataClient.UniverseSnapshot snapshot = null;
         if (p.wantsStocks()) {
-            snapshot = loadUniverse(degradations);
+            // 该不该读预取库，在取数**之前**定下来。判据本身是纯函数，时间与「库里有没有」
+            // 都由这里给（后者做成懒查询，见 ScreenerPrefetchPolicy）。
+            boolean usePrefetched = ScreenerPrefetchPolicy.shouldReadFromDb(
+                    prefetchReadEnabled, localTimeNow(), () -> prefetchService.hasSnapshotFor(today));
+            Optional<MarketDataClient.UniverseSnapshot> fromPrefetch =
+                    usePrefetched ? loadUniverseFromPrefetch(notes, today) : Optional.empty();
+            // 预取库没有 / 读挂了都走这一支，实时路径一行没变。
+            snapshot = fromPrefetch.isPresent() ? fromPrefetch.get() : loadUniverse(degradations);
             universe = snapshot.rows();
             if (universe == null || universe.isEmpty()) {
                 throw new MarketDataException("行情源返回了空的股票列表，本次筛选未执行");
@@ -293,6 +311,51 @@ public class StockScreenerService {
     }
 
     // ==================================================================
+
+    /**
+     * 盘后从本地预取库取全市场快照。**拿不到就返回 empty，由调用方退回实时路径。**
+     *
+     * <p>这里不许往外抛：预取库是优化，不是依赖。库连不上、表还没建、数据被人清过，
+     * 都只该让这一次点击多几次外呼，而不该让页面变成错误框——照
+     * {@code loadIndexBarsFromDb} 对本地 ETF 日线库的处置。
+     *
+     * <p>成功时不经过 {@code cache.universe(loader)}，走的是
+     * {@link ScreenerCache#putUniverseFromPrefetch}：读自己的库不证明东财那条线通了，
+     * 不能顺手清它的冷却（理由写在那边的注释里）。
+     */
+    private Optional<MarketDataClient.UniverseSnapshot> loadUniverseFromPrefetch(
+            List<String> notes, LocalDate today) {
+        try {
+            Optional<MarketDataClient.UniverseSnapshot> fromDb = prefetchService.snapshotFor(today);
+            if (fromDb.isEmpty()) {
+                // 判据刚说过「库里有今天的快照」，这里却没有：两次查询之间库被动过（清了表、
+                // 或正在重跑而事务尚未提交）。不报错、不改判据，退回实时就是正确答案。
+                log.warn("预取库判定与读取结果不一致，本次退回实时路径 tradeDate={}", today);
+                return Optional.empty();
+            }
+            MarketDataClient.UniverseSnapshot s = fromDb.get();
+            cache.putUniverseFromPrefetch(s);
+            notes.add("本次全市场快照取自本地预取库（" + s.tradeDate()
+                    + " 收盘后预取，未外呼行情源）");
+            log.info("全市场快照取自本地预取库：tradeDate={} {} 只", s.tradeDate(), s.rows().size());
+            return fromDb;
+        } catch (RuntimeException e) {
+            log.warn("读本地预取库失败，本次退回实时路径：{}", e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 「现在几点」。抽成一个方法是为了让「盘中一律走实时」这条**能被测到**——
+     * 测试用子类覆盖它即可，不必等到半夜才跑测试。
+     *
+     * <p>别改回直接内联 {@code LocalTime.now(SHANGHAI)}：那样这条判据就只能靠
+     * 「碰巧在哪个钟点跑测试」来回归，而它管的是最要紧的一件事——盘中读到收盘后的数据，
+     * 用户看到的会是昨天的结论配上今天的日期。
+     */
+    LocalTime localTimeNow() {
+        return LocalTime.now(SHANGHAI);
+    }
 
     /**
      * 取全市场快照，并把「被限流」翻译成一句用户能照做的话。

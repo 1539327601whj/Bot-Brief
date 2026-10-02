@@ -31,6 +31,7 @@ class StockScreenerServiceTest {
     private EtfPriceHistoryService priceService;
     private IndexFundPool indexPool;
     private AltQuoteSource alt;
+    private ScreenerPrefetchService prefetchService;
 
     @BeforeEach
     void setUp() {
@@ -38,6 +39,11 @@ class StockScreenerServiceTest {
         valuationService = mock(MarketValuationHistoryService.class);
         priceService = mock(EtfPriceHistoryService.class);
         alt = mock(AltQuoteSource.class);
+        // 本地预取库默认**没有今天的快照**（Mockito 对 Optional 返回 empty）。
+        // 于是这个类里既有断言（外呼次数、缓存、冷却、指数块）全部保持原语义，
+        // 且**与跑测试的时刻无关**——盘后跑也一样走实时那条链。想测预取读侧的用例
+        // 在 StockScreenerServicePrefetchReadTest 里，那里的时间是可注入的。
+        prefetchService = mock(ScreenerPrefetchService.class);
         // 用**生产那份**池子，顺带证明它在真实 classpath 上解析得过
         indexPool = new IndexFundPool(
                 new org.springframework.core.io.ClassPathResource("screener/index-pool.json"));
@@ -116,10 +122,16 @@ class StockScreenerServiceTest {
         return service(fetchThreads, cache, 10);
     }
 
-    /** 兜底额度也做成参数：额度用尽时的行为（说清楚少了几只）本身要有测试盯着。 */
+    /**
+     * 兜底额度也做成参数：额度用尽时的行为（说清楚少了几只）本身要有测试盯着。
+     *
+     * <p>预取读侧的开关恒为 {@code true}——即生产默认值。走到实时那条链靠的是
+     * {@code prefetchService} 这个 mock 说「库里没有今天的快照」，而不是靠把开关关掉：
+     * 关掉开关去测，等于绕开了真正会出事的那条判据。
+     */
     private StockScreenerService service(int fetchThreads, ScreenerCache cache, int maxLiveFetches) {
         return new StockScreenerService(client, cache, valuationService, priceService, indexPool, alt,
-                fetchThreads, maxLiveFetches);
+                prefetchService, true, fetchThreads, maxLiveFetches);
     }
 
     private static MarketDataClient.UniverseSnapshot snapshot(List<StockRow> rows) {
@@ -285,7 +297,7 @@ class StockScreenerServiceTest {
         p.setMode("index_only");
 
         ScreenerResultDTO result = new StockScreenerService(client, new ScreenerCache(15, 20, 60, 10),
-                valuationService, priceService, synthetic, alt, 3, 10).scan(p);
+                valuationService, priceService, synthetic, alt, prefetchService, true, 3, 10).scan(p);
 
         ScreenerResultDTO.IndexFundItem f = item(result, "510300");
         assertThat(f.valuationSource()).isNull();

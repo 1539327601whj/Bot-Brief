@@ -1,5 +1,6 @@
 package com.ai.daily.mapper;
 
+import com.ai.daily.entity.ScreenerUniverseStock;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisMapperAnnotationBuilder;
@@ -29,11 +30,20 @@ class MapperSqlShapeTest {
 
     private static final String VALUATION = "com.ai.daily.mapper.MarketValuationHistoryMapper.latestForIndices";
     private static final String PRICES = "com.ai.daily.mapper.EtfPriceHistoryMapper.latestBatch";
+    private static final String PREFETCH_STOCKS = "com.ai.daily.mapper.ScreenerUniverseStockMapper.upsertBatch";
+    private static final String PREFETCH_STOCKS_READ = "com.ai.daily.mapper.ScreenerUniverseStockMapper.findByTradeDate";
+    private static final String PREFETCH_HEADER = "com.ai.daily.mapper.ScreenerUniverseSnapshotMapper.upsert";
+
+    /** 明细表 28 列、头表 10 列；下面两条测试按它们算占位符个数。改表结构必改这里。 */
+    private static final int PREFETCH_STOCK_COLUMNS = 28;
+    private static final int PREFETCH_STOCK_UPDATED = 25;
 
     private static MybatisConfiguration parseAll() {
         MybatisConfiguration config = new MybatisConfiguration();
         new MybatisMapperAnnotationBuilder(config, MarketValuationHistoryMapper.class).parse();
         new MybatisMapperAnnotationBuilder(config, EtfPriceHistoryMapper.class).parse();
+        new MybatisMapperAnnotationBuilder(config, ScreenerUniverseStockMapper.class).parse();
+        new MybatisMapperAnnotationBuilder(config, ScreenerUniverseSnapshotMapper.class).parse();
         return config;
     }
 
@@ -108,6 +118,89 @@ class MapperSqlShapeTest {
         // 只有一个键时也得是合法的行值 IN，而不是空括号
         assertThat(flat).contains("in ((?, ?))");
         assertThat(countOf(flat, "?")).isEqualTo(2);
+    }
+
+    // ================= 盘后预取那两条写入语句 =================
+
+    /**
+     * 明细的批量 upsert。要钉住的是**跑第二遍不出错也不留旧值**。
+     *
+     * <p>这里最容易出的错不是语法，是「往 INSERT 里加了一列，忘了往 {@code ON DUPLICATE KEY UPDATE}
+     * 里也加」：重跑时会静默保留上一遍的值，页面上的基本面数据据此就与实际的交易日错位了，
+     * 而且不会有任何报错。所以下面直接钉住列数与更新条目数。
+     */
+    @Test
+    void thePrefetchDetailBatchExpandsEveryRowAndOverwritesEveryNonKeyColumn() {
+        MybatisConfiguration config = parseAll();
+
+        String flat = normalize(boundSql(config, PREFETCH_STOCKS,
+                Map.of("rows", List.of(stock("600519"), stock("000001"), stock("510300")))).getSql());
+
+        assertThat(flat).contains("INSERT INTO screener_universe_stock");
+        assertThat(flat).contains("ON DUPLICATE KEY UPDATE");
+        // 三行 × 28 列
+        assertThat(countOf(flat, "?")).isEqualTo(PREFETCH_STOCK_COLUMNS * 3);
+        // 每行一个 VALUES(...) 元组，加 25 条 `= VALUES(...)` 的覆盖
+        assertThat(countOf(flat, " = VALUES(")).isEqualTo(PREFETCH_STOCK_UPDATED);
+        // is_etf 是唯一一个实体字段名与列名不同名的（etf / is_etf），单独钉一下，
+        // 免得将来有人「顺手统一命名」时两边只改一处
+        assertThat(flat).contains("is_etf = VALUES(is_etf)");
+    }
+
+    /**
+     * 头表的 upsert。唯一键是 {@code trade_date}，所以重跑只覆盖同一行。
+     *
+     * <p>{@code prefetch_date} 必须在更新列里：它才是「今天跑过没有」那道闸门读的列。
+     * 漏掉它，跨自然日重跑（比如周一补跑上周五的数据）时闸门会一直判否。
+     */
+    @Test
+    void thePrefetchHeaderUpsertOverwritesTheWriteGateColumn() {
+        MybatisConfiguration config = parseAll();
+
+        String flat = normalize(boundSql(config, PREFETCH_HEADER,
+                Map.of("s", new com.ai.daily.entity.ScreenerUniverseSnapshot())).getSql());
+
+        assertThat(flat).contains("INSERT INTO screener_universe_snapshot");
+        assertThat(flat).contains("ON DUPLICATE KEY UPDATE");
+        // 唯一键那一列必须还在第一个位置：ON DUPLICATE KEY 认的就是它的索引
+        assertThat(flat).contains("(trade_date, prefetch_date");
+        assertThat(flat).contains("prefetch_date = VALUES(prefetch_date)");
+        // 键列自己要能被覆盖就说明有人把唯一键改成别的了
+        assertThat(flat).doesNotContain("trade_date = VALUES");
+        assertThat(countOf(flat, "?")).isEqualTo(10);
+    }
+
+    /**
+     * 明细的读语句必须把 {@code is_etf} 别名成 {@code etf}。
+     *
+     * <p>实体字段叫 {@code etf}、列叫 {@code is_etf}，MyBatis 按列名推属性名时找的是
+     * {@code isEtf}——找不到，而且**不报错，只是把那列丢掉**，读回来恒为 false。
+     * 这条测试就是钉住那个别名，以及「别改回 {@code SELECT *}」。
+     */
+    @Test
+    void thePrefetchDetailReadAliasesTheEtfColumnSoItIsNotSilentlyDropped() {
+        MybatisConfiguration config = parseAll();
+
+        String flat = normalize(boundSql(config, PREFETCH_STOCKS_READ,
+                Map.of("tradeDate", LocalDate.of(2026, 9, 30))).getSql());
+
+        assertThat(flat).contains("is_etf AS etf");
+        assertThat(flat).doesNotContain("SELECT *");
+        assertThat(flat).contains("WHERE snapshot_trade_date = ?");
+        assertThat(flat).contains("ORDER BY stock_code");
+        // 实体上那 28 列的映射就此固定；漏掉任何一列都会让读回来的对象悄悄少一个字段
+        // 列数固定：INSERT 那 28 列 + 主键 id = 29 列 → 28 个逗号。
+        // 漏掉一列不会报错，只会让读回来的对象少一个字段（变 null），
+        // 于是筛选规则悄悄换了个样子而页面上看不出来
+        assertThat(countOf(flat, ",")).isEqualTo(29 - 1);
+    }
+
+    private static ScreenerUniverseStock stock(String code) {
+        ScreenerUniverseStock s = new ScreenerUniverseStock();
+        s.setSnapshotTradeDate(LocalDate.of(2026, 9, 30));
+        s.setStockCode(code);
+        s.setMarket(1);
+        return s;
     }
 
     private static int countOf(String haystack, String needle) {

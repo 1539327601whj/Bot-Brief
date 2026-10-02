@@ -136,7 +136,7 @@ public class MarketDataClient {
     public MarketDataClient(
             @Qualifier("marketRestTemplate") RestTemplate restTemplate,
             @Value("${screener.kline-limit:250}") int klineLimit,
-            @Value("${screener.pool-size:500}") int poolSize,
+            @Value("${screener.pool-size:300}") int poolSize,
             @Value("${screener.quote-batch-size:50}") int quoteBatchSize) {
         this.restTemplate = restTemplate;
         this.klineLimit = klineLimit;
@@ -147,6 +147,21 @@ public class MarketDataClient {
     /** 日线取多少根。兜底源必须用同一个数，否则两条线的「一年」是两个长度。 */
     int klineLimit() {
         return klineLimit;
+    }
+
+    /**
+     * 本次清单按总市值取前多少只。包级可见，只给同包的 {@link ScreenerPrefetchTask} 用。
+     *
+     * <p>预取任务把它存进头表的 {@code pool_size} 列。它和 {@code listed_count} 不是一回事：
+     * 前者是**请求了**前 N 只，后者是清单**实际返回**了多少只，两个数放在一起才解释得清
+     * 「为什么今天的池子不是正好 N 只」。口径摘要里印的是后者，别把它们当成同一个数。
+     *
+     * <p>**不要在任务里另读一遍 {@code screener.pool-size}**：那个配置项已经被构造函数做了
+     * {@code Math.max(1, ...)} 兜底，两处各读一次就有两个可能不一致的数，而口径摘要一旦
+     * 与实际不符，整个页面的可信度就没了。拿这里的返回值即可。
+     */
+    int poolSize() {
+        return poolSize;
     }
 
     /** 一次日线抓取的结果：成功给 bars，失败给出可读原因（不抛，由上层决定降级还是淘汰）。 */

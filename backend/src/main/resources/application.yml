@@ -167,3 +167,18 @@ screener:
   # 额度只覆盖指数池；个股那边只数由短名单天然限住，且已经带着明确原因降级。
   # 用尽的会在口径摘要里写明少了几只。**不要因为「反正有兜底」就调大。**
   index-pool-max-live-fetches: ${SCREENER_INDEX_POOL_MAX_LIVE_FETCHES:10}
+  # 盘后预取：收盘后把「清单 + 基本面」取回落库，盘后点击就不必再向东财外呼。
+  # 表见 backend/sql/V13__screener_prefetch.sql，写侧是 ScreenerPrefetchTask。
+  prefetch:
+    # 预取任务的总开关。关掉只影响「写」，读侧仍会去库里取已有数据。
+    enabled: ${SCREENER_PREFETCH_ENABLED:true}
+    # 读侧开关：盘后点击要不要吃预取库。**这是回退绳**——出现异常时置 false 重启，
+    # 立刻回到「每次都实时外呼」的老行为，不用回滚代码、也不用清数据。
+    read-enabled: ${SCREENER_PREFETCH_READ_ENABLED:true}
+    # 主跑：交易日收盘后 30 分钟（15:00 收盘价已定，但盘后数据落定要一点时间）。
+    cron: ${SCREENER_PREFETCH_CRON:0 30 15 * * MON-FRI}
+    # 重试：主跑被限流或取数失败时再试几次；已经成功过的当天会被幂等闸门挡住，不产生外呼。
+    retry-cron: ${SCREENER_PREFETCH_RETRY_CRON:0 0/30 16-18 * * MON-FRI}
+    # 手工补跑用：置 true 时无视「今天已跑过」这道闸门。照 INDEX_POOL_FORCE 的既有做法，
+    # **不提供 HTTP 触发端点**——那又要多一层鉴权，而这个入口一年也用不上几次。
+    force: ${SCREENER_PREFETCH_FORCE:false}
