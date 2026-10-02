@@ -88,8 +88,12 @@ class ScreenerHistoryServiceTest {
         service().record(applied, result(), 7L, "admin@example.com");
 
         ScreenerScanHistory row = capturedRow();
-        // 时间必须是写入时刻的墙钟，用户要靠它对齐「我几点点的」
-        assertThat(row.getScannedAt()).isNotNull().isBefore(LocalDateTime.now().plusMinutes(1));
+        // 时间必须是写入时刻的墙钟，用户要靠它对齐「我几点点的」。
+        // 上界**必须也用东八区**：服务写的是 LocalDateTime.now(SHANGHAI)，若这里图省事用
+        // LocalDateTime.now()，本机在 UTC+8 时两者差 0 而侥幸通过，CI 跑在 UTC 上就变成
+        // 「13:29 要在 05:30 之前」——差整整 8 小时。这条只有 CI 能照出来。
+        assertThat(row.getScannedAt()).isNotNull()
+                .isBefore(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plusMinutes(1));
         assertThat(row.getScannedByUserId()).isEqualTo(7L);
         assertThat(row.getScannedByEmail()).isEqualTo("admin@example.com");
         assertThat(row.getMode()).isEqualTo("index_first");
