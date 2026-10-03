@@ -58,12 +58,25 @@ class ScreenerPrefetchTaskTest {
         return task(enabled, force, AFTER_CLOSE);
     }
 
-    /** 钟点钉住的子类：启动补偿那条分支要靠它才测得到，不必等到下午三点半。 */
+    /**
+     * 钟点与日期都钉住的子类。钟点是为了不必等到下午三点半；日期是为了
+     * 启动补偿那条路径——它内部走 {@code runOnce()}，会按测试当天判周末，
+     * 于是「工作日绿、周末红」。两个缝都得塞住，这条用例才不看日历。
+     */
     private ScreenerPrefetchTask task(boolean enabled, boolean force, LocalTime at) {
+        return task(enabled, force, at, WEDNESDAY);
+    }
+
+    private ScreenerPrefetchTask task(boolean enabled, boolean force, LocalTime at, LocalDate on) {
         return new ScreenerPrefetchTask(client, prefetchService, cache, enabled, force) {
             @Override
             LocalTime localTimeNow() {
                 return at;
+            }
+
+            @Override
+            LocalDate localDateNow() {
+                return on;
             }
         };
     }
@@ -209,6 +222,18 @@ class ScreenerPrefetchTaskTest {
         task(true, false, AFTER_CLOSE).run(null);
 
         verify(client).fetchUniverse();
+    }
+
+    @Test
+    void startupDoesNotCatchUpOnAWeekendEvenThoughItIsPastPrefetchTime() {
+        when(prefetchService.hasPrefetchedOn(any())).thenReturn(false);
+
+        // 周六周日永远不是交易日，东财这时给的 latestTradeDate 还是周五，
+        // 补出来的那一行 trade_date 会是周五，而读侧只在周五找它——等于白打 4 次外呼。
+        // 启动补偿必须和定时那两条 cron 一样把周末挡掉。
+        task(true, false, AFTER_CLOSE, SATURDAY).run(null);
+
+        verifyNoInteractions(client);
     }
 
     @Test

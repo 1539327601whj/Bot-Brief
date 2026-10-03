@@ -1,0 +1,197 @@
+/*
+ * 代码查询页。骨架复用 MarketWatch.css / StockPick.css（页面根、hero、面板、
+ * 数字格、按钮全部沿用），这里只写这一页特有的三块：
+ *   1) 回看那一行（含缺档清单、基线日期）
+ *   2) 来源与口径块
+ *   3) 元信息条
+ *
+ * 颜色一律走 index.css 的语义 token。深浅两套主题共用同一套类名——
+ * 写死颜色在深色下是「看不清」，在浅色下是「看不见」，而且不会有人报障，
+ * 只会有人不用这一页。
+ */
+
+/* ------------------------------------------------------------------ */
+/* 元信息条：名称 / 代码 / 类型 / 实际查询代码 / 日线截止 / 缓存标记    */
+/* ------------------------------------------------------------------ */
+
+.codelookup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.codelookup-meta b {
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+/* 代码本体等宽：510300 与 5l0300 在比例字体下几乎一样宽，
+   而这两个字符串指向的东西毫无关系。 */
+.codelookup-meta code,
+.market-watch-section code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.94em;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--accent-soft);
+}
+
+/* ------------------------------------------------------------------ */
+/* 回看行：今 51｜昨 50 ↑ +0.52%｜…｜十年 90 ↓ -39.48%                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 这一行交给 MarketMarkdown 渲染，涨跌色由 .market-change-up|down 自动上色
+ * （MarketMarkdown 会把 (↑|↓)?[+-]\d+(%|pt|点) 包成 span）。所以这里**不碰颜色**，
+ * 只负责让它能横向滚动：八档加十年，窄屏下必然溢出。
+ * 换成自动换行会把「今｜昨｜周…」折成两三行，那一行的可读性就没了——
+ * 日报里它是完整一条，用户是拿着和日报并排对照的。
+ */
+.codelookup-line,
+.market-watch-section > .market-markdown {
+  overflow-x: auto;
+}
+
+.market-watch-section > .market-markdown ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.market-watch-section > .market-markdown li {
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--text);
+  /* 数字等宽：对齐后每一档的位数才看得出来，否则「9」比「1」窄，栏位是歪的 */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ */
+/* 各档基线取自哪一天（章程 §8：每一格要能回答「用的是哪一日」）       */
+/* ------------------------------------------------------------------ */
+
+.codelookup-baselines {
+  margin: 6px 0 0;
+  padding: 0 22px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.codelookup-baselines label {
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* 缺档清单：标签 + 那一档自己的原因                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 两套框，**颜色不同是有意的**：
+ *  - .codelookup-missing：有格子真的是空的，左边用 warning 色；
+ *  - .codelookup-notes：说明性的话（用了哪个源、换了哪个口径、分母被改过），
+ *    左边用 accent 色。
+ * 把说明也涂成警告色，等于每次查询都在报警——报得多了就没人看了，
+ * 而真正空着的那几格反而混在里面认不出来。
+ */
+.codelookup-notes {
+  margin: 10px 22px 0;
+  padding: 10px 14px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-notes li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.codelookup-notes li span {
+  word-break: break-word;
+}
+
+.codelookup-missing {
+  margin: 10px 22px 0;
+  padding: 10px 14px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-missing li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.codelookup-missing li b {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.codelookup-missing li span {
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* 404：与 503 / 429 视觉上也分开，因为下一步的动作不同                 */
+/* ------------------------------------------------------------------ */
+
+.codelookup-notfound {
+  border-left: 3px solid var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* 估值数字块：与报价数字块并排时留一道分隔，说明它们不是同一份快照     */
+/* ------------------------------------------------------------------ */
+
+.codelookup-valuation-numbers {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+@media (max-width: 720px) {
+  .codelookup-meta,
+  .codelookup-baselines,
+  .codelookup-missing,
+  .codelookup-notes {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .codelookup-missing,
+  .codelookup-notes {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+
+  .codelookup-missing li {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

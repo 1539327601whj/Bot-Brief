@@ -13,6 +13,7 @@ import PushChannels from './pages/PushChannels'
 import Notifications from './pages/Notifications'
 import MarketWatch from './pages/MarketWatch'
 import StockPick from './pages/StockPick'
+import CodeLookup from './pages/CodeLookup'
 import Pricing from './pages/Pricing'
 import CreatorTools from './pages/CreatorTools'
 import ShopAnalytics from './pages/ShopAnalytics'
@@ -39,6 +40,7 @@ function Sidebar() {
     ...(canSeePublicDigest ? [
       { path: '/market-watch', icon: '市', label: '市场观察' },
       { path: '/stock-pick', icon: '选', label: '低估精选' },
+      { path: '/code-lookup', icon: '查', label: '代码查询' },
     ] : []),
     { path: '/pricing', icon: '💎', label: '套餐权益' },
     { path: '/creator-tools', icon: '🎬', label: '短视频分析' },
@@ -182,6 +184,7 @@ export default function App() {
                   <Route path="/reports" element={<History />} />
                   <Route path="/market-watch" element={<MarketWatch />} />
                   <Route path="/stock-pick" element={<StockPick />} />
+                  <Route path="/code-lookup" element={<CodeLookup />} />
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/creator-tools" element={<CreatorTools />} />
                   <Route path="/content-growth" element={<ContentGrowth />} />

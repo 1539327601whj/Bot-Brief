@@ -38,5 +38,13 @@ public class MarketDataException extends RuntimeException {
         public MarketDataRateLimitedException(String message, Throwable cause) {
             super(message, cause);
         }
+
+        /**
+         * 没有底层异常的限流——例如「冷却期内，本次连请求都不发」。
+         * 那种情况下并没有一个被掐断的连接可以塞进 cause，硬塞一个 null 只是噪音。
+         */
+        public MarketDataRateLimitedException(String message) {
+            super(message);
+        }
     }
 }

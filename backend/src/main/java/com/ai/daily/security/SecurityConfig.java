@@ -63,6 +63,10 @@ public class SecurityConfig {
                         // 「低估精选」：管理员与公开 Demo 可见（与「市场观察」同一可见范围）。
                         // 只有登录还不够，具体边界在 StockScreenerController 里再次判定。
                         .requestMatchers("/api/stock-screener", "/api/stock-screener/**").authenticated()
+                        // 「代码查询」：与「低估精选」同一可见范围。这里同样只要求登录，
+                        // 边界在 CodeLookupController 里判——放进路径规则会掉进 Spring 的通用 403，
+                        // 丢掉那句能直接给用户看的中文提示。
+                        .requestMatchers("/api/code-lookup", "/api/code-lookup/**").authenticated()
                         .requestMatchers("/api/subscription", "/api/subscription/**", "/api/channels", "/api/channels/**")
                                 .access(new WebExpressionAuthorizationManager(
                                         "isAuthenticated() and (hasAuthority('ACCOUNT_NORMAL') or hasRole('ADMIN'))"))

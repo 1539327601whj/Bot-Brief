@@ -121,6 +121,24 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
         return byIndex;
     }
 
+    @Override
+    public List<MarketValuationHistory> historyBetween(String indexCode, String percentileMethod,
+                                                       LocalDate from, LocalDate to) {
+        if (indexCode == null || indexCode.isBlank() || percentileMethod == null || percentileMethod.isBlank()) {
+            throw new IllegalArgumentException("indexCode 和 percentileMethod 不能为空");
+        }
+        if (!SUPPORTED_PERCENTILE_METHODS.contains(percentileMethod.trim())) {
+            throw new IllegalArgumentException("percentileMethod 不受支持");
+        }
+        // from > to 时返回空列表而不是抛异常：调用方按「这段区间没有观测」处理，
+        // 与「历史不足」是同一条路径。抛异常会让一个可恢复的缺数据变成 500。
+        if (from != null && to != null && from.isAfter(to)) {
+            log.warn("估值历史区间颠倒，按无数据处理 index_code={} from={} to={}", indexCode, from, to);
+            return List.of();
+        }
+        return baseMapper.historyBetween(indexCode.trim(), percentileMethod.trim(), from, to);
+    }
+
     void validate(MarketValuationIngestDTO dto) {
         if (dto == null || dto.getIndexCode() == null || dto.getIndexCode().isBlank()
                 || dto.getIndexName() == null || dto.getIndexName().isBlank()

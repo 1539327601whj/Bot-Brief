@@ -90,7 +90,7 @@ public class ScreenerPrefetchTask implements ApplicationRunner {
                 log.debug("启动补偿跳过：还没到预取时刻");
                 return;
             }
-            runOnce();
+            runOnce(localDateNow());
         } catch (Exception e) {
             log.warn("低估精选预取的启动补偿异常（不影响启动）", e);
         }
@@ -105,6 +105,16 @@ public class ScreenerPrefetchTask implements ApplicationRunner {
     }
 
     /**
+     * 「今天几号」。理由与 {@link #localTimeNow()} 完全一样，只是这里的坑更隐蔽：
+     * 启动补偿若在里面直接 {@code LocalDate.now()}，测试就没法钉住日期，
+     * 于是**同一条用例在工作日绿、在周末红**——而 CI 哪天跑不由我们定。
+     * 周末不补跑本身是对的（见 {@link #runOnce(LocalDate)}），要有缝才测得到它。
+     */
+    LocalDate localDateNow() {
+        return LocalDate.now(SHANGHAI);
+    }
+
+    /**
      * 跑一次。**幂等**：已经跑过的自然日直接返回，不碰任何外呼。
      *
      * <p>失败**什么都不写**——头表只在整体写成时落行，所以「今天有没有这一行」
@@ -114,7 +124,7 @@ public class ScreenerPrefetchTask implements ApplicationRunner {
      * 这条能被测到：否则这个方法的每条断言都得看测试当天是星期几。
      */
     void runOnce() {
-        runOnce(LocalDate.now(SHANGHAI));
+        runOnce(localDateNow());
     }
 
     void runOnce(LocalDate today) {

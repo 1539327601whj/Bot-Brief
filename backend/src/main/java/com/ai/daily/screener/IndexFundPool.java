@@ -73,6 +73,11 @@ public class IndexFundPool {
         public boolean hasValuation() {
             return valuationSource != null;
         }
+
+        /** 有没有中证官网的入参代码。蛋卷系的指数没有——它们在中证官网查不到。 */
+        public boolean hasCsindexCode() {
+            return csindexCode != null;
+        }
     }
 
     /** JSON 顶层。单独的包装对象是为了以后能加版本号而不破坏已发布的池子。 */
@@ -95,6 +100,7 @@ public class IndexFundPool {
     private final List<Fund> withEtf;
     private final Map<String, Fund> byIndexCode;
     private final Map<String, Fund> byEtfCode;
+    private final Map<String, Fund> byCsindexCode;
 
     /**
      * 只此一个构造器，别拆。
@@ -113,16 +119,36 @@ public class IndexFundPool {
         List<Fund> etf = new ArrayList<>();
         Map<String, Fund> byIndex = new LinkedHashMap<>();
         Map<String, Fund> byEtf = new LinkedHashMap<>();
+        Map<String, Fund> byCsindex = new LinkedHashMap<>();
         for (Fund f : this.funds) {
             if (f.hasEtf()) {
                 etf.add(f);
                 byEtf.put(f.etfCode(), f);
             }
             byIndex.put(f.indexCode(), f);
+            if (f.hasCsindexCode()) {
+                byCsindex.put(f.csindexCode(), f);
+            }
+        }
+        // csindexCode 与 ETF 代码撞车的话，「输入 510300」这类查询就会由**遍历顺序**决定
+        // 命中哪一个——同一串数字今天是 ETF、明天变成指数，而页面上看不出异常。
+        // 这是配置错误，在启动时炸掉比在页面上出错好查得多。实测池子当前没有撞车，
+        // 这条是给「以后往池子里加指数」准备的。
+        List<String> collisions = new ArrayList<>();
+        for (String code : byCsindex.keySet()) {
+            if (byEtf.containsKey(code)) {
+                collisions.add(code);
+            }
+        }
+        if (!collisions.isEmpty()) {
+            throw new IllegalStateException(ILLEGAL + "csindexCode 与 ETF 代码撞车（"
+                    + String.join("、", collisions)
+                    + "）——同一串数字不能既是 ETF 又是指数，否则查询结果由遍历顺序决定");
         }
         this.withEtf = Collections.unmodifiableList(etf);
         this.byIndexCode = Collections.unmodifiableMap(byIndex);
         this.byEtfCode = Collections.unmodifiableMap(byEtf);
+        this.byCsindexCode = Collections.unmodifiableMap(byCsindex);
 
         log.info("指数池加载完成：共 {} 个指数，其中 {} 个有代表 ETF，{} 个已接入估值来源",
                 this.funds.size(), this.withEtf.size(),
@@ -145,6 +171,17 @@ public class IndexFundPool {
 
     public Fund byEtfCode(String etfCode) {
         return byEtfCode.get(etfCode);
+    }
+
+    /**
+     * 按**中证官网的入参代码**找（{@code 000300}、{@code H30533}），而不是池内的
+     * {@code SH000300} 形态。「代码查询」页收到的是用户手输的裸代码，没有交易所前缀。
+     *
+     * <p>只有 {@code valuationSource=csindex} 的指数有这个字段——蛋卷系的（如纳指100）
+     * 在中证官网查不到，它们的 {@code csindexCode} 是空的。
+     */
+    public Fund byCsindexCode(String csindexCode) {
+        return byCsindexCode.get(csindexCode);
     }
 
     // ------------------------------------------------------------------

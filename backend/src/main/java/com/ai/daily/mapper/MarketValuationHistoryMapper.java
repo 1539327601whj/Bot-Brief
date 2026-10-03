@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Mapper
@@ -80,4 +81,41 @@ public interface MarketValuationHistoryMapper extends BaseMapper<MarketValuation
             """)
     List<MarketValuationHistory> latestForIndices(
             @Param("keys") List<MarketValuationHistoryService.Key> keys);
+
+    /**
+     * 某个 {@code (index_code, percentile_method)} 在一个日期区间内的**全部**分位观测，按交易日升序。
+     *
+     * <p>「代码查询」页要算 5 年 / 10 年的基线，得把整段历史端点出来自己做回看，
+     * 这不是 {@code latest} 能回答的。
+     *
+     * <p>两个过滤条件都不是可选的：
+     * <ul>
+     *   <li>{@code percentile_method} 必须匹配——跨口径取数会把两个数拼成一条不存在的曲线
+     *       （章程 §5.3：一个指数只钉一个源）。</li>
+     *   <li>{@code pe_percentile IS NOT NULL}——只写进 PE 没算出分位的行不能当作
+     *       「那天分位的基线」。混进系列里会让回看算出一段假的平线。</li>
+     * </ul>
+     *
+     * <p>走 {@code idx_index_method_trade_date}，一个指数 10 年约 2500 行，
+     * 一次点击的量级。**不做分页**：分页会让「10 年基线」落在第二页而静默消失。
+     *
+     * @param from 含；{@code null} 表示不限下界
+     * @param to   含；{@code null} 表示不限上界
+     */
+    @Select("""
+            <script>
+            SELECT * FROM market_valuation_history
+            WHERE index_code = #{indexCode}
+              AND percentile_method = #{percentileMethod}
+              AND pe_percentile IS NOT NULL
+            <if test="from != null">  AND trade_date &gt;= #{from} </if>
+            <if test="to != null">    AND trade_date &lt;= #{to}   </if>
+            ORDER BY trade_date ASC
+            </script>
+            """)
+    List<MarketValuationHistory> historyBetween(
+            @Param("indexCode") String indexCode,
+            @Param("percentileMethod") String percentileMethod,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 }

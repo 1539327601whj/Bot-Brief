@@ -531,7 +531,9 @@ function StockCandidate({ item, rank }: { item: Selected; rank: number }) {
           <p className="stockpick-gap">未取到日线，价格位置维未计入本次得分。</p>
         )}
         <p className="stockpick-note">
-          个股在东财口径下没有自身的 PE 历史分位，所以这里只有价格位置。PE 分位只在指数上有。
+          个股在这个筛选口径下只有价格位置，没有 PE 历史分位：筛选器整池遍历，走的还是
+          指数那一个估值源，不逐只拉个股的 PE 长历史。想看单只个股的 PE 分位，
+          用「代码查询」——那里会按需取个股的 PE 历史序列。
         </p>
       </div>
 

@@ -137,6 +137,11 @@ screener:
   fetch-threads: ${SCREENER_FETCH_THREADS:5}
   # 日线取多少根（250 ≈ 一年，价格分位与 MA250 都基于它）
   kline-limit: ${SCREENER_KLINE_LIMIT:250}
+  # 「代码查询」页取多少根日线（2600 ≈ 十年，5 年/10 年价格基线要它）。
+  # 与上面那条分开：筛选器一天跑一次、一次要几百只，取 2600 根会白白多打十几倍流量；
+  # 而查询页一次只查一只。**不要为了省一个配置项把两者合并**——
+  # 合并后任何一边调参都会把另一边一起拖走。
+  lookup-kline-limit: ${SCREENER_LOOKUP_KLINE_LIMIT:2600}
   # 全市场基本面快照缓存时长
   universe-ttl-minutes: ${SCREENER_UNIVERSE_TTL_MINUTES:15}
   # 盘中（09:30–15:00）日线缓存时长；收盘后当天一直有效

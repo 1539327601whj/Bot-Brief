@@ -1309,6 +1309,46 @@ def subtract_years(value: date, years: int) -> date:
         return value.replace(year=value.year - years, day=28)
 
 
+def rolling_percentiles(
+    points: list[tuple[date, float]],
+    window_years: int = CSI300_PE_WINDOW_YEARS,
+) -> list[float]:
+    """对**升序**的 ``(日期, 值)`` 序列逐点算滚动窗口分位（0–100）。
+
+    这是本项目分位口径的**单一真源**：中证指数历史、回填脚本、以及 Java 侧的
+    ``RollingPercentile.java`` 都必须与它一致。Java 那边有一份跨语言对照
+    （``automation/tests/fixtures/pe_percentile_parity.json``），它是从这个函数**生成**的，
+    并且 ``automation/tests/test_rolling_percentile.py`` 每次都会验证它还对得上——
+    所以改了这里，那个测试会红，Java 那侧的测试也会红。
+
+    三条容易写错的地方，逐条钉住：
+
+    * 窗口左端是 ``subtract_years(当日, window_years)``，**按日期**而不是按条数。
+      「最近 10 年」和「最近 2500 个交易日」在长假、停牌之后不是一回事。
+    * 窗口里放**所有**落在区间内的值，含当日自己、含重复值。
+    * 分位是「窗口内 **≤ 当日值** 的个数 ÷ 窗口大小 × 100」（``bisect_right`` 就是「小于等于」）。
+      写成严格小于会让每个重复值都掉一档，而日频 PE 里重复值很常见。
+
+    因此当日值是窗口最大值时得 100，最小的一批得 ``100/窗口大小``，**永远得不到 0**——
+    看到 0 就意味着「没有数据」，不是「极度低估」。历史不足 ``window_years`` 时窗口
+    天然变短（左端取不到更早的点），所以科创50 的「10 年分位」实际是约 6 年窗口的。
+    """
+    window_values: list[float] = []
+    window_start_index = 0
+    percentiles: list[float] = []
+    for trade_date, value in points:
+        minimum_date = subtract_years(trade_date, window_years)
+        while window_start_index < len(points) and points[window_start_index][0] < minimum_date:
+            expired_value = points[window_start_index][1]
+            value_index = bisect_left(window_values, expired_value)
+            if value_index < len(window_values) and window_values[value_index] == expired_value:
+                window_values.pop(value_index)
+            window_start_index += 1
+        insort(window_values, value)
+        percentiles.append(bisect_right(window_values, value) / len(window_values) * 100)
+    return percentiles
+
+
 def fetch_csindex_pe_history(csindex_code: str) -> list[dict[str, Any]]:
     """中证/国证系指数的 PE(TTM) 日频历史，分位由本项目按滚动窗口自算。
 
@@ -1345,18 +1385,7 @@ def fetch_csindex_pe_history(csindex_code: str) -> list[dict[str, Any]]:
         raise RuntimeError(f"中证指数 {csindex_code} 未返回有效PE历史")
 
     history = []
-    window_values: list[float] = []
-    window_start_index = 0
-    for trade_date, pe_value in points:
-        minimum_date = subtract_years(trade_date, CSI300_PE_WINDOW_YEARS)
-        while window_start_index < len(points) and points[window_start_index][0] < minimum_date:
-            expired_value = points[window_start_index][1]
-            value_index = bisect_left(window_values, expired_value)
-            if value_index < len(window_values) and window_values[value_index] == expired_value:
-                window_values.pop(value_index)
-            window_start_index += 1
-        insort(window_values, pe_value)
-        percentile = bisect_right(window_values, pe_value) / len(window_values) * 100
+    for (trade_date, pe_value), percentile in zip(points, rolling_percentiles(points)):
         history.append({
             "tradeDate": trade_date.isoformat(),
             "peTtm": pe_value,

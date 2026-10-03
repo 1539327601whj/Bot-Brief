@@ -444,16 +444,34 @@ public class MarketDataClient {
     // ==================================================================
 
     /**
+     * 前复权日线，取默认根数（{@code screener.kline-limit}，默认 250）。
+     * 见 {@link #fetchKline(String, int)}。
+     */
+    public KlineOutcome fetchKline(String secid) {
+        return fetchKline(secid, klineLimit);
+    }
+
+    /**
      * 前复权日线。**必须 fqt=1**：用原始价会在除权日显示假跌 30%，把正常分红股判成「便宜」。
      * 该方法不抛异常，失败信息塞在返回值里，让上层保留基本面分而不是整只淘汰。
      * 唯一的例外是**被限流**：那件事必须让上层知道，好进入冷却。
+     *
+     * <p><b>为什么有第二个参数</b>：筛选器只要 250 根（一年的价格分位），而「代码查询」页
+     * 要算出 5 年 / 10 年的价格基线，得一次取约 2600 根。取数逻辑、域名、限流判定
+     * 全都共用这一处——**不再写第二个方法**，免得将来有人只修了其中一个。
+     *
+     * <p>注意这与估值分位那条线是两回事：这里只拿价格，估值走
+     * {@link MarketValuationHistoryService} 与 {@link StockValuationClient}。
      */
-    public KlineOutcome fetchKline(String secid) {
+    public KlineOutcome fetchKline(String secid, int limit) {
+        // 0 或负数会让东财按「不限」处理并回一大坨，也可能直接报错；
+        // 夹到 1 至少语义明确
+        int lmt = Math.max(1, limit);
         String url = UriComponentsBuilder.fromHttpUrl(KLINE_HOST + KLINE_PATH)
                 .queryParam("secid", secid)
                 .queryParam("klt", 101)
                 .queryParam("fqt", 1)
-                .queryParam("lmt", klineLimit)
+                .queryParam("lmt", lmt)
                 .queryParam("end", 20500101)
                 .queryParam("fields1", "f1,f2,f3,f4,f5,f6")
                 .queryParam("fields2", "f51,f52,f53,f54,f55,f56,f57,f58")
@@ -509,6 +527,20 @@ public class MarketDataClient {
      * 直接要 Map 的话这条关键信息会被转换器吞掉，只剩下那个看不懂的类型错误。
      */
     private Map<String, Object> getJson(URI uri, String referer) {
+        return fetchJson(restTemplate, uri, referer);
+    }
+
+    /**
+     * 上面那个方法的本体。抽成静态是为了让**同包的其它东财客户端**（{@link StockValuationClient}）
+     * 用同一份实现，而不是复制一遍。
+     *
+     * <p>「先读 {@code byte[]}、自己定字符集、再解析」这条不能有第二份实现。复制出去之后，
+     * 哪天有人只改了其中一处的解码（比如换掉 {@code charsetOf} 的默认值），另一处就会继续
+     * 把中文公司名解成乱码——而那种乱码**能通过 JSON 解析**：结构字符全是 ASCII，
+     * 于是字段齐全、一只股票都不少，只有名字是坏的，一路混进结果页不带任何报错。
+     * 限流的翻译同理，必须在同一个地方做，否则「哪个客户端会进冷却」就说不清了。
+     */
+    static Map<String, Object> fetchJson(RestTemplate restTemplate, URI uri, String referer) {
         String body;
         try {
             HttpHeaders headers = new HttpHeaders();
