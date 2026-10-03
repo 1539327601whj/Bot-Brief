@@ -42,6 +42,8 @@ public class StockScreenerController {
 
     private final StockScreenerService stockScreenerService;
     private final ScreenerHistoryService historyService;
+    private final MarketCallMetrics marketCallMetrics;
+    private final ScreenerCache screenerCache;
 
     /**
      * 不带任何条件即使用默认条件；body 可以整体缺省。
@@ -75,6 +77,42 @@ public class StockScreenerController {
             log.error("低估精选执行失败", e);
             return Result.error(500, "筛选执行失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 行情外呼与限流的观测量：按源给出「今天打了几次、被打回来几次、最近一次是什么时候、
+     * 现在冷却到几点」。**只读，且只给管理员**——它是运维诊断用的，不是页面内容。
+     *
+     * <p>为什么要有这个端点：限流此前只有一条事件式日志（{@code ScreenerCache} 的
+     * 「{} 限流，冷却至 {}」），没有累计。于是「最近老是被打回来」只能靠感觉，
+     * 而调限速参数（{@code screener.rate-limit-min-interval-ms}）也只能拍脑袋——
+     * 拍错了的代价是首屏变慢或者限流照旧，两种都要几天才看得出来。
+     *
+     * <p>{@code throttled} 与 {@code cooldownUntil} 回答的是**两个不同的问题**，刻意并列：
+     * 前者是「被打回来了几次」这个事实，后者是「现在停手停到几点」这个策略。
+     * 有些路径会吞掉限流异常继续跑（{@code MarketDataClient.fetchEtfQuotes} 为了不丢掉
+     * 整页结果，捕获后返回空 Map），那些调用不会进冷却，但它们确实被拒了——
+     * 只看冷却表会低估真实的出口压力。
+     *
+     * <p>用 200 + body.code=403 与 {@link #scan} 同一套写法，理由见那个方法上的注释。
+     */
+    @GetMapping("/rate-limit-stats")
+    public Result<Map<String, Object>> rateLimitStats() {
+        if (!SecurityUtils.isAdmin()) {
+            log.warn("非管理员尝试查看行情外呼统计 user={}", SecurityUtils.currentUserId());
+            return Result.error(403, "行情外呼统计仅管理员可查看");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("day", String.valueOf(marketCallMetrics.currentDay()));
+        body.put("since", String.valueOf(marketCallMetrics.since()));
+        Map<String, Map<String, Object>> providers = marketCallMetrics.snapshot();
+        // 冷却从 ScreenerCache 现取，不复制进计数里：那是策略状态，两处各存一份迟早会各说各话
+        for (Map.Entry<String, Map<String, Object>> entry : providers.entrySet()) {
+            entry.getValue().put("cooldownUntil",
+                    screenerCache.cooldownUntil(entry.getKey()).map(String::valueOf).orElse(null));
+        }
+        body.put("providers", providers);
+        return Result.ok(body);
     }
 
     /**

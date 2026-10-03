@@ -150,7 +150,7 @@ public class CodeLookupService {
             // 只缓存**没有降级**的结果。把一次「中证官网不可达」缓存 5 分钟，
             // 用户点「再试一次」还是同一句话，看起来像功能坏了——
             // 而实际上源早就恢复了。
-            store(code, outcome.dto());
+            store(code, outcome.dto(), outcome.takenAt());
         }
         return outcome.dto();
     }
@@ -171,7 +171,7 @@ public class CodeLookupService {
         return code;
     }
 
-    private record Outcome(CodeLookupDTO dto, boolean degraded) {}
+    private record Outcome(CodeLookupDTO dto, boolean degraded, LocalDateTime takenAt) {}
 
     /**
      * 记一次降级。**两件事绑在一起做，这是有意的**：
@@ -321,6 +321,11 @@ public class CodeLookupService {
         CodeLookupDTO.QuoteView quoteView = quoteView(quote, resolved, degradations, notes);
         CodeLookupDTO.PositionView position = position(bars);
 
+        // **一次查询只读一次「现在」**，DTO 和缓存写的是同一个时刻。
+        // 原来这里和 {@link #store} 各读一次，两次差几十微秒，于是同一份结果的
+        // snapshotAt 在「这次新取的」和「命中缓存的」之间会跳一个读不出来的量：
+        // 页面上没人看得出来，测试里却是随机红（CI 上真的因此红过）。
+        LocalDateTime takenAt = localDateTimeNow();
         CodeLookupDTO dto = new CodeLookupDTO(
                 code, resolved.resolvedCode(),
                 nameOf(resolved, quoteView),
@@ -329,8 +334,8 @@ public class CodeLookupService {
                 priceLookbacks.current(),
                 priceLookbacks.currentDate() == null ? null : priceLookbacks.currentDate().format(ISO_DATE),
                 cells(priceLookbacks), position, valuation,
-                List.copyOf(notes), localDateTimeNow().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), false);
-        return new Outcome(dto, !degradations.isEmpty());
+                List.copyOf(notes), stamp(takenAt), false);
+        return new Outcome(dto, !degradations.isEmpty(), takenAt);
     }
 
     /** 池外指数的判定补充说明。写进 notes，让「为什么按指数解释」有据可查。 */
@@ -796,11 +801,11 @@ public class CodeLookupService {
             results.remove(code);
             return null;
         }
-        return hit.dto().withCacheInfo(hit.at().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), true);
+        return hit.dto().withCacheInfo(stamp(hit.at()), true);
     }
 
-    private void store(String code, CodeLookupDTO dto) {
-        results.put(code, new Cached(dto, localDateTimeNow()));
+    private void store(String code, CodeLookupDTO dto, LocalDateTime takenAt) {
+        results.put(code, new Cached(dto, takenAt));
         // 顺手清过期项：这个 map 的键是用户输入的代码，不清理的话换几个代码就永远留着
         if (results.size() > 200) {
             LocalDateTime deadline = localDateTimeNow().minusSeconds(CACHE_TTL_SECONDS);
@@ -819,6 +824,19 @@ public class CodeLookupService {
 
     LocalDateTime localDateTimeNow() {
         return LocalDateTime.now(SHANGHAI);
+    }
+
+    /**
+     * 时间戳的页面写法：**截到秒**。
+     *
+     * <p>这个字符串会被前端原样印出来（「数据时间 …」）。纳秒对读它的人没有任何信息，
+     * 只是噪音——而它也正是「同一次查询能出现两个不同时刻」的唯一原因，
+     * 截掉相当于在 {@link #lookup} 那条「一次查询只读一次时钟」后面再加一道保险。
+     *
+     * <p>秒级精度足够回答章程 §6 要的那个问题：这个数是哪一刻取的。
+     */
+    private static String stamp(LocalDateTime at) {
+        return at.withNano(0).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
     /** 仅供测试与诊断：丢掉进程内结果缓存。 */

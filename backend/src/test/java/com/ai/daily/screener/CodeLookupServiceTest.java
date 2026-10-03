@@ -45,6 +45,9 @@ class CodeLookupServiceTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 9, 30);
 
+    /** 「现在几点」也钉死。时刻跟着真表走，断言就变成了在赌时钟的精度（见 {@link #service()}）。 */
+    private static final LocalDateTime FIXED_NOW = TODAY.atTime(10, 0);
+
     /** 十年零七个月的交易日，足够覆盖到「十年前当日」。 */
     private static final int DECADE_BARS = 2600;
 
@@ -68,11 +71,46 @@ class CodeLookupServiceTest {
     }
 
     private CodeLookupService service() {
-        return serviceWithClock(() -> LocalDateTime.of(TODAY, LocalDateTime.now().toLocalTime()));
+        // **日期和时刻都钉死**。原来是 `LocalDateTime.of(TODAY, LocalDateTime.now().toLocalTime())`
+        // ——只钉日期、时刻取真表，于是每次调用 `localDateTimeNow()` 都返回一个**不同的纳秒值**。
+        // 这在 Windows（毫秒精度）上看不出来，两次调用落在同一毫秒里，值就相等了；
+        // 到 Linux 的无纳秒退让版（CI）就成了「同一条用例本机绿、CI 红」。
+        // 一个用例不该依赖「两次取现在时刻恰好落进同一格」这种事。
+        return serviceWithClock(() -> FIXED_NOW);
     }
 
     private interface Clock {
         LocalDateTime now();
+    }
+
+    /**
+     * **每读一次就前进一秒**的时钟：把「一次查询到底读了几次钟」变成字符串上看得见的东西。
+     *
+     * <p>固定时钟照不出「一次查询读了两次钟」这个回归——两次读返回同一个值，坏实现也是绿的。
+     * 秒而不是纳秒，是因为 {@code stamp()} 会把时刻截到秒：纳秒步长会被截成同一秒，
+     * 于是坏实现照样绿，成了一条假阴性用例。
+     *
+     * <p>只给需要它的用例 opt-in，**不要**换掉 {@link #service()} 的默认时钟：
+     * 读钟次数一变，其它用例的时间也跟着漂。
+     */
+    private static final class SteppingClock implements Clock {
+        private LocalDateTime t;
+
+        SteppingClock(LocalDateTime start) {
+            this.t = start;
+        }
+
+        @Override
+        public LocalDateTime now() {
+            LocalDateTime v = t;
+            t = t.plusSeconds(1);
+            return v;
+        }
+
+        /** 拨表：两次点击之间推进时间，用来跨过 TTL 或制造「不是现在取的」这种情形。 */
+        void jump(long seconds) {
+            t = t.plusSeconds(seconds);
+        }
     }
 
     private CodeLookupService serviceWithClock(Clock clock) {
@@ -657,8 +695,16 @@ class CodeLookupServiceTest {
         givenKline(tradingBars(DECADE_BARS, TODAY));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
-        CodeLookupService svc = service();
+        // 时钟**每读一次前进一秒**，并且两次点击之间再拨 2 分钟（仍在 TTL 内）。
+        // 两件事各拦一种回归：
+        //   · 走动的秒针拦「一次查询读了两次钟」——坏实现里 DTO 与缓存条目会差一秒；
+        //   · 拨表拦「命中缓存时改用 now() 重新盖章」——不拨的话两种实现印出同一个字符串。
+        // 固定时钟对前者是瞎的，第一件事才是这条用例真正要守住的不变量。
+        SteppingClock clock = new SteppingClock(FIXED_NOW);
+        CodeLookupService svc = serviceWithClock(clock);
+
         CodeLookupDTO first = svc.lookup("510300");
+        clock.jump(120);
         CodeLookupDTO second = svc.lookup("510300");
 
         assertThat(first.fromCache()).isFalse();
@@ -668,6 +714,9 @@ class CodeLookupServiceTest {
         verify(offPoolIndexClient, times(1)).fetch(any());
         // 缓存的时刻要写出来，不能假装「是现在取的」
         assertThat(second.snapshotAt()).isEqualTo(first.snapshotAt());
+        // 只比 first/second 还不够——两边都取「现在」也能相等。钉住具体值，
+        // 这条才是真的在拦「命中缓存时改用 now() 重新盖章」。
+        assertThat(second.snapshotAt()).startsWith("2026-09-30T10:00");
     }
 
     @Test

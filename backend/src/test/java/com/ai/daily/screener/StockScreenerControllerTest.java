@@ -30,13 +30,17 @@ class StockScreenerControllerTest {
 
     private StockScreenerService service;
     private ScreenerHistoryService historyService;
+    private MarketCallMetrics marketCallMetrics;
+    private ScreenerCache screenerCache;
     private StockScreenerController controller;
 
     @BeforeEach
     void setUp() {
         service = mock(StockScreenerService.class);
         historyService = mock(ScreenerHistoryService.class);
-        controller = new StockScreenerController(service, historyService);
+        marketCallMetrics = new MarketCallMetrics();
+        screenerCache = new ScreenerCache(15, 20, 60, 10);
+        controller = new StockScreenerController(service, historyService, marketCallMetrics, screenerCache);
     }
 
     /** 真的 DTO，不是 mock：写历史失败那条路要在它上面挂降级说明。 */
@@ -223,5 +227,56 @@ class StockScreenerControllerTest {
         assertThat(r.getCode()).isEqualTo(200);
         assertThat(r.getData()).containsKeys("records", "total", "pages", "current", "size");
         assertThat(r.getData().get("total")).isEqualTo(23L);
+    }
+
+    // ==================================================================
+    // 行情外呼统计
+    // ==================================================================
+
+    /**
+     * 只给管理员。它不是页面内容，而是运维诊断用的——「最近老是被打回来」这个问题
+     * 需要一个能看累计数字的地方，而那个地方不该对 demo 开放。
+     */
+    @Test
+    void rateLimitStatsAreAdminOnly() {
+        assertThat(controller.rateLimitStats().getCode()).isEqualTo(403);
+
+        authenticateAs("USER", "DEMO");
+        assertThat(controller.rateLimitStats().getCode()).isEqualTo(403);
+
+        authenticateAs("ADMIN", "NORMAL");
+        assertThat(controller.rateLimitStats().getCode()).isEqualTo(200);
+    }
+
+    /**
+     * 事实（外呼了几次、被打回来几次）与策略（现在冷却到几点）并列给出，且**按源分开**：
+     * 只看冷却表会低估真实压力——有几条路径会吞掉限流异常继续跑，它们不会进冷却。
+     */
+    @Test
+    void rateLimitStatsPairTheCountsWithTheCooldownPerProvider() {
+        authenticateAs("ADMIN", "NORMAL");
+        marketCallMetrics.recordCall("eastmoney");
+        marketCallMetrics.recordCall("eastmoney");
+        marketCallMetrics.recordThrottled("eastmoney");
+        marketCallMetrics.recordCall("csindex");
+        marketCallMetrics.recordThrottled("csindex");
+        screenerCache.enterCooldown("eastmoney");
+
+        Result<Map<String, Object>> r = controller.rateLimitStats();
+        assertThat(r.getCode()).isEqualTo(200);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Object>> providers = (Map<String, Map<String, Object>>) r.getData().get("providers");
+
+        assertThat(providers.get("eastmoney"))
+                .containsEntry("calls", 2L).containsEntry("throttled", 1L);
+        // 冷却只挂在东财上：腾讯/新浪/中证/蛋卷各记各的，不会被东财连累
+        assertThat(providers.get("eastmoney").get("cooldownUntil")).isNotNull();
+        assertThat(providers.get("csindex"))
+                .containsEntry("calls", 1L).containsEntry("throttled", 1L);
+        assertThat(providers.get("csindex").get("cooldownUntil")).isNull();
+
+        // 「这份数字属于哪一天、从什么时候开始算」要一起给出去，否则跨天后的数字没法解释
+        assertThat(r.getData()).containsKeys("day", "since");
     }
 }
