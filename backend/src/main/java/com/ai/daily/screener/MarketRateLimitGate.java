@@ -33,8 +33,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * 再撞上读超时，两层时间都白花。
  *
  * <p><b>不做冷却抢占</b>：这里是「发车前排队」，不是「发现被限流就拦下」。
- * 冷却该由已经做了这件事的调用方去判（{@link CodeLookupService#lookup}、
- * {@link StockScreenerService} 的几条链都有前置判断）。在闸门里再抛一次限流异常会两头出错：
+ * 冷却该由**真正发请求的那一层**去判：{@link CodeLookupService} 是在取数处（它的
+ * {@code fetchQuote}/{@code fetchBars} 在冷却期内根本不调用 push2*），
+ * {@link StockScreenerService} 的几条链则各有前置判断。注意别把它挪回「调用入口」——
+ * 东财封的只有 push2 一族，入口处一律 429 会把腾讯/新浪能给出的数也一并挡掉。
+ * 在闸门里再抛一次限流异常会两头出错：
  * 一是页面上出现第二套 429 文案，比调用方那句「约 N 分钟后可再试」更泛；
  * 二是那个异常会顺着日线链被翻译成 {@code KlineOutcome.throttled} 再进
  * {@code enterCooldown}，而后者在「新的时刻更晚」时**总是推后**——冷却期内每点一次

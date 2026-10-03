@@ -93,6 +93,14 @@ public class CodeLookupService {
 
     private final int lookupKlineLimit;
 
+    /**
+     * 兜底源（腾讯）日线一次最多求多少根，见 {@link #tencentKlineLimit()}。
+     *
+     * <p>与 {@link #lookupKlineLimit} **不是一回事**：那个 2600 是东财的量级，
+     * 腾讯日线接口超过 800 就 {@code param error}。合成一个值必然有一边是错的。
+     */
+    private final int lookupFallbackKlineLimit;
+
     /** code → 结果。只放成功的那些，见 {@link #lookup}。 */
     private final Map<String, Cached> results = new ConcurrentHashMap<>();
 
@@ -106,7 +114,8 @@ public class CodeLookupService {
             IndexFundPool indexPool,
             MarketValuationHistoryService valuationService,
             ScreenerCache cache,
-            @Value("${screener.lookup-kline-limit:2600}") int lookupKlineLimit) {
+            @Value("${screener.lookup-kline-limit:2600}") int lookupKlineLimit,
+            @Value("${screener.lookup-fallback-kline-limit:800}") int lookupFallbackKlineLimit) {
         this.marketDataClient = marketDataClient;
         this.altQuoteSource = altQuoteSource;
         this.stockValuationClient = stockValuationClient;
@@ -115,6 +124,18 @@ public class CodeLookupService {
         this.valuationService = valuationService;
         this.cache = cache;
         this.lookupKlineLimit = Math.max(1, lookupKlineLimit);
+        this.lookupFallbackKlineLimit = Math.max(1, lookupFallbackKlineLimit);
+    }
+
+    /**
+     * 兜底日线要的根数：配置的上限，但不超过主源那个数。
+     *
+     * <p>夹取不是洁癖——腾讯对这个参数是**硬拒**：2600 直接回
+     * {@code {"code":0,"msg":"param error","data":[]}}，而 {@code lookupKlineLimit}
+     * 的默认值正是 2600。照原样传过去，兜底日线会 100% 落空，而且看起来像「腾讯也挂了」。
+     */
+    private int tencentKlineLimit() {
+        return Math.min(lookupFallbackKlineLimit, lookupKlineLimit);
     }
 
     /** 查不到的代码。与「取数失败」分开：前者要换代码，后者要等一会儿再试。 */
@@ -131,15 +152,14 @@ public class CodeLookupService {
     public CodeLookupDTO lookup(String rawCode) {
         String code = normalise(rawCode);
 
-        // 冷却期内**连请求都不发**。被限流时每一次重试都在把这个 IP 往更深的封禁里推，
-        // 所以这里不是「快速失败」的性能优化，是纪律。
-        if (cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)) {
-            long left = cache.cooldownRemainingMinutes(MarketDataClient.PROVIDER_EASTMONEY);
-            throw new MarketDataException.MarketDataRateLimitedException(
-                    "行情源限流冷却中，约 " + left + " 分钟后可再试"
-                            + "（冷却期内不再外呼，免得把封禁推得更深）");
-        }
-
+        // **这里原先有一道「冷却中就直接 429」的早退，已经删掉。** 它的前提是
+        // 「被东财限流 = 什么都取不到」，而线上实测证明不成立：被封的只有 push2 这一族，
+        // 腾讯/新浪（兜底行情与日线）和 datacenter-web（估值）全都是好的。早退把
+        // 本可以出数的页面变成了错误页——用户截图撞到的就是这个状态。
+        //
+        // 但「冷却期内不再外呼」这条纪律**照旧成立**，只是改由构造保证：
+        // fetchQuote/fetchBars 在冷却期内**根本不调用** push2/push2his（见各自的方法注释）。
+        // 零外呼的路只剩下面命中缓存那一条，而那是东财健康时存下的成功结果。
         CodeLookupDTO cached = cachedResult(code);
         if (cached != null) {
             return cached;
@@ -315,11 +335,11 @@ public class CodeLookupService {
         // 出口 IP 最该省着用的东西。估值源答「没有这个代码」比日线更早也更确定。
         CodeLookupDTO.ValuationView valuation = valuation(resolved, degradations, notes);
 
-        List<PricePositionCalculator.Bar> bars = fetchBars(resolved, degradations, notes);
+        Bars bars = fetchBars(resolved, degradations, notes);
         LookbackCalculator.Result priceLookbacks = priceLookbacks(resolved, bars);
 
         CodeLookupDTO.QuoteView quoteView = quoteView(quote, resolved, degradations, notes);
-        CodeLookupDTO.PositionView position = position(bars);
+        CodeLookupDTO.PositionView position = position(bars.bars());
 
         // **一次查询只读一次「现在」**，DTO 和缓存写的是同一个时刻。
         // 原来这里和 {@link #store} 各读一次，两次差几十微秒，于是同一份结果的
@@ -368,21 +388,28 @@ public class CodeLookupService {
     // 行情
     // ------------------------------------------------------------------
 
-    /**
-     * 一份报价，外加「它是哪个源给的」。
-     *
-     * @param noSuchSecurity 源**明确回了**「没有这只标的」。分配它而不是用 null 表达，
-     *                       是因为「没有这只票」与「没问到」必须分开：前者回 404，
-     *                       后者回 503
-     */
-    private record QuoteRef(CodeLookupDTO.QuoteView view, String provider, boolean noSuchSecurity) {}
+    /** 一份报价，外加「它是哪个源给的」。 */
+    private record QuoteRef(CodeLookupDTO.QuoteView view, String provider) {}
+
+    /** 「约 N 分钟后可再试」。**按 provider 取剩余时间**：兜底源也限流时要报的是它自己的等待量。 */
+    private String cooldownMessage(String provider) {
+        long left = cache.cooldownRemainingMinutes(provider);
+        return "行情源限流冷却中，约 " + left + " 分钟后可再试"
+                + "（冷却期内不再外呼，免得把封禁推得更深）";
+    }
 
     /**
      * 取一只标的的行情。主源东财，缺了走腾讯、新浪（各自独立的配额，正是兜底链的用途）。
      *
-     * @return 拿到行情 → 值；所有源都**明确回了没有** → {@code null}；
-     *         所有源都没问到（网络/结构异常）→ 抛 {@link MarketDataException}；
-     *         被限流 → 抛 {@link MarketDataException.MarketDataRateLimitedException}
+     * <p><b>被限流不再一律上抛</b>：东财是三个域名里唯一被按 IP 封的那一族，而腾讯/新浪
+     * 是独立配额，正是被拒时该用的东西。所以限流只记冷却、继续往下试；只有**兜底也拿不到**
+     * 才把 429 交给上层。原来的 {@code catch} 直接 {@code throw}，让下面这个循环永远到不了，
+     * 线上表现为「一次查询只发出 1 次外呼，就那 1 次被拒」。
+     *
+     * @return 拿到行情 → 值；**某个能表示该代码的源明确回了「没有这只标的」** → {@code null}；
+     *         东财被限流或冷却中、且兜底也没给到 → 抛
+     *         {@link MarketDataException.MarketDataRateLimitedException}；
+     *         其余取数失败 → 抛 {@link MarketDataException}
      */
     private QuoteRef fetchQuote(Resolved resolved, List<String> degradations, List<String> notes) {
         String secid = resolved.secid();
@@ -391,29 +418,56 @@ public class CodeLookupService {
         // 而它明明就在池子里。secid 的点号后面那一段才是证券代码。
         String code = secid.substring(secid.indexOf('.') + 1);
 
-        boolean answered = false;
-        try {
-            Map<String, StockRow> quotes = marketDataClient.fetchQuotes(List.of(secid));
-            answered = true;
-            StockRow row = quotes.get(code);
-            if (row != null) {
-                return new QuoteRef(new CodeLookupDTO.QuoteView(
-                        MarketDataClient.PROVIDER_EASTMONEY, sourceLabel(MarketDataClient.PROVIDER_EASTMONEY),
-                        row.getName(), row.getPrice(), row.getPctChange(), row.getPeTtm(), row.getPb(),
-                        row.getIndustry(), row.getTotalMarketCap()), MarketDataClient.PROVIDER_EASTMONEY, false);
+        // 东财是不是「问了也白问」。冷却期内**根本不发请求**——这就是「冷却期内不再外呼」
+        // 现在唯一还在这里成立的形式（入口那道早退已经删了，见 lookup）。
+        boolean eastmoneyUnusable = cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY);
+
+        // **东财成功了、只是没有这一行。** 这是本方法能返回 null 的两条路之一，
+        // 也是 doLookup 把个股当池外指数的唯一依据，所以必须与「没问到」严格分开：
+        // 一旦把取数失败也算进来，「东财一挂，所有 6 位代码都被读成指数」就回来了。
+        boolean eastmoneyAnsweredAbsent = false;
+
+        if (!eastmoneyUnusable) {
+            try {
+                Map<String, StockRow> quotes = marketDataClient.fetchQuotes(List.of(secid));
+                StockRow row = quotes.get(code);
+                if (row != null) {
+                    return new QuoteRef(new CodeLookupDTO.QuoteView(
+                            MarketDataClient.PROVIDER_EASTMONEY,
+                            sourceLabel(MarketDataClient.PROVIDER_EASTMONEY),
+                            row.getName(), row.getPrice(), row.getPctChange(), row.getPeTtm(), row.getPb(),
+                            row.getIndustry(), row.getTotalMarketCap()),
+                            MarketDataClient.PROVIDER_EASTMONEY);
+                }
+                eastmoneyAnsweredAbsent = true;
+            } catch (MarketDataException.MarketDataRateLimitedException e) {
+                // **记冷却，但不再上抛**：上抛会让下面的兜底循环永远到不了，而腾讯/新浪
+                // 的配额跟东财是分开的——它们很可能完全可用。
+                cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY);
+                eastmoneyUnusable = true;
+                log.warn("代码查询：东财行情被限流 code={}，转兜底源：{}",
+                        code, MarketDataClient.shortReason(e));
+            } catch (RuntimeException e) {
+                log.warn("代码查询：东财行情不可用 code={}：{}", code, MarketDataClient.shortReason(e));
             }
-        } catch (MarketDataException.MarketDataRateLimitedException e) {
-            // **先记冷却再上抛**：只把 429 返给前端而不锁住自己，用户点一次「再试一次」
-            // 就又是一次真实外呼——那正是「每次重试都在把 IP 往更深的封禁里推」。
-            cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY);
-            throw e;
-        } catch (RuntimeException e) {
-            log.warn("代码查询：东财行情不可用 code={}：{}", code, MarketDataClient.shortReason(e));
         }
+
+        // 兜底源能不能表示这个代码。腾讯与新浪共用同一套市场前缀映射
+        // （{@code AltQuoteSource.symbolsOf} 用的就是 tencentSymbol），判一次覆盖两路。
+        //
+        // **这个判断不能省，也不能只当备注**：表示不了时那两个方法一个请求都不发、
+        // 直接返回空 Map，若把那当成「源答了、只是没有这只标的」，上面那条注释要防的事
+        // 就会从这条缝里钻回来。所以表示不了就**整个循环都不进**——那是「没问」，
+        // 不是「问了没有」。
+        boolean representable = AltQuoteSource.tencentSymbol(code) != null;
+        boolean fallbackAnsweredAbsent = false;
+        String throttledFallback = null;
 
         // 主源没给到：按「哪个源的配额还没被用掉」逐层兜底。用了哪个源要写在结果里——
         // 新浪那一路不给市值与行业，页面得说得出这些格子是空的、空在哪。
-        for (String provider : List.of(AltQuoteSource.PROVIDER_TENCENT, AltQuoteSource.PROVIDER_SINA)) {
+        for (String provider : representable
+                ? List.of(AltQuoteSource.PROVIDER_TENCENT, AltQuoteSource.PROVIDER_SINA)
+                : List.<String>of()) {
             if (cache.inCooldown(provider)) continue;
             try {
                 Map<String, MarketDataClient.EtfQuote> got =
@@ -425,49 +479,108 @@ public class CodeLookupService {
                     degrade(degradations, notes, "行情取自兜底源" + sourceLabel(provider) + "（东财没给到）");
                     return new QuoteRef(new CodeLookupDTO.QuoteView(
                             provider, sourceLabel(provider), q.name(), q.price(), q.pctChange(),
-                            q.peTtm(), q.pb(), null, q.marketCap()), provider, false);
+                            q.peTtm(), q.pb(), null, q.marketCap()), provider);
                 }
-                answered = true;   // 这个源答了，只是也没有这只标的
+                // 走到这里说明**真的发过请求**，且确实没有这一行
+                fallbackAnsweredAbsent = true;
             } catch (MarketDataException.MarketDataRateLimitedException e) {
+                // 记冷却后**继续试下一个源**：新浪与腾讯是两套独立配额，一个被打回来
+                // 不代表另一个也不能用。原来这里上抛，等于把这条兜底链自己掐断。
                 cache.enterCooldown(provider);
-                throw e;
+                throttledFallback = provider;
             } catch (RuntimeException e) {
                 log.warn("代码查询：{} 兜底行情不可用 code={}：{}", provider, code,
                         MarketDataClient.shortReason(e));
             }
         }
 
-        if (answered) {
-            return null;   // 有人答过「没有这只标的」
+        if (eastmoneyUnusable) {
+            // **绝不返回 null**：那会让 doLookup 把它读成「池外指数」，于是一个被限流的
+            // 个股会变成 404「查不到代码」——比报错更难查，而且换个时间点结果就变了。
+            throw new MarketDataException.MarketDataRateLimitedException(
+                    cooldownMessage(MarketDataClient.PROVIDER_EASTMONEY));
         }
-        throw new MarketDataException("行情源都没问到 " + code + " 的报价"
-                + "（东财、腾讯、新浪三家都不可达），本次未查询");
+        if (eastmoneyAnsweredAbsent || fallbackAnsweredAbsent) {
+            return null;   // 能表示这个代码的源明确回了「没有这只标的」
+        }
+        if (throttledFallback != null) {
+            // 东财这次是**非限流**地失败了，兜底又被打回来：能等的是兜底源，报它的时间。
+            throw new MarketDataException.MarketDataRateLimitedException(
+                    cooldownMessage(throttledFallback));
+        }
+        throw new MarketDataException("行情源都没问到 " + code + " 的报价（"
+                + (representable
+                        ? "东财、腾讯、新浪三家本次都没给出结果"
+                        : "东财本次没给出结果；腾讯/新浪不覆盖这串代码代表的市场")
+                + "），本次未查询");
     }
 
     // ------------------------------------------------------------------
     // 日线
     // ------------------------------------------------------------------
 
-    /** 长日线（约 {@value #HISTORY_MARGIN_DAYS} 天缓冲之外的十年）。失败只降级价格长档，不编数。 */
-    private List<PricePositionCalculator.Bar> fetchBars(Resolved resolved, List<String> degradations,
-                                                       List<String> notes) {
+    /**
+     * 一段日线，外加「它是谁给的」。
+     *
+     * @param provider 非 null 表示这段来自兜底源。{@link #priceLookbacks} 据此给出
+     *                 **来源专属**的「历史不够长」说明，而不是通用的那一句
+     */
+    private record Bars(List<PricePositionCalculator.Bar> bars, String provider) {
+        static final Bars EMPTY = new Bars(List.of(), null);
+    }
+
+    /**
+     * 长日线（约 {@value #HISTORY_MARGIN_DAYS} 天缓冲之外的十年）。
+     *
+     * <p>东财不可用（被限流、冷却中、或问了没给到）时退到腾讯日线；腾讯也没有才降级为空。
+     * **只降级，不再上抛**：日线是增值项，价格与估值都还在，为它把整页变成错误页不划算——
+     * 原来那个 429 正是「东财一挂整页打不开」的另一半原因。
+     */
+    private Bars fetchBars(Resolved resolved, List<String> degradations, List<String> notes) {
         String secid = barsSecid(resolved);
         if (secid == null) {
-            return List.of();
+            return Bars.EMPTY;
         }
-        MarketDataClient.KlineOutcome outcome = marketDataClient.fetchKline(secid, lookupKlineLimit);
-        if (outcome.throttled()) {
-            // 日线与行情是同一个出口 IP。已经被拒了就不能再往下打，交给上层冷却。
-            cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY);
-            throw new MarketDataException.MarketDataRateLimitedException(
-                    "行情源限流，本次未完成（" + outcome.failureReason() + "）");
+        String code = secid.substring(secid.indexOf('.') + 1);
+
+        String eastmoneyReason = null;
+        // **这里必须重新查一次冷却**，不能沿用入口处捕获的布尔值：fetchQuote 自己就可能
+        // 刚把东财关进冷却，那样日线若不复查就还会真打一次 push2his——正是要避免的那一下。
+        if (!cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)) {
+            MarketDataClient.KlineOutcome outcome = marketDataClient.fetchKline(secid, lookupKlineLimit);
+            if (outcome.ok()) {
+                return new Bars(outcome.bars(), null);
+            }
+            if (outcome.throttled()) {
+                // 日线与行情是同一个出口 IP。已经被拒了就不能再往下打。
+                cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY);
+            }
+            eastmoneyReason = outcome.failureReason();
         }
-        if (!outcome.ok()) {
-            degrade(degradations, notes,
-                    "日线未取到：" + outcome.failureReason() + "（价格八档与价格位置都为空）");
-            return List.of();
+
+        // 兜底日线。**腾讯的键是共享的**（qt.gtimg.cn 与 web.ifzq.gtimg.cn 都归 tencent），
+        // 所以先看它有没有在冷却——同一次查询里腾讯行情刚被限流、这里又立刻打腾讯日线，
+        // 正是项目明令禁止的「重试把封禁推得更深」。低估精选已经在这么做。
+        if (!cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)
+                && AltQuoteSource.tencentSymbol(code) != null) {
+            MarketDataClient.KlineOutcome alt = altQuoteSource.fetchTencentKline(code, tencentKlineLimit());
+            if (alt == null) {
+                // 生产不会返回 null（它把失败都塞在返回值里），但 mock 未 stub 时是 null，
+                // 不判空就是 NPE —— 一样的写法在 StockScreenerService 里也有。
+                log.warn("代码查询：腾讯日线返回了 null code={}", code);
+            } else if (alt.ok()) {
+                degrade(degradations, notes, "日线取自" + sourceLabel(AltQuoteSource.PROVIDER_TENCENT)
+                        + "（东财没给到），价格位置据此计算");
+                return new Bars(alt.bars(), AltQuoteSource.PROVIDER_TENCENT);
+            } else if (alt.throttled()) {
+                cache.enterCooldown(AltQuoteSource.PROVIDER_TENCENT);
+            }
         }
-        return outcome.bars();
+
+        degrade(degradations, notes, "日线未取到："
+                + (eastmoneyReason != null ? eastmoneyReason : "行情源限流中，本次未外呼")
+                + "（价格八档与价格位置都为空）");
+        return Bars.EMPTY;
     }
 
     /**
@@ -487,20 +600,44 @@ public class CodeLookupService {
         return null;
     }
 
-    private static LookbackCalculator.Result priceLookbacks(Resolved resolved,
-                                                            List<PricePositionCalculator.Bar> bars) {
-        if (bars.isEmpty()) {
+    private static LookbackCalculator.Result priceLookbacks(Resolved resolved, Bars bars) {
+        if (bars.bars().isEmpty()) {
             String why = resolved.secid() == null && resolved.route() != null
                     && resolved.route().source() == OffPoolIndexResolver.Source.DANJUAN
                     ? "蛋卷口径的指数没有可用的行情代码（东财不按指数名报价），价格八档未确认"
                     : "未取到日线，价格八档未确认";
             return LookbackCalculator.compute(List.of(), LookbackCalculator.ChangeStyle.PRICE, why);
         }
-        List<LookbackCalculator.Point> series = new ArrayList<>(bars.size());
-        for (PricePositionCalculator.Bar b : bars) {
+        List<LookbackCalculator.Point> series = new ArrayList<>(bars.bars().size());
+        for (PricePositionCalculator.Bar b : bars.bars()) {
             series.add(new LookbackCalculator.Point(b.date(), b.close()));
         }
-        return LookbackCalculator.compute(series, LookbackCalculator.ChangeStyle.PRICE, null);
+        return LookbackCalculator.compute(series, LookbackCalculator.ChangeStyle.PRICE, shortHistoryNote(bars));
+    }
+
+    /**
+     * 「五年/十年为什么是空的」的来源专属说明，给 {@link LookbackCalculator} 替换掉它那句
+     * 通用的「历史不足」。
+     *
+     * <p>兜底日线只有约 800 根（≈3.3 年），五年/十年必然取不到——但**那不是数据本身的问题，
+     * 是源的上限**，通用文案会把下一步指向错的地方。所以这里用**实际根数与最早交易日**拼，
+     * 不硬写「3 年」：腾讯哪天改了上限，页面上这句话仍然是真的。
+     *
+     * <p>东财那条路返回 null，让 {@code LookbackCalculator} 用它的通用文案——那时「历史不足」
+     * 确实是标的自身上市时间短，不是谁的限制。
+     */
+    private static String shortHistoryNote(Bars bars) {
+        if (bars.provider() == null || bars.bars().isEmpty()) {
+            return null;
+        }
+        LocalDate first = bars.bars().stream()
+                .map(PricePositionCalculator.Bar::date)
+                .filter(java.util.Objects::nonNull)
+                .min(LocalDate::compareTo)
+                .orElse(null);
+        return "日线取自" + sourceLabel(bars.provider()) + "，本次只有 " + bars.bars().size() + " 根"
+                + (first == null ? "" : "（最早 " + first.format(ISO_DATE) + "）")
+                + "，超出这个跨度的档位未确认";
     }
 
     private CodeLookupDTO.QuoteView quoteView(QuoteRef quote, Resolved resolved,

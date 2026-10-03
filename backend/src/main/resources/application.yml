@@ -142,6 +142,14 @@ screener:
   # 而查询页一次只查一只。**不要为了省一个配置项把两者合并**——
   # 合并后任何一边调参都会把另一边一起拖走。
   lookup-kline-limit: ${SCREENER_LOOKUP_KLINE_LIMIT:2600}
+  # 东财被限流后，代码查询改问腾讯日线时一次求多少根。
+  # **800 是实测出来的上限，不是随便挑的**（2026-10-03 实测 push2 被封、腾讯可用）：
+  #   请求  250 → 250 根      请求  800 → 800 根（最早 2023-06-15）
+  #   请求  900/1500/2000 → 只剩 640 根（悄悄掉进默认页，不报错）
+  #   请求 2600 → {"msg":"param error","data":[]}，**硬拒**
+  # 而 lookup-kline-limit 的默认值正是 2600，所以照原样传过去兜底日线会 100% 落空。
+  # 800 根 ≈ 3.3 年：八档算得到「三年」，五年/十年为空但会写明是源的上限而非上市时间短。
+  lookup-fallback-kline-limit: ${SCREENER_LOOKUP_FALLBACK_KLINE_LIMIT:800}
   # 全市场基本面快照缓存时长
   universe-ttl-minutes: ${SCREENER_UNIVERSE_TTL_MINUTES:15}
   # 盘中（09:30–15:00）日线缓存时长；收盘后当天一直有效

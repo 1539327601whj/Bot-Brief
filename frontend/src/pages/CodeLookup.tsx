@@ -334,7 +334,7 @@ export default function CodeLookup() {
           <p>{rateLimited}</p>
           <p className="stockpick-note">
             这不是网络故障，也不用改任何设置：东财按 IP 计时封一阵。
-            <b>重试越频繁封得越久</b>，所以这里不会自动重试，冷却期内的再点也不会真的外呼。
+            <b>重试越频繁封得越久</b>，所以这里不会自动重试；东财在冷却期内一次都不会再被打。
             等上面说的时间过去，点下面的按钮即可。
           </p>
           <div className="stockpick-actions">

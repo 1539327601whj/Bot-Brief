@@ -68,7 +68,16 @@ class CodeLookupServiceTest {
         indexPool = mock(IndexFundPool.class);
         valuationService = mock(MarketValuationHistoryService.class);
         cache = new ScreenerCache(15, 20, 60, 10);
+
+        // 兜底源**默认显式地回「问过了，没有这只标的」**（空 Map），而不是靠 Mockito 的
+        // 默认返回值。两者数值一样，但后者是「没 stub」的副作用——用例作者看不出
+        // 自己到底是在测「源答了没有」还是「压根没问」，而这两件事在本类里是**不同的结果**。
+        when(altQuoteSource.fetchTencentQuotes(anyList())).thenReturn(Map.of());
+        when(altQuoteSource.fetchSinaQuotes(anyList())).thenReturn(Map.of());
     }
+
+    /** 兜底日线的根数。<b>与 {@code lookupKlineLimit} 不是一回事</b>，见生产代码的构建器注释。 */
+    private static final int FALLBACK_KLINE_LIMIT = 800;
 
     private CodeLookupService service() {
         // **日期和时刻都钉死**。原来是 `LocalDateTime.of(TODAY, LocalDateTime.now().toLocalTime())`
@@ -115,7 +124,8 @@ class CodeLookupServiceTest {
 
     private CodeLookupService serviceWithClock(Clock clock) {
         return new CodeLookupService(marketDataClient, altQuoteSource, stockValuationClient,
-                offPoolIndexClient, indexPool, valuationService, cache, DECADE_BARS) {
+                offPoolIndexClient, indexPool, valuationService, cache,
+                DECADE_BARS, FALLBACK_KLINE_LIMIT) {
             @Override
             LocalDate localDateNow() {
                 return clock.now().toLocalDate();
@@ -163,6 +173,19 @@ class CodeLookupServiceTest {
         Map<String, StockRow> map = new LinkedHashMap<>();
         for (StockRow r : rows) map.put(r.getCode(), r);
         when(marketDataClient.fetchQuotes(anyList())).thenReturn(map);
+    }
+
+    /** 兜底行情给一只。{@code provider} 决定是腾讯那路还是新浪那路。 */
+    private void givenFallbackQuote(String code, String name, String price, String pct, String provider) {
+        Map<String, MarketDataClient.EtfQuote> one = Map.of(code,
+                new MarketDataClient.EtfQuote(code, name, new BigDecimal(price),
+                        new BigDecimal(pct), null, new BigDecimal("1200"),
+                        null, null, provider));
+        if (AltQuoteSource.PROVIDER_SINA.equals(provider)) {
+            when(altQuoteSource.fetchSinaQuotes(anyList())).thenReturn(one);
+        } else {
+            when(altQuoteSource.fetchTencentQuotes(anyList())).thenReturn(one);
+        }
     }
 
     /**
@@ -584,29 +607,33 @@ class CodeLookupServiceTest {
     // 兜底行情
     // ==================================================================
 
+    /**
+     * 东财挂了，行情从腾讯来，来源写在结果里。
+     *
+     * <p><b>用的是一场外基金（512880），不是个股。</b>这条用例原先拿 {@code 300274} 当样本，
+     * 而那是靠 mock 才成立的：真跑起来 {@code fetchTencentQuotes} 会先过
+     * {@code symbolsOf}，个股不在白名单里**一个请求都不发**，腾讯根本不可能给出这只票的价。
+     * 测一个生产里到不了的场景，等于给兜底链一个假的绿灯。
+     */
     @Test
     void whenEastmoneyIsUnreachableTheQuoteComesFromTencentAndTheSourceIsWrittenOut() {
         when(marketDataClient.fetchQuotes(anyList()))
                 .thenThrow(new MarketDataException("行情批量接口全部失败—— 第 1 批：连接超时"));
-        when(altQuoteSource.fetchTencentQuotes(anyList())).thenReturn(Map.of("300274",
-                new MarketDataClient.EtfQuote("300274", "阳光电源", new BigDecimal("82.49"),
-                        new BigDecimal("2.98"), null, new BigDecimal("1200"),
-                        new BigDecimal("15.60"), new BigDecimal("3.41"),
-                        AltQuoteSource.PROVIDER_TENCENT)));
+        givenFallbackQuote("512880", "证券ETF", "1.08", "0.93", AltQuoteSource.PROVIDER_TENCENT);
         givenKline(tradingBars(DECADE_BARS, TODAY));
-        when(stockValuationClient.fetchHistory("300274")).thenReturn(
-                StockValuationClient.History.failed("300274", "估值分析源不可达"));
+        when(stockValuationClient.fetchHistory("512880")).thenReturn(
+                StockValuationClient.History.failed("512880", "估值分析源不可达"));
 
-        CodeLookupDTO dto = service().lookup("300274");
+        CodeLookupDTO dto = service().lookup("512880");
 
         assertThat(dto.quote().provider()).isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
         // 用了兜底源这件事必须写出来：同一天两个源的价可能不一样，而页面只显示一个数。
         // 来源既在 providerLabel 里（给每一格标出处），也在 notes 里（说明为什么换了源）。
         assertThat(dto.quote().providerLabel()).contains("腾讯").contains("兜底");
-        assertThat(dto.quote().price()).isEqualByComparingTo("82.49");
+        assertThat(dto.quote().price()).isEqualByComparingTo("1.08");
         assertThat(dto.notes()).anySatisfy(n -> assertThat(n).contains("兜底源"));
         // 注意没有走「按池外指数重试」那条路——那是因为**源答了**，不是因为源挂了。
-        assertThat(dto.kind()).isEqualTo(CodeLookupDTO.Kind.STOCK);
+        assertThat(dto.kind()).isEqualTo(CodeLookupDTO.Kind.FUND);
     }
 
     @Test
@@ -641,19 +668,62 @@ class CodeLookupServiceTest {
     // 限流
     // ==================================================================
 
+    /**
+     * 冷却期内**不打东财**，但**照常出数**——这是本次改动的要点。
+     *
+     * <p>原来这条用例断言「一律 429 且谁都不碰」，前提是「被东财限流 = 什么都取不到」。
+     * 线上实测把这个前提推翻了：被封的只有 push2 一族（腾讯/新浪/估值源全是好的），
+     * 而那道早退正是用户截图里整页打不开的原因。
+     */
     @Test
-    void whileInCooldownNotASingleRequestIsSent() {
-        // 冷却是**纪律**不是性能优化：被限流时每一次重试都在把这个 IP 往更深的封禁里推。
+    void whileEastmoneyIsInCooldownAnEtfIsStillServedFromTheFallbackSource() {
+        cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY, 10);
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenFallbackQuote("510300", "沪深300ETF", "4.05", "0.52",
+                AltQuoteSource.PROVIDER_TENCENT);
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY)));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        assertThat(dto.quote().provider()).isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
+        assertThat(dto.quote().price()).isEqualByComparingTo("4.05");
+        // **东财一次都没被碰**——「冷却期内不再外呼」现在成立的形式就长这样：
+        // 不是入口早退，而是取数处根本不调用 push2/push2his。
+        verifyNoInteractions(marketDataClient);
+        assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isTrue();
+    }
+
+    /**
+     * 冷却期内查**个股**：兜底源表示不了这个码，于是没有可用的取数路径 → 429。
+     *
+     * <p>关键是**不能是 404**。东财被限流时返回 null 会被 {@code doLookup} 读成
+     * 「池外指数」，个股就变成「查不到代码 300274」——换个时间点结果不同，页面上看不出来。
+     */
+    @Test
+    void whileEastmoneyIsInCooldownAStockGets429AndNothingIsDialled() {
         cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY, 10);
 
         CodeLookupService svc = service();
-        assertThatThrownBy(() -> svc.lookup("510300"))
+        assertThatThrownBy(() -> svc.lookup("300274"))
                 .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class)
-                .hasMessageContaining("冷却");
+                .hasMessageContaining("冷却")
+                .hasMessageContaining("分钟")
+                .isNotInstanceOf(CodeLookupService.CodeNotFoundException.class);
 
-        verifyNoInteractions(marketDataClient, offPoolIndexClient, stockValuationClient, altQuoteSource);
+        verifyNoInteractions(marketDataClient, offPoolIndexClient);
+        // 表示不了的代码**一个兜底请求都不发**：那是「没问」，不是「问了没有」
+        verifyNoInteractions(altQuoteSource);
     }
 
+    /**
+     * 东财被限流 + 兜底也不认这个码：**不是 404**，因为根本没人问出「这码不存在」。
+     *
+     * <p>★ 这是整次改动风险最高的那一格：只要漏判一次，被限流的个股就会变成
+     * 「查不到代码」——比报错更难查，而且过十分钟自己又好了。
+     */
     @Test
     void aThrottledQuoteIsRaisedAndLocksTheSourceInsteadOfBeingRetried() {
         when(marketDataClient.fetchQuotes(anyList())).thenThrow(
@@ -661,26 +731,328 @@ class CodeLookupServiceTest {
 
         CodeLookupService svc = service();
         assertThatThrownBy(() -> svc.lookup("300274"))
-                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class);
+                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class)
+                .isNotInstanceOf(CodeLookupService.CodeNotFoundException.class);
 
         // 只把 429 返给前端而不锁住自己，用户点一次「再试一次」就又是一次真实外呼
         assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isTrue();
         verify(marketDataClient, never()).fetchKline(anyString(), anyInt());
     }
 
+    /** 东财限流后**根本没被再问过日线**：它自己刚把冷却打开，日线步骤必须复查。 */
     @Test
-    void aThrottledKlineEntersCooldownSoTheNextClickIsBlocked() {
+    void aThrottledQuoteStopsTheKlineStepFromDiallingEastmoneyAgain() {
+        when(marketDataClient.fetchQuotes(anyList())).thenThrow(
+                new MarketDataException.MarketDataRateLimitedException("被限流了", null));
+        // 个股：兜底日线也不认这个码，所以整页只能报 429
+        when(stockValuationClient.fetchHistory("300274")).thenReturn(
+                StockValuationClient.History.failed("300274", "估值分析源不可达"));
+
+        assertThatThrownBy(() -> service().lookup("300274"))
+                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class);
+
+        verify(marketDataClient, never()).fetchKline(anyString(), anyInt());
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+    }
+
+    /** 东财日线被限流：不再让整页失败，而是记冷却 + 降级；ETF 上还看得出「价格位置」没了。 */
+    @Test
+    void aThrottledKlineEntersCooldownAndOnlyDegradesTheLongBands() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        givenFallbackQuote("510300", "沪深300ETF", "4.05", "0.52",
+                AltQuoteSource.PROVIDER_TENCENT);
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.throttled("行情源限流，价格位置未能更新"));
+        // 腾讯日线也不给 → 连兜底都没有
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.failed("腾讯也没给到",
+                        AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isTrue();
+        // 价格与估值照常，只有价格八档与价格位置降级——而不是整页 429
+        assertThat(dto.quote().price()).isEqualByComparingTo("4.05");
+        assertThat(dto.position().available()).isFalse();
+        assertThat(priceCell(dto, "一年").status()).contains("未取到日线");
+    }
+
+    // ==================== 分派矩阵 ====================
+
+    /** 东财明确「没有这只标的」+ 兜底问了也没有 → 才允许按池外指数重解释（{@code 000985}）。 */
+    @Test
+    void onlyAnExplicitAbsentAnswerUnlocksTheOffPoolReinterpretation() {
+        givenQuotes();   // 成功、没有这一行 = 明确回答「没有」
+        // 000985 是深市码段，兜底源表示不了 → 压根不问，于是「没问」不会被读成「问了没有」
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+
+        assertThat(service().lookup("000985").kind()).isEqualTo(CodeLookupDTO.Kind.OFF_POOL_INDEX);
+        verifyNoInteractions(altQuoteSource);
+    }
+
+    /** 东财明确「没有」，兜底被打回来 → 仍旧按池外指数解释：**东财是权威**。 */
+    @Test
+    void anExplicitAbsentAnswerOutranksAThrottledFallback() {
+        givenQuotes();
+        when(altQuoteSource.fetchTencentQuotes(anyList())).thenThrow(
+                new MarketDataException.MarketDataRateLimitedException("腾讯也在限流", null));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+
+        assertThat(service().lookup("159915").kind()).isEqualTo(CodeLookupDTO.Kind.OFF_POOL_INDEX);
+    }
+
+    /** 东财限流 + 可表示的基金 + 兜底也「问了没有」→ **429，绝不是 404**。 */
+    @Test
+    void aThrottledEastmoneyPlusAnAbsentFallbackIs429Not404() {
+        cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY, 10);
+        // 159915 是深市基金，腾讯/新浪能表示它，两边都回「没有这一行」
+        when(indexPool.byEtfCode("159915")).thenReturn(null);
+
+        assertThatThrownBy(() -> service().lookup("159915"))
+                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class)
+                .isNotInstanceOf(CodeLookupService.CodeNotFoundException.class);
+
+        verifyNoInteractions(marketDataClient, offPoolIndexClient);
+    }
+
+    /** 东财非限流失败 + 兜底全挂 → 503，且文案**不说**「三家都不可达」（对个股是假的）。 */
+    @Test
+    void whenEastmoneyFailsAndTheFallbacksCannotRepresentTheCodeTheMessageIsHonest() {
+        when(marketDataClient.fetchQuotes(anyList()))
+                .thenThrow(new MarketDataException("行情批量接口全部失败"));
+        when(altQuoteSource.fetchTencentQuotes(anyList())).thenThrow(new RuntimeException("超时"));
+        when(altQuoteSource.fetchSinaQuotes(anyList())).thenThrow(new RuntimeException("超时"));
+
+        assertThatThrownBy(() -> service().lookup("300274"))
+                .isInstanceOf(MarketDataException.class)
+                .isNotInstanceOf(MarketDataException.MarketDataRateLimitedException.class)
+                .hasMessageContaining("东财本次没给出结果")
+                // 腾讯/新浪**不是不可达**，是白名单不认这个码——原话术是假的
+                .hasMessageNotContaining("三家都不可达");
+    }
+
+    /** 腾讯行情限流、新浪接着顶上：**冷却的是一个源，不是整条兜底链**。 */
+    @Test
+    void aThrottledTencentFallsThroughToSinaInsteadOfEndingTheChain() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        when(marketDataClient.fetchQuotes(anyList()))
+                .thenThrow(new MarketDataException("东财行情不可用"));
+        when(altQuoteSource.fetchTencentQuotes(anyList())).thenThrow(
+                new MarketDataException.MarketDataRateLimitedException("腾讯被限流", null));
+        when(altQuoteSource.fetchSinaQuotes(anyList())).thenReturn(Map.of("510300",
+                new MarketDataClient.EtfQuote("510300", "沪深300ETF", new BigDecimal("4.05"),
+                        new BigDecimal("0.52"), null, new BigDecimal("1200"),
+                        null, null, AltQuoteSource.PROVIDER_SINA)));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        assertThat(dto.quote().provider()).isEqualTo(AltQuoteSource.PROVIDER_SINA);
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)).isTrue();
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_SINA)).isFalse();
+    }
+
+    /** 兜底两路都限流、东财又是非限流失败 → 429，报的是**兜底源**的剩余时间。 */
+    @Test
+    void whenBothFallbacksAreThrottledTheWaitIsReportedForTheFallbackSource() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        when(marketDataClient.fetchQuotes(anyList()))
+                .thenThrow(new MarketDataException("东财行情不可用"));
+        when(altQuoteSource.fetchTencentQuotes(anyList())).thenThrow(
+                new MarketDataException.MarketDataRateLimitedException("腾讯被限流", null));
+        when(altQuoteSource.fetchSinaQuotes(anyList())).thenThrow(
+                new MarketDataException.MarketDataRateLimitedException("新浪被限流", null));
+
+        assertThatThrownBy(() -> service().lookup("510300"))
+                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class)
+                .hasMessageContaining("冷却");
+
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)).isTrue();
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_SINA)).isTrue();
+        // 东财这次是**非限流**失败，没被锁——锁的是真被打回来的那两家
+        assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isFalse();
+    }
+
+    // ==================== 兜底日线 ====================
+
+    /** 东财没有日线时用腾讯的，且**请求根数夹在腾讯的硬上限内**（2600 会被直接拒）。 */
+    @Test
+    void theFallbackKlineIsAskedForExactlyTheTencentCapNotTheEastmoneyLimit() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
+                        AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        // 传 2600 会拿到 {"msg":"param error","data":[]}——必须夹到 800，不是「随便挑个数」
+        verify(altQuoteSource).fetchTencentKline("510300", 800);
+        assertThat(dto.notes()).anySatisfy(n -> assertThat(n).contains("日线取自").contains("兜底"));
+        assertThat(dto.position().available()).isTrue();
+        // 三年这一档在 800 根（≈3.3 年）之内，算得出
+        assertThat(priceCell(dto, "三年").change()).isNotNull();
+    }
+
+    /**
+     * 五年/十年为空时，`status` 必须说清是**源的上限**，不是这只标的上市时间短。
+     *
+     * <p>这是 {@code LookbackCalculator} 第三个参数的用途所在；传 null 会让它退回通用文案，
+     * 把下一步指向错的地方。文案用**实际根数与最早交易日**拼，不硬写「3 年」。
+     */
+    @Test
+    void whenTheFallbackKlineIsShortTheEmptyBandsBlameTheSourceNotTheListedHistory() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        List<PricePositionCalculator.Bar> short800 = tradingBars(800, TODAY);
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(short800, AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        String tenYear = priceCell(dto, "十年").status();
+        assertThat(tenYear).contains("800").contains("腾讯").contains("未确认");
+        assertThat(tenYear).doesNotContain("历史不足");
+        // 最早的交易日要写出来，这样「为什么不够」是可核对的
+        assertThat(tenYear).contains(short800.get(0).date().toString());
+    }
+
+    /** 腾讯日线在冷却中 → **连问都不问**：同一个域名刚被打回来，不能立刻再打。 */
+    @Test
+    void theFallbackKlineIsSkippedWhenTencentIsAlreadyInCooldown() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        cache.enterCooldown(AltQuoteSource.PROVIDER_TENCENT, 10);
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+        assertThat(dto.position().available()).isFalse();
+    }
+
+    /** 腾讯日线返回 null（mock 未 stub）→ 不 NPE，老实降级。 */
+    @Test
+    void aNullFallbackKlineIsHandledInsteadOfBlowingUp() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt())).thenReturn(null);
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        assertThat(dto.position().available()).isFalse();
+        assertThat(priceCell(dto, "十年").status()).contains("未取到日线");
+    }
+
+    /** 腾讯日线也被限流 → 记腾讯的冷却（不是东财的：东财这次只是没给到）。 */
+    @Test
+    void aThrottledFallbackKlineLocksTencentNotEastmoney() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.throttled("腾讯日线被限流", AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        service().lookup("510300");
+
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)).isTrue();
+        assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isFalse();
+    }
+
+    /** 个股的失败原因要**保留东财那句**：腾讯对个股固定说不认这个前缀，写上去会莫名其妙。 */
+    @Test
+    void aStockKeepsTheEastmoneyReasonInsteadOfTencentSayingItCannotReadThePrefix() {
         givenQuotes(row("300274", "阳光电源", "82.49", "2.98", "15.57"));
-        // 估值先问（不存在的代码要在那一步现形），所以个股这条路也要给它一个回答
         when(stockValuationClient.fetchHistory("300274")).thenReturn(
                 StockValuationClient.History.failed("300274", "估值分析源不可达"));
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
-                MarketDataClient.KlineOutcome.throttled("行情源限流，价格位置未能更新"));
+                MarketDataClient.KlineOutcome.failed("东财日线接口返回了空数据"));
+
+        CodeLookupDTO dto = service().lookup("300274");
+
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+        assertThat(dto.notes()).anySatisfy(n -> assertThat(n)
+                .contains("东财日线接口返回了空数据")
+                .doesNotContain("不认"));
+    }
+
+    // ==================== 冷却期的连点 ====================
+
+    /**
+     * 冷却期内连点两次 ETF：**东财一次都不打**，每一次都走兜底。
+     *
+     * <p>降级结果不入缓存（`degrade()` 同时写 `degradations`），所以这里**预期**两次都外呼兜底源。
+     * 页面上没有自动重试，单次两次外呼，不加深东财的封禁。要收紧得给「冷却期的兜底结果」
+     * 单独一个短 TTL 缓存——本次不做，但这条用例把现状钉住，免得被误当成「缓存失效了」。
+     */
+    @Test
+    void twoClicksDuringACooldownDialTheFallbackTwiceAndEastmoneyNotAtAll() {
+        cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY, 10);
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenFallbackQuote("510300", "沪深300ETF", "4.05", "0.52",
+                AltQuoteSource.PROVIDER_TENCENT);
+        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
+                        AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
         CodeLookupService svc = service();
-        assertThatThrownBy(() -> svc.lookup("300274"))
-                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class);
-        assertThat(cache.inCooldown(MarketDataClient.PROVIDER_EASTMONEY)).isTrue();
+        assertThat(svc.lookup("510300").fromCache()).isFalse();
+        assertThat(svc.lookup("510300").fromCache()).isFalse();
+
+        verify(altQuoteSource, times(2)).fetchTencentQuotes(anyList());
+        verifyNoInteractions(marketDataClient);
+    }
+
+    /**
+     * 冷却**之前**存下的成功结果，在冷却期内点击仍然零外呼。
+     *
+     * <p>这是删掉入口早退之后**唯一**还成立的「冷却期内零外呼」路径，所以必须钉住。
+     */
+    @Test
+    void aResultCachedBeforeTheCooldownIsServedWithoutDiallingAnything() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupService svc = service();
+        assertThat(svc.lookup("510300").fromCache()).isFalse();   // 东财健康时取一次
+
+        cache.enterCooldown(MarketDataClient.PROVIDER_EASTMONEY, 10);
+
+        CodeLookupDTO second = svc.lookup("510300");
+        assertThat(second.fromCache()).isTrue();
+        verifyNoInteractions(altQuoteSource);
+        verify(marketDataClient, times(1)).fetchQuotes(anyList());
     }
 
     // ==================================================================
