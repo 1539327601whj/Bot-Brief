@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -75,9 +76,21 @@ public class CodeLookupService {
     static final String LABEL_DANJUAN_SOURCE = "蛋卷（蛋卷口径）";
     static final String LABEL_VALUEANALYSIS_SOURCE = "东财估值分析";
 
-    /** 蛋卷只给当日值。这句话用在**该源覆盖不到的档位**上，不能挪作他用。 */
+    /**
+     * 蛋卷的 PE 历史是**周频**快照（见 {@link OffPoolIndexClient#fetchDanjuanHistory(String)}）。
+     * 这句话用在**该口径给不出比一周更细的档位**的说明上——目前只有「昨」这一档，
+     * 理由见 {@link #withoutTheYesterdayBand}。
+     */
+    static final String DANJUAN_WEEKLY_NOTE =
+            "该指数口径源（蛋卷）给的是周频快照（每周一个观测点），没有比一周更细的观测";
+
+    /**
+     * 蛋卷**这个指数**没有 PE 历史序列（实测：不存在的代码也回同一个空数组，两者分不开）。
+     * 说的是「这个指数没有」，不是「这个源没有」——后者是旧文案，接上 {@code pe_history}
+     * 之后已经不成立了。不能挪作他用：库里有行、只是本次没取到时走的是另一句话。
+     */
     static final String DANJUAN_NO_HISTORY =
-            "该指数口径源（蛋卷）只提供当日值，没有历史序列，这一档分位算不出来";
+            "蛋卷没有这个指数的 PE 历史序列，这一档分位算不出来";
 
     public static final String SOURCE_CSINDEX = IndexFundPool.SOURCE_CSINDEX;
     public static final String SOURCE_DANJUAN = IndexFundPool.SOURCE_DANJUAN;
@@ -128,14 +141,22 @@ public class CodeLookupService {
     }
 
     /**
-     * 兜底日线要的根数：配置的上限，但不超过主源那个数。
+     * 兜底日线的**一页**要多少根：配置的上限，但不超过主源那个数与腾讯的硬上限。
      *
      * <p>夹取不是洁癖——腾讯对这个参数是**硬拒**：2600 直接回
      * {@code {"code":0,"msg":"param error","data":[]}}，而 {@code lookupKlineLimit}
      * 的默认值正是 2600。照原样传过去，兜底日线会 100% 落空，而且看起来像「腾讯也挂了」。
+     *
+     * <p>第三项那个 {@link AltQuoteSource#TENCENT_KLINE_MAX_ROWS} **不能省**：
+     * 配置只是默认值，改大了接口不会报错，只会悄悄给 640 根，
+     * 于是「翻页」翻的是一堆静默截断的页。上限必须由代码兜住。
+     *
+     * <p>注意这里只定**一页多宽**：总量是 {@link #lookupKlineLimit}，页数由
+     * {@link #tencentBars} 算成 {@code ceil(总量 / 本值)}。
      */
     private int tencentKlineLimit() {
-        return Math.min(lookupFallbackKlineLimit, lookupKlineLimit);
+        return Math.min(Math.min(lookupFallbackKlineLimit, lookupKlineLimit),
+                AltQuoteSource.TENCENT_KLINE_MAX_ROWS);
     }
 
     /** 查不到的代码。与「取数失败」分开：前者要换代码，后者要等一会儿再试。 */
@@ -563,17 +584,13 @@ public class CodeLookupService {
         // 正是项目明令禁止的「重试把封禁推得更深」。低估精选已经在这么做。
         if (!cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)
                 && AltQuoteSource.tencentSymbol(code) != null) {
-            MarketDataClient.KlineOutcome alt = altQuoteSource.fetchTencentKline(code, tencentKlineLimit());
-            if (alt == null) {
-                // 生产不会返回 null（它把失败都塞在返回值里），但 mock 未 stub 时是 null，
-                // 不判空就是 NPE —— 一样的写法在 StockScreenerService 里也有。
-                log.warn("代码查询：腾讯日线返回了 null code={}", code);
-            } else if (alt.ok()) {
+            Bars alt = tencentBars(code);
+            if (alt.bars().isEmpty()) {
+                log.warn("代码查询：腾讯日线一根都没给 code={}", code);
+            } else {
                 degrade(degradations, notes, "日线取自" + sourceLabel(AltQuoteSource.PROVIDER_TENCENT)
                         + "（东财没给到），价格位置据此计算");
-                return new Bars(alt.bars(), AltQuoteSource.PROVIDER_TENCENT);
-            } else if (alt.throttled()) {
-                cache.enterCooldown(AltQuoteSource.PROVIDER_TENCENT);
+                return alt;
             }
         }
 
@@ -581,6 +598,93 @@ public class CodeLookupService {
                 + (eastmoneyReason != null ? eastmoneyReason : "行情源限流中，本次未外呼")
                 + "（价格八档与价格位置都为空）");
         return Bars.EMPTY;
+    }
+
+    /**
+     * 腾讯日线，**按日期区间往回翻页**，直到够 {@link #lookupKlineLimit} 根。
+     *
+     * <h2>为什么必须翻页</h2>
+     *
+     * <p>腾讯一次的 {@code count} 硬上限是 800 根（≈3.3 年），而「代码查询」的八档要看到十年，
+     * 东财那个 2600 直接传过去是 {@code {"msg":"param error"}}。实测：只给 {@code end}
+     * 时返回的是该区间末尾的 800 根，于是「上一页最早那天减一天」就是下一页的 {@code end}
+     * （5 页 3596 根、零重复日期、连续无洞）。
+     *
+     * <h2>三个终止条件，缺一个都会出事</h2>
+     *
+     * <ul>
+     *   <li>{@code 收够 lookupKlineLimit} —— 正常出口。2600/800 → 4 页。</li>
+     *   <li>{@code 日期数没有增长} —— <b>唯一的防死循环闸门</b>：源哪天开始忽略 {@code end}
+     *       并每次都回同一批，收够那个条件就永远为假，会一直打下去。</li>
+     *   <li>{@code 页数上限} —— {@code ceil(lookupKlineLimit / 页大小)}。第三个兜底，
+     *       让外呼次数有一个**不依赖源行为**的硬上界。</li>
+     * </ul>
+     *
+     * <p>中途被限流：{@code enterCooldown} 后**保留已经拿到的页**。它们是从最近往回的
+     * 连续段，每一根都是源真给了的，丢掉等于把已经拿到的十年变成一根都没有；缺的那一段由
+     * {@link #shortHistoryNote} 照实际根数写出来。**绝不重试**——冷却期内连这一轮都不再发。
+     *
+     * <h2>代价：东财被限流时，一次点击 4 次外呼（有意接受）</h2>
+     *
+     * <p>这不是「多打几个接口试试」——次数由 {@code ceil(want / pageSize)} 定死，与源的行为无关，
+     * 而且每次点击之间的结果不进缓存、也不重试。四条都在 {@code tencent} 这个额度键下排队，
+     * 150ms 的闸门照样把它们摊匀。反过来说：**因为东财被封才走到这条路**，
+     * 治本是给它单独配出口 IP（见项目笔记），不是把这里改回「只取 800 根」。
+     */
+    private Bars tencentBars(String code) {
+        int pageSize = tencentKlineLimit();
+        int want = lookupKlineLimit;
+        int maxPages = Math.max(1, (want + pageSize - 1) / pageSize);
+        // 按日期去重：页边界（上一页最早那天）必然会重叠一根，靠 put 覆盖而不是去重逻辑。
+        // TreeMap 顺带把顺序定死，源反着回也不影响入库的曲线。
+        Map<LocalDate, BigDecimal> byDate = new TreeMap<>();
+
+        LocalDate end = null;
+        for (int page = 0; page < maxPages; page++) {
+            if (cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)) {
+                break;
+            }
+            MarketDataClient.KlineOutcome outcome = altQuoteSource.fetchTencentKline(code, end, pageSize);
+            if (outcome == null) {
+                // 生产不会返回 null（它把失败都塞在返回值里），但 mock 未 stub 时是 null，
+                // 不判空就是 NPE —— 一样的写法在 StockScreenerService 里也有。
+                log.warn("代码查询：腾讯日线返回了 null code={}", code);
+                break;
+            }
+            if (!outcome.ok()) {
+                if (outcome.throttled()) {
+                    cache.enterCooldown(AltQuoteSource.PROVIDER_TENCENT);
+                }
+                break;
+            }
+            int before = byDate.size();
+            LocalDate earliest = null;
+            for (PricePositionCalculator.Bar bar : outcome.bars()) {
+                if (bar == null || bar.date() == null) {
+                    continue;
+                }
+                byDate.put(bar.date(), bar.close());
+                if (earliest == null || bar.date().isBefore(earliest)) {
+                    earliest = bar.date();
+                }
+            }
+            if (earliest == null || byDate.size() == before) {
+                break;   // 没有比手上更早的日期了：要么已到头，要么源没理 end
+            }
+            if (byDate.size() >= want) {
+                break;
+            }
+            end = earliest.minusDays(1);
+        }
+
+        if (byDate.isEmpty()) {
+            return Bars.EMPTY;
+        }
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>(byDate.size());
+        for (Map.Entry<LocalDate, BigDecimal> e : byDate.entrySet()) {
+            bars.add(new PricePositionCalculator.Bar(e.getKey(), e.getValue()));
+        }
+        return new Bars(bars, AltQuoteSource.PROVIDER_TENCENT);
     }
 
     /**
@@ -692,8 +796,9 @@ public class CodeLookupService {
      *       同一条线（同一接口、同一算法、同一窗口），所以页面上八档能与日报逐格对上。
      *       取不到时退回项目库里同口径的已累积行——那是**同一个算法写进库的**，
      *       换的是数据的来源不是口径；换了要说出来（写进 {@code notes}）。</li>
-     *   <li>{@code danjuan}：只有项目库累积的行。蛋卷不提供历史序列，
-     *       库里有多少就有多少，够不到档位就按 {@link #DANJUAN_NO_HISTORY} 说清楚。</li>
+     *   <li>{@code danjuan}：先取蛋卷的 **PE 历史**（{@link OffPoolIndexClient#fetchDanjuanHistory}，
+     *       **周频**快照）现算滚动分位；取不到才退回项目库累积的行。库里的行是**同一个源
+     *       自己算的分位**，两者实测差约 1 个百分点（序列密度不同），所以换了要说出来。</li>
      * </ul>
      */
     private CodeLookupDTO.ValuationView poolValuation(IndexFundPool.Fund fund,
@@ -722,7 +827,15 @@ public class CodeLookupService {
                     + live.failureReason() + "），本次改用项目库累积的同口径行");
         }
 
-        // 池内 danjuan，或中证官网取不到时的退路：项目库里同口径的行。
+        // 池内 danjuan：先要蛋卷的 PE 历史（周频）。
+        if (SOURCE_DANJUAN.equals(fund.valuationSource())) {
+            CodeLookupDTO.ValuationView live = danjuanHistoryView(fund, method, degradations, notes);
+            if (live != null) {
+                return live;
+            }
+        }
+
+        // 池内 danjuan 取不到历史时，或中证官网取不到时的退路：项目库里同口径的行。
         List<MarketValuationHistory> rows = dbHistory(fund.indexCode(), method);
         if (rows.isEmpty()) {
             return unavailable(fund.valuationSource(), sourceLabelOf(fund.valuationSource()),
@@ -730,12 +843,63 @@ public class CodeLookupService {
                             + (SOURCE_DANJUAN.equals(fund.valuationSource())
                                     ? "；" + DANJUAN_NO_HISTORY : ""));
         }
-        String shortNote = SOURCE_DANJUAN.equals(fund.valuationSource()) ? DANJUAN_NO_HISTORY : null;
+        // 退路的缺档原因**按实际行数拼**，不能沿用 DANJUAN_NO_HISTORY：那条路现在的含义是
+        // 「蛋卷这次没给到历史」，不是「蛋卷没有历史」——两者在页面上是不同的话。
+        String shortNote = "本次只有项目库累积的 " + rows.size() + " 行（最早 "
+                + rows.get(0).getTradeDate() + "），超出这个跨度的档位未确认";
         notes.add("估值来源：项目库累积的 " + rows.size() + " 行（口径 " + method + "）");
         return fromRows(rows, sourceLabelOf(fund.valuationSource()), method, shortNote);
     }
 
-    /** 池外指数：按形态定的源实时取。中证系拿得到全历史，蛋卷只有当日值。 */
+    /**
+     * 蛋卷的 PE 历史 → 八档。取不到（接口回空、不可达、库路径之前就失败）返回 {@code null}，
+     * 由调用方掉回项目库那条路。
+     *
+     * <p>三条不能省的细节：
+     * <ul>
+     *   <li>{@code hist == null} 要判：生产不会返回 null，但测试里它是 mock，未 stub 时是 null。</li>
+     *   <li>用 {@link IndexFundPool.Fund#danjuanCode()} 而不是 {@code indexCode()}——前者才是
+     *       蛋卷的入参，后者是**项目库的键**。当前 9 条恰好相等，但那是巧合。</li>
+     *   <li>{@link #DANJUAN_WEEKLY_NOTE} 要随结果一起给出去，「昨」这一档是按它留空的。</li>
+     * </ul>
+     */
+    private CodeLookupDTO.ValuationView danjuanHistoryView(IndexFundPool.Fund fund, String method,
+                                                           List<String> degradations, List<String> notes) {
+        OffPoolIndexClient.Result hist = offPoolIndexClient.fetchDanjuanHistory(fund.danjuanCode());
+        if (hist == null || !hist.ok() || !hist.hasHistory()) {
+            degrade(degradations, notes, "蛋卷没给出 " + fund.danjuanCode() + " 的 PE 历史（"
+                    + (hist == null ? "本次未取到" : hist.failureReason())
+                    + "），本次改用项目库累积的同口径行");
+            return null;
+        }
+        List<RollingPercentile.Point> points = hist.points();
+        notes.add("估值来源：" + LABEL_DANJUAN_SOURCE + "的 PE 历史（周频快照，约每周一个观测点，"
+                + points.size() + " 期，最早 " + points.get(0).date()
+                + "），分位按本项目的滚动十年算法现算——与蛋卷自家页面的 pe_percentile "
+                + "实测差约 1 个百分点（它内部用的序列更密）");
+        return fromPercentileSeries(SOURCE_DANJUAN, LABEL_DANJUAN_SOURCE, method,
+                hist.currentPe(), hist.currentDate(), points.size(),
+                points.get(0).date(), hist.currentDate(),
+                withoutTheYesterdayBand(
+                        percentileLookbacks(points, weeklyShortNote(points)),
+                        DANJUAN_WEEKLY_NOTE),
+                List.of());
+    }
+
+    /**
+     * 周频序列「历史不够长」时替换用的说明。
+     *
+     * <p>不能传 null：{@code LookbackCalculator} 只在「最早观测晚于目标日」这一种缺档上用它，
+     * 而蛋卷的序列普遍只有 8~10 年，**「十年」这一档正落在这个分支里**（实测 {@code CSI716567}
+     * 只有 462 期、最早 2017-10）。传 null 会让它退回通用的「历史不足」，指不到「这个口径是
+     * 周频、这次有多少期」。
+     */
+    private static String weeklyShortNote(List<RollingPercentile.Point> points) {
+        return "蛋卷的 PE 历史是周频快照，本次只有 " + points.size() + " 期（最早 "
+                + points.get(0).date() + "），超出这个跨度的档位未确认";
+    }
+
+    /** 池外指数：按形态定的源实时取。中证系拿得到全历史，蛋卷要再问一次历史接口。 */
     private CodeLookupDTO.ValuationView offPoolValuation(OffPoolIndexResolver.Route route,
                                                         List<String> degradations, List<String> notes) {
         OffPoolIndexClient.Result r = offPoolIndexClient.fetch(route);
@@ -758,7 +922,17 @@ public class CodeLookupService {
                     points.get(0).date(), points.get(points.size() - 1).date(),
                     percentileLookbacks(points, null), List.of());
         }
-        // 蛋卷：只有当日值。八档全部写清「源不提供历史」——**不留空格，也不拿别的源的数补**。
+        // 池外蛋卷：{@code dj} 那一支只有当日值，历史得再问一次 pe_history。
+        // 这是**同一次点击里的第二次外呼**（都在 danjuan 这个额度键下），有意接受：
+        // 清单那一支还要负责「这个代码存不存在」的 404 判定，合并掉它会丢掉那个语义。
+        if (SOURCE_DANJUAN.equals(r.source())) {
+            CodeLookupDTO.ValuationView live = offPoolDanjuanHistory(route, r, degradations, notes);
+            if (live != null) {
+                return live;
+            }
+        }
+        // 蛋卷确实没有这个指数的历史。八档全部写清「源不提供历史」——**不留空格，
+        // 也不拿别的源的数补**。
         return new CodeLookupDTO.ValuationView(true, r.source(), label, r.percentileMethod(),
                 r.currentPe(), r.currentPercentile(),
                 r.currentDate() == null ? null : r.currentDate().format(ISO_DATE),
@@ -766,6 +940,63 @@ public class CodeLookupService {
                 LookbackCalculator.compute(List.of(), LookbackCalculator.ChangeStyle.POINTS,
                         DANJUAN_NO_HISTORY).cells().stream().map(CodeLookupService::cell).toList(),
                 List.of(DANJUAN_NO_HISTORY));
+    }
+
+    /**
+     * 池外蛋卷指数的 PE 历史 → 八档。取不到返回 {@code null}，由调用方保留「只有当日值」
+     * 那条写法。
+     *
+     * <p>**不因为这条路失败就说 404**：接口对「没有这个代码」和「这个代码没有历史」
+     * 回的是同一个空数组（实测），分不开，所以这里只降级。
+     */
+    private CodeLookupDTO.ValuationView offPoolDanjuanHistory(OffPoolIndexResolver.Route route,
+                                                             OffPoolIndexClient.Result current,
+                                                             List<String> degradations,
+                                                             List<String> notes) {
+        OffPoolIndexClient.Result hist = offPoolIndexClient.fetchDanjuanHistory(route.sourceCode());
+        if (hist == null || !hist.ok() || !hist.hasHistory()) {
+            degrade(degradations, notes, "蛋卷没给出 " + route.sourceCode() + " 的 PE 历史（"
+                    + (hist == null ? "本次未取到" : hist.failureReason()) + "），八档未确认");
+            return null;
+        }
+        List<RollingPercentile.Point> points = hist.points();
+        notes.add("估值来源：" + sourceLabelOf(SOURCE_DANJUAN) + "的 PE 历史（周频快照，约每周"
+                + "一个观测点，" + points.size() + " 期，最早 " + points.get(0).date()
+                + "），分位按本项目的滚动十年算法现算——与蛋卷自家页面的 pe_percentile "
+                + "实测差约 1 个百分点（它内部用的序列更密）");
+        // 当前 PE 用 dj 清单那支给的（它就是蛋卷的当日值），序列末尾的 PE 与它一致；
+        // 分位用现算的，所以这里不再引用 current.currentPercentile()——蛋卷自家那个数
+        // 与现算相差约 1pp，两个并排出现会变成「同一只指数两个分位」。
+        return fromPercentileSeries(current.source(), sourceLabelOf(current.source()),
+                current.percentileMethod(), current.currentPe(), current.currentDate(),
+                points.size(), points.get(0).date(), points.get(points.size() - 1).date(),
+                withoutTheYesterdayBand(
+                        percentileLookbacks(points, weeklyShortNote(points)),
+                        DANJUAN_WEEKLY_NOTE),
+                List.of());
+    }
+
+    /**
+     * 周频序列的「昨」这一档要空掉，换成 {@link #DANJUAN_WEEKLY_NOTE}。
+     *
+     * <p>理由：取档那一步——{@link LookbackCalculator#STALE_DAYS} 是 15 天，
+     * 足够把「最近一次周频观测」当成「昨」；而那次观测在这类序列里**同时就是最后一点**，
+     * 也就是同一行开头的「今」。于是「昨」恒等于「今」、差值恒为 {@code +0.00}：
+     * 把一个「这一档没有观测」写成了「没有变化」，正是章程禁止的把未知写成已知。
+     * 「周」及以后照填——它们的基线是**另外的**观测点，是有意义的对比。
+     *
+     * <p>只动已经取到值的那一格：本来就缺的（空序列、历史不足）保留它自己的原因，不覆盖。
+     * 用的是 record 重建，{@code baseline == null ⟺ status != null} 这条不变式照守。
+     */
+    private static LookbackCalculator.Result withoutTheYesterdayBand(
+            LookbackCalculator.Result r, String reason) {
+        List<LookbackCalculator.Cell> cells = new ArrayList<>(r.cells().size());
+        for (LookbackCalculator.Cell c : r.cells()) {
+            cells.add("昨".equals(c.label()) && c.present()
+                    ? new LookbackCalculator.Cell(c.label(), null, null, null, reason)
+                    : c);
+        }
+        return new LookbackCalculator.Result(r.current(), r.currentDate(), List.copyOf(cells));
     }
 
     /**

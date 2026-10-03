@@ -51,6 +51,18 @@ class OffPoolIndexClientTest {
               {"index_code":"GDAXI","name":"德国DAX","pe":0,"pe_percentile":0,"ts":1780000000000}
             ]}}""";
 
+    /**
+     * 蛋卷的 **PE 历史**（{@code index_eva/pe_history}）。信封与 {@link #DANJUAN_BODY}
+     * **不是一套**：这里是 {@code data.index_eva_pe_growths}，每条只有 {@code pe} 与 {@code ts}。
+     */
+    private static final String DANJUAN_HISTORY_BODY = """
+            {"result_code":0,"data":{"index_eva_pe_growths":[
+              {"pe":30.1,"date":"2026-09-18"},
+              {"pe":31.5,"date":"2026-09-25"},
+              {"pe":0,"date":"2026-09-25"},
+              {"pe":32.2,"date":"2026-09-30"}
+            ],"horizontal_lines":[]}}""";
+
     private RestTemplate restTemplate;
     private MockRestServiceServer server;
 
@@ -279,6 +291,151 @@ class OffPoolIndexClientTest {
         assertThat(OffPoolIndexClient.danjuanPercentile(java.util.Map.of("pe_percentile", -0.1)))
                 .isNull();
         assertThat(OffPoolIndexClient.danjuanPercentile(java.util.Map.of())).isNull();
+    }
+
+    // ------------------------------------------------------------------
+    // 蛋卷的 PE 历史（周频）
+    // ------------------------------------------------------------------
+
+    /**
+     * URL 必须是**按指数要历史**的那一支，而且要带 {@code day=all}。
+     *
+     * <p>打错成 {@code index_eva/dj} 那条路上，它会回 63 个指数的当日值——`result_code` 同样是 0、
+     * 信封里同样没有 {@code index_eva_pe_growths}，于是表现成「这个指数没有历史」，
+     * 而真相是我们问错了接口。所以这里把路径逐段钉住。
+     */
+    @Test
+    void theDanjuanHistoryIsAskedPerIndexWithDayAll() {
+        server.expect(requestTo(org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.startsWith("https://danjuanfunds.com/djapi/index_eva/pe_history/"),
+                        org.hamcrest.Matchers.containsString("/pe_history/NDX"),
+                        org.hamcrest.Matchers.containsString("day=all"))))
+                .andRespond(withSuccess(DANJUAN_HISTORY_BODY, PLAIN_UTF8));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("NDX");
+
+        assertThat(r.ok()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void theDanjuanPeHistoryComesBackAscendingWithTheLastPointAsToday() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withSuccess(DANJUAN_HISTORY_BODY, PLAIN_UTF8));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("NDX");
+
+        // pe=0 那条是「那天没有数据」，丢掉；剩下 3 条按日期升序
+        assertThat(r.points()).extracting(RollingPercentile.Point::date)
+                .containsExactly(LocalDate.of(2026, 9, 18), LocalDate.of(2026, 9, 25),
+                        LocalDate.of(2026, 9, 30));
+        assertThat(r.currentPe()).isEqualByComparingTo("32.2");
+        assertThat(r.currentDate()).isEqualTo(LocalDate.of(2026, 9, 30));
+        assertThat(r.hasHistory()).isTrue();
+        // 口径仍是项目库那份用的 DANJUAN_PE_TTM_PROVIDER：分位由**本项目**现算，
+        // 与蛋卷自家的 pe_percentile 实测同向、差约 0.8pp，不需要另立口径
+        assertThat(r.percentileMethod()).isEqualTo(IndexFundPool.METHOD_DANJUAN);
+        assertThat(r.currentPercentile()).isNotNull();
+        assertThat(r.source()).isEqualTo(IndexFundPool.SOURCE_DANJUAN);
+    }
+
+    /**
+     * 空数组 → **失败，但绝不是 404**。
+     *
+     * <p>实测：蛋卷确实没有历史的指数（{@code SZ399005}）和乱填的代码回的是**同一个空数组**，
+     * 两者分不开。把它当 404 会让用户以为自己代码写错了——而代码可能是对的，只是这个源没有。
+     */
+    @Test
+    void anEmptyDanjuanHistoryIsAFailureButNeverANotFound() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withSuccess(
+                        "{\"result_code\":0,\"data\":{\"index_eva_pe_growths\":[]}}", PLAIN_UTF8));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("SZ399005");
+
+        assertThat(r.ok()).isFalse();
+        assertThat(r.notFound()).isFalse();
+        assertThat(r.failureReason()).contains("没有").contains("SZ399005");
+    }
+
+    /** 一个点不算历史：它连「今」都答不了，给它八档会造出一整行假对比。 */
+    @Test
+    void aSingleDanjuanHistoryPointIsNotEnoughToBeCalledHistory() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withSuccess("{\"result_code\":0,\"data\":{\"index_eva_pe_growths\":["
+                        + "{\"pe\":32.2,\"date\":\"2026-09-30\"}]}}", PLAIN_UTF8));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("NDX");
+
+        assertThat(r.ok()).isFalse();
+        assertThat(r.hasHistory()).isFalse();
+    }
+
+    /**
+     * {@code result_code} 必须**先看**：{@code day} 给错时蛋卷回 999001 且**没有 {@code data} 键**。
+     * 不看它，「参数错误」会被读成「这个指数没有历史」——两句指向完全不同的下一步。
+     */
+    @Test
+    void aDanjuanHistoryBusinessErrorSaysBusinessErrorNotMissingHistory() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withSuccess("{\"result_code\":999001,\"message\":\"参数错误\"}", PLAIN_UTF8));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("NDX");
+
+        assertThat(r.ok()).isFalse();
+        assertThat(r.failureReason()).contains("业务错误").contains("999001");
+        assertThat(r.failureReason()).doesNotContain("没有");
+    }
+
+    /** 历史里的 {@code ts} 也是 epoch 毫秒、也是北京时间——与 {@code dj} 那支同一个读法。 */
+    @Test
+    void theHistoryTimestampIsReadAsMillisecondsInBeijingTime() {
+        java.util.List<RollingPercentile.Point> points = OffPoolIndexClient.danjuanHistoryPoints(
+                java.util.Map.of("index_eva_pe_growths", java.util.List.of(
+                        java.util.Map.of("pe", 30.0, "ts", 1780000000000L),
+                        java.util.Map.of("pe", 31.0, "date", "2026-09-30"))));
+
+        LocalDate fromTs = java.time.Instant.ofEpochMilli(1780000000000L)
+                .atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate();
+        assertThat(points).extracting(RollingPercentile.Point::date)
+                .containsExactly(fromTs, LocalDate.of(2026, 9, 30));
+    }
+
+    /** 未来日期会造出一个「还没到的今天」；宁可丢掉也不让窗口右端跑到未来。 */
+    @Test
+    void futureDatesInTheDanjuanHistoryAreDropped() {
+        java.util.List<RollingPercentile.Point> points = OffPoolIndexClient.danjuanHistoryPoints(
+                java.util.Map.of("index_eva_pe_growths", java.util.List.of(
+                        java.util.Map.of("pe", 30.0, "date", "2099-12-31"),
+                        java.util.Map.of("pe", 31.0, "date", "2026-09-30"))));
+
+        assertThat(points).hasSize(1);
+        assertThat(points.get(0).date()).isEqualTo(LocalDate.of(2026, 9, 30));
+    }
+
+    /** 蛋卷 PE 历史被限流 → **抛出去**（上层 429、不重试不换源），不是塞进返回值里说「没有历史」。 */
+    @Test
+    void aThrottledDanjuanHistoryIsRaisedNotReturnedAsAFailure() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withException(new SocketException("Connection reset by peer")));
+
+        assertThatThrownBy(() -> client().fetchDanjuanHistory("NDX"))
+                .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class);
+        server.verify();
+    }
+
+    /** 一般的网络故障 → 返回值里说清，不抛：这条路上的失败不值得让整页 503。 */
+    @Test
+    void anUnreachableDanjuanHistoryIsReportedInTheReturnValue() {
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(withException(new java.net.UnknownHostException("danjuanfunds.com")));
+
+        OffPoolIndexClient.Result r = client().fetchDanjuanHistory("NDX");
+
+        assertThat(r.ok()).isFalse();
+        assertThat(r.failureReason()).contains("不可达");
+        // 失败原因里**不带代码**：页面上已经写着用户在查哪个代码，重复一遍只会挤掉真正的信息
+        assertThat(r.failureReason()).doesNotContain("没有");
     }
 
     // ------------------------------------------------------------------

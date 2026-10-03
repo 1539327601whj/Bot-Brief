@@ -95,6 +95,24 @@ function signed(v: number | null | undefined, digits = 2) {
   return `${n > 0 ? '+' : ''}${n.toFixed(digits)}%`
 }
 
+/**
+ * 这条 PE 序列有没有 **10 年的跨度**。
+ *
+ * **不能按条数判**：蛋卷那支给的是**周频**快照（约 52 条/年），516 条就有 10 年。
+ * 原先这里写的是 `historyLength < 2500`——那是个日频阈值（2500 ≈ 10 年交易日），
+ * 接上周频序列之后会把一条十足的十年序列说成「不足 10 年」，正好说反。
+ * 按日期跨度判对所有频率都成立。
+ */
+function spansTenYears(from: string | null, to: string | null): boolean | null {
+  if (!from || !to) return null
+  const start = new Date(`${from}T00:00:00Z`)
+  const end = new Date(`${to}T00:00:00Z`)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
+  const tenYearsLater = new Date(start)
+  tenYearsLater.setUTCFullYear(tenYearsLater.getUTCFullYear() + 10)
+  return end.getTime() >= tenYearsLater.getTime()
+}
+
 function yi(v: number | null | undefined) {
   if (v === null || v === undefined) return '—'
   return `${Number(v).toFixed(2)} 亿`
@@ -120,8 +138,9 @@ function changeText(v: number | null): string | null {
  * 拼成日报那一行：`今 51｜昨 50 ↑ +0.52%｜周 51 ↑ +0.08%｜…｜十年 90 ↓ -39.48%`。
  *
  * **取不到的档位不在这里出现**，而是在下面单独列一条（见 `MissingCells`）。
- * 理由是可读性而不是回避：那些 `status` 是一整句「为什么没有」（「该指数口径源（蛋卷）
- * 只提供当日值…」），塞进这一行会把 8 档挤成一团乱麻，反而看不出哪几档有数。
+ * 理由是可读性而不是回避：那些 `status` 是一整句「为什么没有」（例如价格那条
+ * 「本次只有 N 根日线（最早 D），超出这个跨度的档位未确认」），塞进这一行会把 8 档
+ * 挤成一团乱麻，反而看不出哪几档有数。
  * 但**标签与原因都不会被丢掉**——只是换了行。日报那边是把缺的档整格丢掉，
  * 这里刻意不照做。
  */
@@ -539,12 +558,13 @@ export default function CodeLookup() {
                 </span>
               </div>
             </div>
-            {result.valuation.historyLength !== null && result.valuation.historyFrom && (
+            {result.valuation.historyLength !== null
+              && spansTenYears(result.valuation.historyFrom, result.valuation.historyTo) !== null && (
               <p className="stockpick-note">
                 分位窗口是 <b>min(10 年, 该序列实际可用的长度)</b>
-                {result.valuation.historyLength < 2500
-                  ? '——这条序列不足 10 年，所以「十年」那一档的窗口其实更短，上面已经标出来了。'
-                  : '——这条序列够 10 年。'}
+                {spansTenYears(result.valuation.historyFrom, result.valuation.historyTo)
+                  ? '——这条序列够 10 年。'
+                  : '——这条序列不足 10 年，所以「十年」那一档的窗口其实更短，上面已经标出来了。'}
               </p>
             )}
           </section>

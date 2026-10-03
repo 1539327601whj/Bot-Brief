@@ -318,6 +318,26 @@ class MarketDataClientFallbackTest {
         server.verify();
     }
 
+    /**
+     * 带日期区间的那次外呼：{@code end} 落在 param 的**第二个空档位**上，逗号与空档位原样保留。
+     *
+     * <p>这一条是翻页的地基：腾讯只给 {@code end} 不给 {@code start} 时返回的是**该区间末尾**的
+     * N 根，{@code CodeLookupService} 就是靠它一页页往回翻到十年的。位置写错（比如贴到
+     * {@code start} 那一格）不会报错——源会照给最近 N 根，于是翻页「每次都回同一批」，
+     * 表现成「只能看到最近三年」，而这正是这次要修的那个缺口。
+     */
+    @Test
+    void theKlineRequestPutsTheEndDateInItsOwnSlotAndKeepsTheCommas() {
+        server.expect(requestTo(org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString("param=sh510300,day,,2023-06-14,800,qfq"),
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("%2C")))))
+                .andRespond(withSuccess("{\"data\":{}}", MediaType.APPLICATION_JSON));
+
+        alt.fetchTencentKline("510300", java.time.LocalDate.of(2023, 6, 14), 800);
+
+        server.verify();
+    }
+
     @Test
     void aKlineWithNoRowsIsAFailureWithAReasonNotAnEmptySuccess() {
         server.expect(requestTo(org.hamcrest.Matchers.containsString("fqkline/get")))

@@ -22,6 +22,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.intThat;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -123,9 +125,23 @@ class CodeLookupServiceTest {
     }
 
     private CodeLookupService serviceWithClock(Clock clock) {
+        return serviceWithClock(clock, DECADE_BARS, FALLBACK_KLINE_LIMIT);
+    }
+
+    /**
+     * 「想要多少根、每页最多多少根」都调小的服务——翻页的边界用例要能把这两个数摆在一起。
+     *
+     * <p>{@code want} 是**总根数**，{@code pageSize} 是**单次外呼的根数**：页数是
+     * {@code ceil(want / pageSize)}，不是「随便翻到没有为止」。
+     */
+    private CodeLookupService serviceWithKlineLimits(int want, int pageSize) {
+        return serviceWithClock(() -> FIXED_NOW, want, pageSize);
+    }
+
+    private CodeLookupService serviceWithClock(Clock clock, int want, int pageSize) {
         return new CodeLookupService(marketDataClient, altQuoteSource, stockValuationClient,
                 offPoolIndexClient, indexPool, valuationService, cache,
-                DECADE_BARS, FALLBACK_KLINE_LIMIT) {
+                want, pageSize) {
             @Override
             LocalDate localDateNow() {
                 return clock.now().toLocalDate();
@@ -231,6 +247,31 @@ class CodeLookupServiceTest {
     private void givenKline(List<PricePositionCalculator.Bar> bars) {
         when(marketDataClient.fetchKline(anyString(), anyInt()))
                 .thenReturn(MarketDataClient.KlineOutcome.ok(bars));
+    }
+
+    /**
+     * 按日期区间 stub 腾讯日线：手里有一整段历史，每次调用切出「该区间**末尾**的
+     * {@code pageSize} 根」——复刻源在只给 {@code end} 时的真实行为。
+     *
+     * <p>翻页的用例**必须**用这个而不是「每次回同一批」：回同一批时 {@code tencentBars}
+     * 会按「日期数没有增长」判定源忽略了 {@code end} 而收工，第二页根本走不到，
+     * 用例就成了在测防死循环那条闸门，而不是在测翻页。
+     */
+    private void givenTencentPaging(List<PricePositionCalculator.Bar> all, int pageSize) {
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt())).thenAnswer(inv -> {
+            LocalDate end = inv.getArgument(1);
+            int limit = inv.getArgument(2);
+            List<PricePositionCalculator.Bar> inRange = new ArrayList<>();
+            for (PricePositionCalculator.Bar b : all) {
+                if (end == null || !b.date().isAfter(end)) {
+                    inRange.add(b);
+                }
+            }
+            List<PricePositionCalculator.Bar> page = inRange.size() <= limit
+                    ? inRange
+                    : inRange.subList(inRange.size() - limit, inRange.size());
+            return MarketDataClient.KlineOutcome.ok(page, AltQuoteSource.PROVIDER_TENCENT);
+        });
     }
 
     /** 过去 {@code weeks} 周的 PE，从 10 缓升到 20 —— 末点是窗口内最高 → 当日分位 100。 */
@@ -376,13 +417,22 @@ class CodeLookupServiceTest {
         assertThat(service().lookup("H30533").resolvedCode()).isEqualTo("CSIH30533");
     }
 
+    /**
+     * 池内蛋卷指数 + 蛋卷的 PE 历史**这次没拿到** → 掉回项目库里同口径的已累积行，
+     * 并且把「换了来源」写在 `notes` 里。
+     *
+     * <p>缺档那句要说「**本次**只有项目库累积的 N 行」，**不能**沿用
+     * {@link CodeLookupService#DANJUAN_NO_HISTORY}：「蛋卷这次没给到」和「蛋卷没有这个指数」
+     * 指向的下一步完全不同（一个重试就有，一个只能换源）。
+     */
     @Test
-    void aDanjuanPoolIndexLeavesTheLongBandsEmptyAndSaysTheSourceHasNoHistory() {
+    void aDanjuanPoolIndexFallsBackToTheProjectLibraryWhenTheHistoryEndpointGivesNothing() {
         when(indexPool.byIndexCode("NDX"))
                 .thenReturn(danjuanFund("NDX", "NDX", "513100", 1, "纳指100"));
         givenQuotes(row("513100", "纳指100ETF", "1.80", "-0.30", null));
         givenKline(tradingBars(DECADE_BARS, TODAY));
-        // 项目库里只有最近几行——蛋卷只给当日值，这些行是一天一天攒出来的
+        // mock 未 stub fetchDanjuanHistory → null（生产不会返回 null，但这条闸门不能省）
+        // 项目库里只有最近几行——一天一天攒出来的
         when(valuationService.historyBetween(eq("NDX"), eq(IndexFundPool.METHOD_DANJUAN), any(), any()))
                 .thenReturn(List.of(
                         dbRow(TODAY.minusDays(2), "35.0", "87.00"),
@@ -394,6 +444,7 @@ class CodeLookupServiceTest {
         assertThat(dto.kind()).isEqualTo(CodeLookupDTO.Kind.INDEX);
         assertThat(dto.valuation().pePercentile()).isEqualByComparingTo("87.32");
         assertThat(dto.valuation().percentileMethod()).isEqualTo(IndexFundPool.METHOD_DANJUAN);
+        assertThat(dto.notes()).anySatisfy(n -> assertThat(n).contains("项目库累积"));
 
         // 「昨」有着落，长档没有——而**没有的原因必须写出来**，不能留一个空格。
         assertThat(cell(dto, "昨").present()).isTrue();
@@ -401,10 +452,59 @@ class CodeLookupServiceTest {
             assertThat(cell(dto, label).present()).as("档位 %s", label).isFalse();
             assertThat(cell(dto, label).status())
                     .as("档位 %s 的原因", label)
-                    .isEqualTo(CodeLookupService.DANJUAN_NO_HISTORY);
+                    .contains("项目库累积的 3 行")
+                    .contains(TODAY.minusDays(2).toString());
         }
-        // 价格八档照常（日线来自代表 ETF），蛋卷不提供历史不影响它
+        // 这条路上**没有一档**该引用周频那句话：走的是库里的行，不是蛋卷的周频序列。
+        // 两句都说「分位算不出来」但指的方向不同，串了就没人能判断下一步做什么。
+        assertThat(dto.valuation().lookbacks()).allSatisfy(c ->
+                assertThat(c.status()).isNotEqualTo(CodeLookupService.DANJUAN_WEEKLY_NOTE));
+        // 价格八档照常（日线来自代表 ETF）：蛋卷那条路走的是估值，与价格无关
         assertThat(dto.priceLookbacks()).allSatisfy(c -> assertThat(c.present()).isTrue());
+    }
+
+    /**
+     * 池内蛋卷指数 + 蛋卷给了**周频 PE 历史** → 八档填满，**只有「昨」留空**。
+     *
+     * <p>「昨」留空是刻意的（用户定的）：周频序列上「最近一次观测」同时就是序列末点（今），
+     * 照填会得出一个恒为 {@code +0.00} 的「昨」——把一个「这一档没有观测」写成「没有变化」。
+     * 其余七档照填：它们的基线是**另外的**观测点。
+     *
+     * <p>同时钉住两件事：入参用的是 {@code danjuanCode}（不是项目库的键），
+     * 以及这条路上**一次都不读项目库**。
+     */
+    @Test
+    void aDanjuanPoolIndexWithWeeklyPeHistoryFillsEveryBandExceptYesterday() {
+        when(indexPool.byIndexCode("NDX"))
+                .thenReturn(danjuanFund("NDX", "NDX", "513100", 1, "纳指100"));
+        givenQuotes(row("513100", "纳指100ETF", "1.80", "-0.30", null));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        List<RollingPercentile.Point> weekly = densePePoints(560);   // 周频，约 10.7 年 → 够到十年档
+        LocalDate last = weekly.get(weekly.size() - 1).date();
+        when(offPoolIndexClient.fetchDanjuanHistory("NDX")).thenReturn(OffPoolIndexClient.Result.ok(
+                IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                IndexFundPool.METHOD_DANJUAN, "纳指100", weekly.get(weekly.size() - 1).value(),
+                null, last, weekly));
+
+        CodeLookupDTO dto = service().lookup("NDX");
+
+        verify(offPoolIndexClient).fetchDanjuanHistory("NDX");
+        // 有历史这条路上**一次都不读项目库**：读它就是在拿另一个数去顶缺档
+        verify(valuationService, never()).historyBetween(any(), any(), any(), any());
+        assertThat(dto.valuation().historyLength()).isEqualTo(weekly.size());
+        assertThat(dto.valuation().source()).isEqualTo(IndexFundPool.SOURCE_DANJUAN);
+        assertThat(dto.valuation().percentileMethod()).isEqualTo(IndexFundPool.METHOD_DANJUAN);
+
+        assertThat(cell(dto, "昨").present()).isFalse();
+        assertThat(cell(dto, "昨").baseline()).isNull();
+        assertThat(cell(dto, "昨").status()).isEqualTo(CodeLookupService.DANJUAN_WEEKLY_NOTE);
+        for (String label : new String[]{"周", "月", "半年", "一年", "三年", "五年", "十年"}) {
+            assertThat(cell(dto, label).present()).as("档位 %s", label).isTrue();
+            assertThat(cell(dto, label).baselineDate()).as("档位 %s 的基线日", label).isNotNull();
+        }
+        // 分位是**本项目现算**的，这件事必须写在页面上——蛋卷自家那个数差约 1pp
+        assertThat(dto.notes()).anySatisfy(n ->
+                assertThat(n).contains("周频").contains("现算"));
     }
 
     @Test
@@ -469,6 +569,11 @@ class CodeLookupServiceTest {
                 IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
                 IndexFundPool.METHOD_DANJUAN, "恒生指数", new BigDecimal("11.1"),
                 new BigDecimal("42.00"), TODAY, List.of()));
+        // 同一只指数、同一个源自己回「没有这个代码的历史」——两支接口对同一个代码给出的
+        // 空数组**分不开**，所以这里只能降级，**不能**变成 404。
+        when(offPoolIndexClient.fetchDanjuanHistory("HSI")).thenReturn(OffPoolIndexClient.Result.failed(
+                IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                "蛋卷没有 HSI 的 PE 历史（该源不是每个指数都有）"));
 
         CodeLookupDTO dto = service().lookup("HSI");
 
@@ -490,6 +595,40 @@ class CodeLookupServiceTest {
             assertThat(c.present()).isFalse();
             assertThat(c.status()).contains("蛋卷");
         });
+    }
+
+    /**
+     * 池外蛋卷指数**有**周频 PE 历史 → 七档有值、「昨」按周频留空。
+     *
+     * <p>这条路一次点击确实要打两次蛋卷（{@code dj} 清单定「这个代码存不存在」+ 这一支取历史），
+     * 是有意接受的：清单那一支还负责 404 的判定，合并掉它那个语义就没了。
+     */
+    @Test
+    void aDanjuanOffPoolIndexWithWeeklyHistoryGetsSevenBandsAndNoYesterday() {
+        when(offPoolIndexClient.fetch(any())).thenReturn(OffPoolIndexClient.Result.ok(
+                IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                IndexFundPool.METHOD_DANJUAN, "恒生指数", new BigDecimal("11.1"),
+                new BigDecimal("42.00"), TODAY, List.of()));
+        List<RollingPercentile.Point> weekly = densePePoints(560);
+        LocalDate last = weekly.get(weekly.size() - 1).date();
+        when(offPoolIndexClient.fetchDanjuanHistory("HSI")).thenReturn(OffPoolIndexClient.Result.ok(
+                IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                IndexFundPool.METHOD_DANJUAN, "恒生指数", weekly.get(weekly.size() - 1).value(),
+                null, last, weekly));
+
+        CodeLookupDTO dto = service().lookup("HSI");
+
+        // 入参是**这一支要的代码**（形态代码本身），不是别的东西
+        verify(offPoolIndexClient).fetchDanjuanHistory("HSI");
+        assertThat(dto.valuation().historyLength()).isEqualTo(weekly.size());
+        assertThat(dto.valuation().peTtm()).isEqualByComparingTo("11.1");
+        // 分位改用**现算**的，不是清单那支报的 42.00：两个数并排出现会变成「同一只指数两个分位」
+        assertThat(dto.valuation().pePercentile()).isNotEqualByComparingTo("42.00");
+        assertThat(cell(dto, "昨").present()).isFalse();
+        assertThat(cell(dto, "昨").status()).isEqualTo(CodeLookupService.DANJUAN_WEEKLY_NOTE);
+        for (String label : new String[]{"周", "月", "半年", "一年", "三年", "五年", "十年"}) {
+            assertThat(cell(dto, label).present()).as("档位 %s", label).isTrue();
+        }
     }
 
     @Test
@@ -682,8 +821,9 @@ class CodeLookupServiceTest {
                 .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
         givenFallbackQuote("510300", "沪深300ETF", "4.05", "0.52",
                 AltQuoteSource.PROVIDER_TENCENT);
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
-                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY)));
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
+                        AltQuoteSource.PROVIDER_TENCENT));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
         CodeLookupDTO dto = service().lookup("510300");
@@ -752,7 +892,7 @@ class CodeLookupServiceTest {
                 .isInstanceOf(MarketDataException.MarketDataRateLimitedException.class);
 
         verify(marketDataClient, never()).fetchKline(anyString(), anyInt());
-        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), any(), anyInt());
     }
 
     /** 东财日线被限流：不再让整页失败，而是记冷却 + 降级；ETF 上还看得出「价格位置」没了。 */
@@ -766,7 +906,7 @@ class CodeLookupServiceTest {
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.throttled("行情源限流，价格位置未能更新"));
         // 腾讯日线也不给 → 连兜底都没有
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
                 .thenReturn(MarketDataClient.KlineOutcome.failed("腾讯也没给到",
                         AltQuoteSource.PROVIDER_TENCENT));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
@@ -883,7 +1023,7 @@ class CodeLookupServiceTest {
 
     // ==================== 兜底日线 ====================
 
-    /** 东财没有日线时用腾讯的，且**请求根数夹在腾讯的硬上限内**（2600 会被直接拒）。 */
+    /** 东财没有日线时用腾讯的，且**每一页的根数都夹在腾讯的硬上限内**（2600 会被直接拒）。 */
     @Test
     void theFallbackKlineIsAskedForExactlyTheTencentCapNotTheEastmoneyLimit() {
         when(indexPool.byEtfCode("510300"))
@@ -891,26 +1031,32 @@ class CodeLookupServiceTest {
         givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.failed("东财日线不可用"));
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
-                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
-                        AltQuoteSource.PROVIDER_TENCENT));
+        givenTencentPaging(tradingBars(DECADE_BARS, TODAY), 800);
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
         CodeLookupDTO dto = service().lookup("510300");
 
-        // 传 2600 会拿到 {"msg":"param error","data":[]}——必须夹到 800，不是「随便挑个数」
-        verify(altQuoteSource).fetchTencentKline("510300", 800);
+        // 传 2600 会拿到 {"msg":"param error","data":[]}——必须夹到 800，不是「随便挑个数」。
+        // **每一页**都夹（`end` 逐页往回推，根数不变），所以这里不能用「恰好一次」。
+        verify(altQuoteSource, atLeastOnce()).fetchTencentKline(eq("510300"), any(), eq(800));
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), any(),
+                intThat(n -> n > AltQuoteSource.TENCENT_KLINE_MAX_ROWS));
         assertThat(dto.notes()).anySatisfy(n -> assertThat(n).contains("日线取自").contains("兜底"));
         assertThat(dto.position().available()).isTrue();
-        // 三年这一档在 800 根（≈3.3 年）之内，算得出
-        assertThat(priceCell(dto, "三年").change()).isNotNull();
+        // 翻页之后**十年这一档够得到**：2600 根按 800 翻 4 页（末页 200 根）
+        assertThat(priceCell(dto, "十年").present()).isTrue();
     }
 
     /**
-     * 五年/十年为空时，`status` 必须说清是**源的上限**，不是这只标的上市时间短。
+     * 翻到源的上限还是不够（这里只给到 800 根）时，`status` 必须说清是**源的上限**，
+     * 不是这只标的上市时间短。
      *
      * <p>这是 {@code LookbackCalculator} 第三个参数的用途所在；传 null 会让它退回通用文案，
      * 把下一步指向错的地方。文案用**实际根数与最早交易日**拼，不硬写「3 年」。
+     *
+     * <p>夹具刻意每次回**同一页**（源忽略 {@code end} 的情形）：翻页循环按「日期数没有增长」
+     * 收工，于是这里停在第 2 次而不外呼第 3 次——见
+     * {@code whenTheSourceIgnoresTheEndDateThePagingStopsInsteadOfLoopingForever}。
      */
     @Test
     void whenTheFallbackKlineIsShortTheEmptyBandsBlameTheSourceNotTheListedHistory() {
@@ -920,7 +1066,7 @@ class CodeLookupServiceTest {
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.failed("东财日线不可用"));
         List<PricePositionCalculator.Bar> short800 = tradingBars(800, TODAY);
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
                 .thenReturn(MarketDataClient.KlineOutcome.ok(short800, AltQuoteSource.PROVIDER_TENCENT));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
@@ -931,6 +1077,108 @@ class CodeLookupServiceTest {
         assertThat(tenYear).doesNotContain("历史不足");
         // 最早的交易日要写出来，这样「为什么不够」是可核对的
         assertThat(tenYear).contains(short800.get(0).date().toString());
+    }
+
+    // ==================== 兜底日线的翻页 ====================
+
+    /**
+     * 按日期区间往回翻：2600 根要 4 页（800/800/800/200），拼起来**没有重复日期**。
+     *
+     * <p>页边界那天两边都会给（{@code end = 上一页最早 − 1 天} 也是服务端的闭区间），
+     * 所以去重不是可选项——重复会让「十年」那一档的基线偏一天，而页面上看不出来。
+     */
+    @Test
+    void theFallbackKlineIsPagedBackwardsUntilTheAskedForCountIsReached() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        List<PricePositionCalculator.Bar> full = tradingBars(DECADE_BARS, TODAY);
+        givenTencentPaging(full, 800);
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        // 4 页：2600 根按 800 切，第 4 页只剩 200 根，拿到就被「已够要的根数」收工
+        verify(altQuoteSource, times(4)).fetchTencentKline(eq("510300"), any(), eq(800));
+        assertThat(dto.position().barCount()).isEqualTo(DECADE_BARS);
+        assertThat(priceCell(dto, "十年").present()).isTrue();
+        // 「今」还得是最近那一根：翻页是从最近往回走的，顺序不能反过来
+        assertThat(dto.position().lastTradeDate()).isEqualTo(TODAY.toString());
+    }
+
+    /**
+     * 源忽略了 {@code end}（每次回同一批）→ **恰好两次就停**。
+     *
+     * <p>这是翻页唯一的无限外呼风险点：没有「日期数没有增长」这条闸门，循环会一直打同一个
+     * 接口直到页数上限，而页数上限是按根数算的、不是按「有进展」算的。
+     */
+    @Test
+    void whenTheSourceIgnoresTheEndDateThePagingStopsInsteadOfLoopingForever() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
+                        AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        // 第 1 页拿到 800 根 → 没够 → 第 2 页回同一批 → 日期数没增长 → 停
+        verify(altQuoteSource, times(2)).fetchTencentKline(eq("510300"), any(), anyInt());
+        assertThat(dto.position().barCount()).isEqualTo(800);
+    }
+
+    /** 一页就够要的根数时，**只发一页**：少一次外呼，也就少一分被打回来的机会。 */
+    @Test
+    void thePagingStopsAsSoonAsTheAskedForCountIsReached() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        givenTencentPaging(tradingBars(DECADE_BARS, TODAY), 800);
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        // 只想要 500 根：单页就是 min(想 500, 兜底上限 800, 源上限 800) = 500，一页就够
+        CodeLookupDTO dto = serviceWithKlineLimits(500, 800).lookup("510300");
+
+        verify(altQuoteSource, times(1)).fetchTencentKline(eq("510300"), any(), eq(500));
+        assertThat(dto.position().barCount()).isEqualTo(500);
+    }
+
+    /**
+     * 第 2 页被打回来 → 记腾讯的冷却，**但第 1 页那 800 根要留着**。
+     *
+     * <p>丢掉它们等于把一次真实拿到的连续曲线说成「一根都没有」；它们是从最近往回数的
+     * 一段，每一根都对着真实日期，不是半条假曲线。冷却期内连第 3 页都不发（红线）。
+     */
+    @Test
+    void aThrottledSecondPageKeepsTheFirstPageAndStopsAsking() {
+        when(indexPool.byEtfCode("510300"))
+                .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
+        givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
+        when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
+                MarketDataClient.KlineOutcome.failed("东财日线不可用"));
+        List<PricePositionCalculator.Bar> first = tradingBars(800, TODAY);
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
+                .thenReturn(MarketDataClient.KlineOutcome.ok(first, AltQuoteSource.PROVIDER_TENCENT))
+                .thenReturn(MarketDataClient.KlineOutcome.throttled(
+                        "腾讯日线被限流", AltQuoteSource.PROVIDER_TENCENT));
+        when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
+
+        CodeLookupDTO dto = service().lookup("510300");
+
+        verify(altQuoteSource, times(2)).fetchTencentKline(eq("510300"), any(), anyInt());
+        assertThat(cache.inCooldown(AltQuoteSource.PROVIDER_TENCENT)).isTrue();
+        // 第 1 页的 800 根照用：价格位置算得出来，只是长档按**实际根数**说明
+        assertThat(dto.position().available()).isTrue();
+        assertThat(dto.position().barCount()).isEqualTo(800);
+        assertThat(priceCell(dto, "十年").status()).contains("800");
     }
 
     /** 腾讯日线在冷却中 → **连问都不问**：同一个域名刚被打回来，不能立刻再打。 */
@@ -946,7 +1194,7 @@ class CodeLookupServiceTest {
 
         CodeLookupDTO dto = service().lookup("510300");
 
-        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), any(), anyInt());
         assertThat(dto.position().available()).isFalse();
     }
 
@@ -958,7 +1206,7 @@ class CodeLookupServiceTest {
         givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.failed("东财日线不可用"));
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt())).thenReturn(null);
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt())).thenReturn(null);
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
         CodeLookupDTO dto = service().lookup("510300");
@@ -975,7 +1223,7 @@ class CodeLookupServiceTest {
         givenQuotes(row("510300", "沪深300ETF", "4.05", "0.52", null));
         when(marketDataClient.fetchKline(anyString(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.failed("东财日线不可用"));
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt())).thenReturn(
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt())).thenReturn(
                 MarketDataClient.KlineOutcome.throttled("腾讯日线被限流", AltQuoteSource.PROVIDER_TENCENT));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));
 
@@ -996,7 +1244,7 @@ class CodeLookupServiceTest {
 
         CodeLookupDTO dto = service().lookup("300274");
 
-        verify(altQuoteSource, never()).fetchTencentKline(anyString(), anyInt());
+        verify(altQuoteSource, never()).fetchTencentKline(anyString(), any(), anyInt());
         assertThat(dto.notes()).anySatisfy(n -> assertThat(n)
                 .contains("东财日线接口返回了空数据")
                 .doesNotContain("不认"));
@@ -1018,7 +1266,7 @@ class CodeLookupServiceTest {
                 .thenReturn(csindexFund("SH000300", "000300", "510300", 1, "沪深300"));
         givenFallbackQuote("510300", "沪深300ETF", "4.05", "0.52",
                 AltQuoteSource.PROVIDER_TENCENT);
-        when(altQuoteSource.fetchTencentKline(eq("510300"), anyInt()))
+        when(altQuoteSource.fetchTencentKline(eq("510300"), any(), anyInt()))
                 .thenReturn(MarketDataClient.KlineOutcome.ok(tradingBars(800, TODAY),
                         AltQuoteSource.PROVIDER_TENCENT));
         when(offPoolIndexClient.fetch(any())).thenReturn(csindexOk(densePePoints(580)));

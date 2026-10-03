@@ -28,9 +28,11 @@ import java.util.regex.Pattern;
  *       320KB、0.5–1.2 秒），所以 5 年/10 年基线都算得出来，分位由
  *       {@link RollingPercentile} 按滚动窗口现算，与 Python 的
  *       {@code fetch_csindex_pe_history} 同一口径；</li>
- *   <li><b>蛋卷</b>（{@code index_eva/dj}）一次回**全部指数**，但每只**只有当前值**，
- *       **没有历史序列**——所以 5 年/10 年两档必然为空，页面必须写明「该口径源不提供」，
- *       而不是留个空或拿中证的数去补。</li>
+ *   <li><b>蛋卷</b>（{@code index_eva/dj}）一次回**全部指数**，但每只**只有当前值**——
+ *       真正带历史的是另一支 {@code index_eva/pe_history}，见
+ *       {@link #fetchDanjuanHistory(String)}（**周频**快照，约 52 点/年）。
+ *       走 {@link #fetch} 这条路仍只有当日值，所以 5 年/10 年两档会标「该口径源不提供」，
+ *       而不是留个空或拿中证的数去补；要历史得显式调那一支。</li>
  * </ul>
  *
  * <p>两者都失败不跨源重试。被限流时抛
@@ -61,6 +63,13 @@ public class OffPoolIndexClient {
     static final String DANJUAN_URL = "https://danjuanfunds.com/djapi/index_eva/dj";
     static final String DANJUAN_REFERER = "https://danjuanfunds.com/";
 
+    /**
+     * 蛋卷的 PE 历史（**周频**快照）。与 {@link #DANJUAN_URL} 是两支不同的接口，
+     * 信封也不一样（这支是 {@code data.index_eva_pe_growths}），别把解析混用。
+     */
+    static final String DANJUAN_HISTORY_URL =
+            "https://danjuanfunds.com/djapi/index_eva/pe_history/";
+
     private static final ZoneId BEIJING = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter ISO_DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -73,8 +82,9 @@ public class OffPoolIndexClient {
     /**
      * 一个池外指数的估值结果。
      *
-     * <p>{@code points} 是**带 PE 的历史序列**（中证系才有；蛋卷为空列表——它没有历史）。
-     * {@code currentPe} 是当下这一天的 PE，两个源都有。
+     * <p>{@code points} 是**带 PE 的历史序列**。中证系走 {@link #fetch} 就有；
+     * 蛋卷走 {@link #fetch} 时是空列表（那一支只回当日值），要历史得另调
+     * {@link #fetchDanjuanHistory(String)}。{@code currentPe} 是当下这一天的 PE，两个源都有。
      *
      * <p>{@code percentileMethod} 必须随结果一起给出去：页面要写出用的是哪个口径，
      * 否则「同一只指数两个 PE」无从分辨（章程 §5.3、§8）。
@@ -86,7 +96,8 @@ public class OffPoolIndexClient {
             return failureReason == null;
         }
 
-        /** 这个源有没有历史序列。蛋卷没有——这正是它 5/10 年两档为空的原因。 */
+        /** 这个源有没有历史序列。{@link #fetch} 这条路只有中证系有；蛋卷的历史在
+         * {@link #fetchDanjuanHistory(String)} 那条路上。 */
         public boolean hasHistory() {
             return points != null && points.size() > 1;
         }
@@ -234,9 +245,10 @@ public class OffPoolIndexClient {
                 return Result.failed(IndexFundPool.SOURCE_DANJUAN, route.label(),
                         "蛋卷的 " + route.sourceCode() + " 没有可用的 PE 或日期");
             }
-            // **刻意只给一个点**：蛋卷不提供历史序列。塞一个假的单点序列进 points
-            // 会让调用方以为「有历史但很短」，而真相是「这个源根本没有历史」——
+            // **刻意只给一个点**：这支只回当日值。塞一个假的单点序列进 points
+            // 会让调用方以为「有历史但很短」，而真相是「这条路没带历史」——
             // 两者在页面上是不同的话。所以 points 留空，由 hasHistory() 为 false 表达。
+            // 蛋卷的**周频 PE 历史**在另一支 index_eva/pe_history，见 fetchDanjuanHistory。
             return Result.ok(IndexFundPool.SOURCE_DANJUAN, route.label(),
                     IndexFundPool.METHOD_DANJUAN, name, pe, danjuanPercentile(item), day, List.of());
         } catch (MarketDataException.MarketDataRateLimitedException e) {
@@ -246,6 +258,99 @@ public class OffPoolIndexClient {
             return Result.failed(IndexFundPool.SOURCE_DANJUAN, route.label(),
                     "蛋卷不可达（" + MarketDataClient.shortReason(e) + "），该指数估值未确认");
         }
+    }
+
+    /**
+     * 蛋卷某个指数的 **PE 历史**（周频快照，约 52 点/年；实测 516 点覆盖 2016-09 ~ 2026-09）。
+     *
+     * <h2>它和 {@link #fetchDanjuan} 是**两支不同的接口**</h2>
+     *
+     * <p>{@code djapi/index_eva/dj} 一次回全部 63 个指数、但只有**当日**值；
+     * 这一支按指数要历史，信封也不同（{@code data.index_eva_pe_growths}，
+     * 不是 {@code result_code} + {@code data.items}），所以 {@code danjuanItems} 不能复用。
+     *
+     * <p><b>每条只有 {@code pe} 和 {@code ts}，没有分位</b>——分位由调用方用项目自己的
+     * {@link RollingPercentile} 现算。实测这与蛋卷自家的 {@code pe_percentile} 是同一个口径
+     * （对 {@code SZ399006} 的 516 个周频点现算得 28.29%，蛋卷报 27.48%，差 0.8pp，
+     * 方向也一致：越高越贵）。所以拿它算出来的分位可以继续叫
+     * {@link IndexFundPool#METHOD_DANJUAN}，不需要另立一个口径。
+     *
+     * <p>失败语义：不是每个指数都有历史（实测 {@code SZ399005} 回的是**空数组**），
+     * 而且**乱填的代码也回空数组**——两者分不开，所以这条永远不返回 {@link Result#notFound()}：
+     * 那会让调用方回 404，用户以为代码写错了。
+     *
+     * @throws MarketDataException.MarketDataRateLimitedException 被蛋卷拒绝。与
+     *         {@link #fetchCsindex}、{@link #fetchDanjuan} 一致：上层 429、不换源重试。
+     */
+    public Result fetchDanjuanHistory(String indexCode) {
+        String code = indexCode == null ? "" : indexCode.trim();
+        String url = DANJUAN_HISTORY_URL + code + "?day=all";
+        try {
+            Map<String, Object> body =
+                    MarketDataClient.fetchJson(restTemplate, URI.create(url), DANJUAN_REFERER);
+            // **先看业务码**：day 给错时回 {"result_code":999001,"message":"参数错误"} 且**没有 data**。
+            // 不看它就会把「参数错误」读成「这个指数没有历史」——两句在页面上是完全不同的话。
+            String resultCode = body == null ? null : String.valueOf(body.getOrDefault("result_code", "0"));
+            if (body == null || (!"0".equals(resultCode) && !"200".equals(resultCode))) {
+                return Result.failed(IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                        "蛋卷 PE 历史业务错误（result_code=" + resultCode + " "
+                                + (body == null ? "" : body.getOrDefault("message", "")) + "）");
+            }
+            List<RollingPercentile.Point> points = danjuanHistoryPoints(body.get("data"));
+            if (points.size() <= 1) {
+                return Result.failed(IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                        "蛋卷没有 " + code + " 的 PE 历史（该源不是每个指数都有）");
+            }
+            RollingPercentile.Point last = points.get(points.size() - 1);
+            return Result.ok(IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                    IndexFundPool.METHOD_DANJUAN, null,
+                    last.value(), RollingPercentile.latest(points).orElse(null), last.date(), points);
+        } catch (MarketDataException.MarketDataRateLimitedException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("蛋卷 PE 历史不可达 code={}：{}", code, MarketDataClient.shortReason(e));
+            return Result.failed(IndexFundPool.SOURCE_DANJUAN, OffPoolIndexResolver.LABEL_DANJUAN,
+                    "蛋卷 PE 历史不可达（" + MarketDataClient.shortReason(e) + "）");
+        }
+    }
+
+    /**
+     * {@code data.index_eva_pe_growths} → 升序的 PE 序列。
+     *
+     * <p>逐条与 {@link #csindexPoints} 同一个写法、同一个尺度，免得两个源的清洗习惯分叉：
+     * 日期形态不认识、PE 缺失/非正/超上限、未来日期一律丢掉。蛋卷的 {@code pe=0}
+     * 是「那天没有数据」而不是「PE 是 0」，留着会把整条曲线拉低。同一天出现两条时后者覆盖
+     * （蛋卷偶尔会给当天补一条）。单点或空表由调用方统一当「没有历史」。
+     */
+    @SuppressWarnings("unchecked")
+    static List<RollingPercentile.Point> danjuanHistoryPoints(Object data) {
+        if (!(data instanceof Map<?, ?> dm)) {
+            return List.of();
+        }
+        Object raw = ((Map<String, Object>) dm).get("index_eva_pe_growths");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        LocalDate today = LocalDate.now(BEIJING);
+        Map<LocalDate, BigDecimal> byDate = new LinkedHashMap<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> m)) {
+                continue;
+            }
+            Map<String, Object> row = (Map<String, Object>) m;
+            LocalDate day = danjuanDay(row);
+            BigDecimal pe = MarketDataClient.dec(row.get("pe"));
+            if (day == null || pe == null || pe.signum() <= 0 || pe.compareTo(PE_MAX) > 0
+                    || day.isAfter(today)) {
+                continue;
+            }
+            byDate.put(day, pe);
+        }
+        List<RollingPercentile.Point> points = new ArrayList<>();
+        byDate.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> points.add(new RollingPercentile.Point(e.getKey(), e.getValue())));
+        return points;
     }
 
     /**

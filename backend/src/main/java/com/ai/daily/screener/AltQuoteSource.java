@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -92,6 +93,19 @@ public class AltQuoteSource {
     /** 一批几十只。两个源都支持逗号批量，批太大只是把单条请求变成一条容易超时的长 URL。 */
     static final int MAX_BATCH = 50;
 
+    /**
+     * 腾讯日线一次能要的**最大根数**——实测的硬上限，不是随便挑的数。
+     *
+     * <p>请求 800 → 800 根；请求 900/1500/2000 → **不报错**，悄悄掉回默认页只给 640 根
+     * （比报错更坏：分位会静默变短）；请求 2600 → {@code {"msg":"param error","data":[]}}
+     * 直接拒绝。要更长只能按日期区间翻页，见
+     * {@link #fetchTencentKline(String, LocalDate, int)}。
+     *
+     * <p>夹取必须发生在**代码里**：配置写错时（比如把上限调到 2000）它不会报错，
+     * 只会让每一页都悄悄变成 640 根，而页面上看不出少的是什么。
+     */
+    public static final int TENCENT_KLINE_MAX_ROWS = 800;
+
     static final int TENCENT_NAME = 1;
     /**
      * {@code [2]} 是代码。**解析时不读它**——语句名 {@code v_sh510300} 里的那个才是权威的，
@@ -156,14 +170,43 @@ public class AltQuoteSource {
      * <p>不抛异常，失败塞在返回值里，与 {@link MarketDataClient#fetchKline} 的约定一致。
      */
     public MarketDataClient.KlineOutcome fetchTencentKline(String code, int limit) {
+        return fetchTencentKline(code, null, limit);
+    }
+
+    /**
+     * 同上，但只取 {@code end}（含）**之前**的那一批。
+     *
+     * <p>存在的理由是 {@code count} 的上限只有 800（≈3.3 年），而「代码查询」要看十年。
+     * 实测：只给 {@code end}、不给 {@code start} 时，返回的是**该区间末尾的 800 根**；
+     * 于是拿上一页最早的那天减一天当新的 {@code end}，就能一页页往回翻，且
+     * **页与页之间不重不漏**（实测 5 页 3596 根、零重复日期、连续无洞）。
+     * <b>翻几页、什么时候放弃是调用方的策略</b>，这里只管一次请求。
+     *
+     * @param end 取的最后一个交易日（含）。为 null 时 param 串与
+     *            {@link #fetchTencentKline(String, int)} **逐字相同**——这有测试钉着，
+     *            因为那一串的逗号与空档位是接口格式的一部分。
+     */
+    public MarketDataClient.KlineOutcome fetchTencentKline(String code, LocalDate end, int limit) {
         String symbol = tencentSymbol(code);
         if (symbol == null) {
             return MarketDataClient.KlineOutcome.failed(
                     "腾讯日线不认这个代码的市场前缀", PROVIDER_TENCENT);
         }
+        return tencentKlineOutcome(symbol, end, limit);
+    }
+
+    /**
+     * 一次腾讯日线请求的**唯一**出口：URL 拼装、解析、失败映射都只写这一份。
+     *
+     * <p>限流那条 catch 尤其不能复制——它一旦出现第二份，「被限流翻译成 throttled」这件事
+     * 就有两个可能不一致的版本，而两边都只体现在文案上，没人看得出。
+     */
+    private MarketDataClient.KlineOutcome tencentKlineOutcome(String symbol, LocalDate end, int limit) {
         String url = UriComponentsBuilder.fromHttpUrl(TENCENT_KLINE_URL)
-                // param=sh510300,day,,,250,qfq —— 逗号与空档位都是格式的一部分，必须原样保留
-                .queryParam("param", symbol + ",day,,," + Math.max(1, limit) + ",qfq")
+                // param=sh510300,day,,,250,qfq —— 逗号与空档位都是格式的一部分，必须原样保留。
+                // end 落在第 4 个档位：param,day,start,end,count,qfq
+                .queryParam("param", symbol + ",day,," + (end == null ? "" : end)
+                        + "," + Math.max(1, limit) + ",qfq")
                 .build(true).toUriString();
         try {
             String body = getDecoded(URI.create(url), TENCENT_KLINE_REFERER, gbk());
