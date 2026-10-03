@@ -33,7 +33,9 @@ __pycache__/
 *.pyc
 
 # 指数池同步的「本机今天已跑过」哨兵（本地状态，不进仓库）
+# 两个：估值段一个、日线段一个，两段各自独立失败，见 index_pool_sync.py 开头
 .index_pool_sync_marker
+.index_pool_prices_marker
 
 # WorkBuddy local data (contains sensitive info)
 .workbuddy/

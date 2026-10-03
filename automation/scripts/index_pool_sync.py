@@ -17,6 +17,10 @@
   这种池子从页面上看不出问题，比空白更危险。失败时库里保留昨日值，卡片上的
   `valuationTradeDate` 自然显示昨天。
 
+上面第二条管的是**估值内部**（中证段与蛋卷段合成一个池子，缺一段就不写）。
+**估值与日线之间不是这个关系**：两段各有各的哨兵（`MARKER_PATH` / `PRICES_MARKER_PATH`），
+各失败各的，一段中止不带另一段走——日线补不上，低估精选那一整片价格位置就没有。
+
 **不要在这里 import `fetch_valuation_archive`**：归档是给叙事日报补历史基线用的，
 池子只要最新一行。取数成本上，中证官网一次约 320KB、0.5–1.2 秒，跑偏了真会被封。
 """
@@ -54,6 +58,12 @@ VALUATION_INGEST_BATCH_SIZE = 250
 # 真正的幂等门在 poll_loop 里（看库里 SH000300 的最新 tradeDate）。
 SYNC_MARKER_NAME = ".index_pool_sync_marker"
 MARKER_PATH = os.path.join(os.path.dirname(_SCRIPTS_DIR), SYNC_MARKER_NAME)
+# 日线段**自己的**哨兵。两段是两个失败域：估值段（中证那 64MB）失败时，
+# 一个只打腾讯、几十次请求的日线段没有理由跟着一起放弃——低估精选点开就要用日线。
+# 分成两个哨兵还挡住了一件更要紧的事：估值段一直失败时（库里 tradeDate 不前进，
+# 轮询门上每分每秒都开），日线段不会跟着每分每秒重跑 42 次。
+PRICES_MARKER_NAME = ".index_pool_prices_marker"
+PRICES_MARKER_PATH = os.path.join(os.path.dirname(_SCRIPTS_DIR), PRICES_MARKER_NAME)
 # 幂等门探针：池子里第一个有估值来源的指数（现为沪深300）。
 PROBE_INDEX_CODE = "SH000300"
 
@@ -115,23 +125,44 @@ def latest_valuation_trade_date(index_code: str) -> Optional[str]:
         return None
 
 
-def already_synced_today(today: Optional[Any] = None) -> bool:
+def _marker_written_today(path: str, today: Optional[Any] = None) -> bool:
     current = (today or report.now_beijing().date()).isoformat()
     try:
-        with open(MARKER_PATH, encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             return handle.read().strip() == current
     except OSError:
         return False
 
 
-def mark_synced(today: Optional[Any] = None) -> None:
+def _write_marker(path: str, today: Optional[Any] = None) -> None:
     current = (today or report.now_beijing().date()).isoformat()
     try:
-        with open(MARKER_PATH, "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8") as handle:
             handle.write(current)
     except OSError as e:
         # 只读文件系统不该让整轮同步失败：哨兵是防手滑的，不是数据正确性的一部分
-        logger.warning("⚠️ 无法写入同步哨兵 %s: %s", MARKER_PATH, e)
+        logger.warning("⚠️ 无法写入同步哨兵 %s: %s", path, e)
+
+
+def already_synced_today(today: Optional[Any] = None) -> bool:
+    """估值段今天跑过了没有（哨兵里写的就是这个）。"""
+    return _marker_written_today(MARKER_PATH, today)
+
+
+def mark_synced(today: Optional[Any] = None) -> None:
+    """落估值段的哨兵。**只在估值真的写进库之后调**——失败还落哨兵就再也补不上了。"""
+    _write_marker(MARKER_PATH, today)
+
+
+def prices_synced_today(today: Optional[Any] = None) -> bool:
+    """日线段今天跑过了没有。与估值段的哨兵分开，理由见 `PRICES_MARKER_PATH` 上面那段。"""
+    return _marker_written_today(PRICES_MARKER_PATH, today)
+
+
+def mark_prices_synced(today: Optional[Any] = None) -> None:
+    """落日线段的哨兵。**个别 ETF 失败也照落**——与估值段同一个理由：
+    一次失败不该让下一分钟的轮询把 42 次外呼再打一遍。失败清单由返回值说出去。"""
+    _write_marker(PRICES_MARKER_PATH, today)
 
 
 def csindex_latest_payload(fund: dict[str, Any], history: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
@@ -332,11 +363,20 @@ def sync_pool_prices(indices: list[dict[str, Any]]) -> list[str]:
 
 
 def sync_index_pool(force: bool = False) -> bool:
-    """同步一次指数池的估值与日线。全部成功才返回 True。"""
+    """同步一次指数池的估值与日线。**两段各自独立失败**，全部成功才返回 True。
+
+    两段曾经是串行的、共用一次提前返回：中证段或蛋卷段一中止，日线段就一次都不跑。
+    于是「中证官网今天抽了一下」的后果不是估值晚一天，而是低估精选整片没有价格位置——
+    两件事本来没有关系。现在日线段排在前面、且只看自己的哨兵。
+
+    幂等门也随之改成两个：各段只看自己的哨兵、各跳各的。估值段失败时不落它的哨兵，
+    下一分钟的轮询会重试（库里没有今天的 tradeDate，门上本来就开着），
+    而那时日线段已经被自己的哨兵挡住，不会跟着重跑 42 次外呼。
+    """
     if not os.environ.get("BACKEND_API_URL") or not os.environ.get("REPORT_INGEST_TOKEN"):
         logger.error("❌ 指数池同步需要 BACKEND_API_URL 和 REPORT_INGEST_TOKEN")
         return False
-    if not force and already_synced_today():
+    if not force and already_synced_today() and prices_synced_today():
         logger.info("ℹ️ 本机今天已同步过指数池，跳过（要重跑设 INDEX_POOL_FORCE=1）")
         return True
 
@@ -349,32 +389,50 @@ def sync_index_pool(force: bool = False) -> bool:
     with_etf = sum(1 for fund in indices if fund.get("etfCode"))
     logger.info("📡 指数池共 %s 个指数，其中 %s 个有代表 ETF", len(indices), with_etf)
 
-    csindex_rows = csindex_valuations(indices)
-    if csindex_rows is None:
-        logger.error("❌ 中证段中止，本轮不写任何估值（库里保留昨日值）")
-        return False
-    danjuan_rows = danjuan_valuations(indices)
-    if danjuan_rows is None:
-        logger.error("❌ 蛋卷段中止，本轮不写任何估值（库里保留昨日值）")
-        return False
+    # 日线段先跑：只打腾讯（每只一次），而低估精选点开就要用。它排在估值段前面，
+    # 是为了让中证那 64MB 无论多慢、成不成，都不影响这一批日线进库。
+    price_ok = True
+    if force or not prices_synced_today():
+        price_failures = sync_pool_prices(indices)
+        mark_prices_synced()
+        if price_failures:
+            logger.error("❌ %s 只 ETF 的日线未回填: %s", len(price_failures), ", ".join(price_failures))
+            price_ok = False
 
-    valuations = csindex_rows + danjuan_rows
-    if not valuations:
-        logger.error("❌ 指数池没有任何可写估值")
-        return False
-    if not push_valuation_batch(valuations):
-        logger.error("❌ 估值入库失败（库里保留昨日值）")
-        return False
+    # 估值段：**任何一段中止就整段不写**（章程 §5 的既有口径，见本模块开头）。
+    # 中证段中止时蛋卷段也不再打——反正写不进去，少一次外呼。
+    valuation_ok = True
+    valuations_written = None  # None = 今天已经写过、这次没重跑
+    if force or not already_synced_today():
+        csindex_rows = csindex_valuations(indices)
+        if csindex_rows is None:
+            logger.error("❌ 中证段中止，本轮不写任何估值（库里保留昨日值）")
+            valuation_ok = False
+            csindex_rows = []
+        danjuan_rows = danjuan_valuations(indices) if valuation_ok else []
+        if danjuan_rows is None:
+            logger.error("❌ 蛋卷段中止，本轮不写任何估值（库里保留昨日值）")
+            valuation_ok = False
+            danjuan_rows = []
 
-    price_failures = sync_pool_prices(indices)
+        valuations = csindex_rows + danjuan_rows
+        if valuation_ok:
+            if not valuations:
+                logger.error("❌ 指数池没有任何可写估值")
+                valuation_ok = False
+            elif not push_valuation_batch(valuations):
+                logger.error("❌ 估值入库失败（库里保留昨日值）")
+                valuation_ok = False
+        valuations_written = len(valuations)
+        if valuation_ok:
+            mark_synced()
 
-    # 先落哨兵再去判断日线：中证那 64MB 才是真正会被封的部分，
-    # 日线没成不该让下一分钟的轮询再去把中证段跑一遍。
-    mark_synced()
-    if price_failures:
-        logger.error("❌ %s 只 ETF 的日线未回填: %s", len(price_failures), ", ".join(price_failures))
+    if not valuation_ok or not price_ok:
         return False
-    logger.info("✅ 指数池同步完成：%s 个指数估值 + %s 只 ETF 日线", len(valuations), with_etf)
+    if valuations_written is None:
+        logger.info("✅ 指数池同步完成：%s 只 ETF 日线（估值今天已写过，本次未重跑）", with_etf)
+    else:
+        logger.info("✅ 指数池同步完成：%s 个指数估值 + %s 只 ETF 日线", valuations_written, with_etf)
     return True
 
 

@@ -427,6 +427,27 @@ def fetch_etf_daily_prices_from_eastmoney(etf: dict[str, str]) -> list[dict[str,
 
 
 def _extract_tencent_rows(body: Any, code: str) -> list[Any]:
+    """从腾讯日线响应里取行。带 `qfq` 参数时**没有复权事件的标的只给 `day`**。
+
+    实测（2026-10-03，服务器直连腾讯，三种 fq 参数各打一次）：
+
+    | 标的 | `,qfq` | `,hfq` | 空档 | 事实 |
+    |---|---|---|---|---|
+    | `sh512000` 券商ETF | `qfqday` 0.432… | `hfqday` 0.864… | `day` 0.864… | 有复权事件，三种各自不同 |
+    | `sh512660` 军工ETF | `day` | `day` | `day` | 三串**逐字相同**，没有可复权的量 |
+    | `sh512980` 传媒ETF | `day` | `day` | `day` | 同上 |
+
+    腾讯**要么给一条 `qfqday`，要么给一条 `day`，从不同时给两条**；回 `day` 的含义就是
+    「该标的没有复权事件，前复权与不复权是同一条序列」——所以这里接受它，不是拿不复权顶前复权。
+    `hfq` 那一列是关键证据：真有事件的标的，腾讯连后复权都算得出来（512000 就是），
+    不会只剩一条裸 `day`。
+
+    池子里 42 只 ETF 有 25 只走 `day` 这一支（军工/传媒/环保/主题/行业这些常年不分红的），
+    只认 `qfqday` 会把它们全判成「数量不足或数据过旧」，日线一天都补不进库。
+    低估精选那一整片「行情源限流，价格位置未能更新」就是这么来的。
+
+    两者同时存在时**只用 `qfqday`**：有复权序列就不用裸的那条。
+    """
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
         return []
@@ -434,10 +455,13 @@ def _extract_tencent_rows(body: Any, code: str) -> list[Any]:
     if not isinstance(node, dict):
         return []
     rows = node.get("qfqday")
+    if not isinstance(rows, list):
+        rows = node.get("day")
     return rows if isinstance(rows, list) else []
 
 
 def fetch_etf_daily_prices_from_tencent(etf: dict[str, str]) -> list[dict[str, Any]]:
+    """腾讯前复权日线。**`qfq` 参数下没有复权事件的标的回的是 `day`**，见 `_extract_tencent_rows`。"""
     symbol = etf["sina_code"]
     resp = http_get(
         "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",

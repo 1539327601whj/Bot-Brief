@@ -186,26 +186,38 @@ class DanjuanSegmentTests(unittest.TestCase):
 
 class SentinelTests(unittest.TestCase):
     def setUp(self):
-        handle, path = tempfile.mkstemp()
-        os.close(handle)
-        os.unlink(path)
-        self.path = path
-        self.addCleanup(lambda: os.path.exists(self.path) and os.unlink(self.path))
-        patcher = patch.object(sync, "MARKER_PATH", path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.paths = {}
+        for name in ("MARKER_PATH", "PRICES_MARKER_PATH"):
+            handle, path = tempfile.mkstemp()
+            os.close(handle)
+            os.unlink(path)
+            self.paths[name] = path
+            self.addCleanup(lambda p=path: os.path.exists(p) and os.unlink(p))
+            patcher = patch.object(sync, name, path)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_the_marker_is_written_once_then_read_back(self):
         self.assertFalse(sync.already_synced_today())
         sync.mark_synced()
         self.assertTrue(sync.already_synced_today())
 
+    def test_the_two_markers_do_not_imply_each_other(self):
+        """两个哨兵各写各的：只跑成一段时，整轮不该被判成「今天已同步过」。"""
+        self.assertFalse(sync.prices_synced_today())
+        sync.mark_prices_synced()
+        self.assertTrue(sync.prices_synced_today())
+        self.assertFalse(sync.already_synced_today())
+        self.assertNotEqual(self.paths["MARKER_PATH"], self.paths["PRICES_MARKER_PATH"])
+
     def test_a_missing_marker_file_is_not_an_error(self):
         self.assertFalse(sync.already_synced_today())
+        self.assertFalse(sync.prices_synced_today())
 
     def test_a_read_only_marker_does_not_break_the_run(self):
         with patch("builtins.open", side_effect=OSError("read-only")):
             sync.mark_synced()
+            sync.mark_prices_synced()
 
 
 class SyncIndexPoolTests(unittest.TestCase):
@@ -221,8 +233,10 @@ class SyncIndexPoolTests(unittest.TestCase):
             "danjuan_valuations": Mock(return_value=danjuan_rows or []),
             "push_valuation_batch": Mock(return_value=extra.get("push_ok", True)),
             "sync_pool_prices": Mock(return_value=price_failures or []),
-            "already_synced_today": Mock(return_value=False),
+            "already_synced_today": Mock(return_value=extra.get("valuations_done", False)),
             "mark_synced": Mock(),
+            "prices_synced_today": Mock(return_value=extra.get("prices_done", False)),
+            "mark_prices_synced": Mock(),
         }
         mocks = {}
         for name, mock in patches.items():
@@ -233,13 +247,25 @@ class SyncIndexPoolTests(unittest.TestCase):
         result = sync.sync_index_pool(**extra.get("sync_kwargs", {}))
         return result, mocks
 
-    def test_an_aborted_csindex_segment_writes_nothing_at_all(self):
-        result, mocks = self.run_sync([csindex_fund("000300")], csindex_rows=None)
+    def test_an_aborted_csindex_segment_still_backfills_the_daily_bars(self):
+        """两段是两个失败域：中证官网抽了，日线没有理由跟着不补。
+
+        这条正是低估精选整片「行情源限流，价格位置未能更新」的老路——
+        点击时要用的日线能不能进库，跟中证那 64MB 成不成本来没有关系。
+        """
+        result, mocks = self.run_sync([csindex_fund("000300", etf="510300")], csindex_rows=None)
 
         self.assertFalse(result)
         mocks["push_valuation_batch"].assert_not_called()
-        mocks["sync_pool_prices"].assert_not_called()
         mocks["mark_synced"].assert_not_called()
+        mocks["sync_pool_prices"].assert_called_once()
+        mocks["mark_prices_synced"].assert_called_once()
+
+    def test_an_aborted_csindex_segment_does_not_ask_danjuan_either(self):
+        """写不进去的池子，蛋卷段也不必再打一次。"""
+        _, mocks = self.run_sync([csindex_fund("000300")], csindex_rows=None)
+
+        mocks["danjuan_valuations"].assert_not_called()
 
     def test_an_aborted_danjuan_segment_writes_nothing_at_all(self):
         result, mocks = self.run_sync([danjuan_fund("510500", "SH000905", "SH000905")],
@@ -247,6 +273,13 @@ class SyncIndexPoolTests(unittest.TestCase):
 
         self.assertFalse(result)
         mocks["push_valuation_batch"].assert_not_called()
+
+    def test_an_aborted_danjuan_segment_still_backfills_the_daily_bars(self):
+        _, mocks = self.run_sync([danjuan_fund("510500", "SH000905", "SH000905", etf="510500")],
+                                 csindex_rows=[], danjuan_rows=None)
+
+        mocks["sync_pool_prices"].assert_called_once()
+        mocks["mark_prices_synced"].assert_called_once()
 
     def test_nothing_to_write_is_a_failure_not_a_silent_success(self):
         result, mocks = self.run_sync([csindex_fund("000300")], csindex_rows=[])
@@ -280,24 +313,50 @@ class SyncIndexPoolTests(unittest.TestCase):
 
         self.assertFalse(result)
         mocks["mark_synced"].assert_called_once()
+        mocks["mark_prices_synced"].assert_called_once()
+
+    def test_a_retry_after_a_failed_valuation_segment_skips_the_backfill(self):
+        """估值段失败后的重试轮：日线段已经被自己的哨兵挡住。
+
+        没有这道门，中证官网挂一整个下午就等于每分钟重打 42 次腾讯日线。
+        """
+        _, mocks = self.run_sync([csindex_fund("000300", etf="510300")], csindex_rows=None,
+                                 prices_done=True)
+
+        mocks["sync_pool_prices"].assert_not_called()
+        mocks["mark_prices_synced"].assert_not_called()
+        mocks["csindex_valuations"].assert_called_once()
 
     def test_the_marker_is_respected_by_default(self):
         with patch.object(sync, "already_synced_today", Mock(return_value=True)), \
+                patch.object(sync, "prices_synced_today", Mock(return_value=True)), \
                 patch.object(sync, "fetch_index_pool", Mock()) as fetch:
             self.assertTrue(sync.sync_index_pool())
             fetch.assert_not_called()
 
-    def test_force_ignores_the_marker(self):
-        indices = [csindex_fund("000300", etf=None)]
+    def test_one_marker_alone_does_not_close_the_day(self):
+        """只有估值段跑过（日线段没跑成）时不能整体跳过，否则日线再也补不上。"""
+        _, mocks = self.run_sync([csindex_fund("000300", etf="510300")],
+                                 csindex_rows=[{"indexCode": "SH000300"}],
+                                 valuations_done=True)
+
+        mocks["sync_pool_prices"].assert_called_once()
+        mocks["csindex_valuations"].assert_not_called()
+
+    def test_force_ignores_both_markers(self):
+        indices = [csindex_fund("000300", etf="510300")]
         with patch.object(sync, "already_synced_today", Mock(return_value=True)), \
+                patch.object(sync, "prices_synced_today", Mock(return_value=True)), \
                 patch.object(sync, "fetch_index_pool", Mock(return_value=indices)) as fetch, \
                 patch.object(sync, "csindex_valuations", Mock(return_value=[{"indexCode": "SH000300"}])), \
                 patch.object(sync, "danjuan_valuations", Mock(return_value=[])), \
                 patch.object(sync, "push_valuation_batch", Mock(return_value=True)), \
-                patch.object(sync, "sync_pool_prices", Mock(return_value=[])), \
-                patch.object(sync, "mark_synced", Mock()):
+                patch.object(sync, "sync_pool_prices", Mock(return_value=[])) as prices, \
+                patch.object(sync, "mark_synced", Mock()), \
+                patch.object(sync, "mark_prices_synced", Mock()):
             self.assertTrue(sync.sync_index_pool(force=True))
             fetch.assert_called_once()
+            prices.assert_called_once()
 
 
 class PriceBackfillTests(unittest.TestCase):

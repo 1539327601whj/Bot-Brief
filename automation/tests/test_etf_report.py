@@ -365,8 +365,25 @@ class HistoryTests(unittest.TestCase):
         result = report.fetch_etf_daily_prices(ETF)
         self.assertEqual(result[-1]["source"], "腾讯前复权日线")
 
-    def test_tencent_rejects_unadjusted_rows(self):
-        body = {"data": {ETF["sina_code"]: {"day": [["2026-07-25", "4", "4.1", "4.2", "3.9"]]}}}
+    def test_tencent_accepts_the_only_series_when_there_is_nothing_to_adjust(self):
+        """`qfq` 参数下没有复权事件的标的只回 `day`（实测，见 `_extract_tencent_rows`）。
+
+        只认 `qfqday` 会让池子里 25 只常年不分红的 ETF 永远判成「数量不足」，
+        日线一天都补不进库——低估精选整片「行情源限流」就是这个。
+        """
+        rows = [["2026-07-25", "4", "4.1", "4.2", "3.9"]]
+        body = {"data": {ETF["sina_code"]: {"day": rows}}}
+        self.assertEqual(report._extract_tencent_rows(body, ETF["sina_code"]), rows)
+
+    def test_tencent_prefers_the_adjusted_series_when_both_are_given(self):
+        """两条都在时只用 `qfqday`——有复权序列就不碰裸的那条。"""
+        qfq = [["2026-07-25", "4", "4.1", "4.2", "3.9"]]
+        raw = [["2026-07-25", "8", "8.2", "8.4", "7.8"]]
+        body = {"data": {ETF["sina_code"]: {"qfqday": qfq, "day": raw}}}
+        self.assertEqual(report._extract_tencent_rows(body, ETF["sina_code"]), qfq)
+
+    def test_tencent_without_any_series_is_empty(self):
+        body = {"data": {ETF["sina_code"]: {"qt": [], "prec": "4"}}}
         self.assertEqual(report._extract_tencent_rows(body, ETF["sina_code"]), [])
 
     @patch.object(report, "http_get")
