@@ -68,7 +68,7 @@ public class CodeLookupAnalysisService {
             AiClientService aiClientService,
             @Value("${screener.analysis.max-material-chars:6000}") int maxMaterialChars,
             @Value("${screener.analysis.brief-cache-seconds:1800}") long briefCacheSeconds,
-            @Value("${screener.analysis.brief-max-tokens:1200}") int briefMaxTokens,
+            @Value("${screener.analysis.brief-max-tokens:4000}") int briefMaxTokens,
             @Value("${deepseek.timeout-ms:25000}") int llmTimeoutMs) {
         this.codeLookupService = codeLookupService;
         this.stockNoticeClient = stockNoticeClient;

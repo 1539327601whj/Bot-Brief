@@ -102,7 +102,12 @@ deepseek:
   # 于是 isBlank() 判不出来，代码真去打一次接口换回 401。
   # 加上空默认值，那条「未配置就走降级文案」的分支才是**可达**的。
   api-key: ${DEEPSEEK_API_KEY:}
-  model: ${DEEPSEEK_MODEL:deepseek-v4-pro}
+  # 模型名。**默认值要与仓库里其余几处对齐**：两个 workflow（daily.yml / daily-poll.yml）、
+  # `automation/scripts/daily_report.py`、`docker-compose.yml` 用的都是 `deepseek-v4-flash`，
+  # 只有后端这里原来写的是 `deepseek-v4-pro`——一个整套发布链路里别处都没用过的名字。
+  # 名字不对的表现不是报错，而是**HTTP 200、没有 error、choices 是空的**，
+  # 页面上一句「AI 暂未返回内容」，看不出与模型名有关（见 AiClientServiceImpl 那条注释）。
+  model: ${DEEPSEEK_MODEL:deepseek-v4-flash}
   base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
   # 「生成深度解读」那一次调用的读超时。25 秒是「材料约 6 千字符 + 输出约 1.2k token」的量级下
   # 留了余量又不至于让用户以为页面死了的值。对话与内容生成**不走这个值**（见 AiClientService）。
@@ -230,6 +235,9 @@ screener:
     # 重复点击不再计费；换了快照自然失效，不需要额外失效逻辑。**30 分钟**是
     # 「够覆盖一次浏览里的反复点击，又不至于让用户看到过期的解读」的量级。
     brief-cache-seconds: ${SCREENER_ANALYSIS_BRIEF_CACHE_SECONDS:1800}
-    # 解读的最大输出 token。压到 1200 是因为它只写固定几个小节，
-    # 不设上限时模型容易把材料复述一遍。
-    brief-max-tokens: ${SCREENER_ANALYSIS_BRIEF_MAX_TOKENS:1200}
+    # 解读的最大输出 token。**这里踩过一次坑**：原定 1200，理由是「它只写固定几个小节」，
+    # 结果真实调用出现过「HTTP 200、有 choices、正文是空的」——预算是被截断吃掉的，
+    # 正文字都没来得及写。max_tokens 是上限不是计费量，调大不生成就不花钱，
+    # 所以放宽到 4000；「不许把材料复述一遍」那件事靠 system prompt 里的小节要求，
+    # 不靠这个上限（上限卡得刚好，卡掉的是结论而不是复述）。
+    brief-max-tokens: ${SCREENER_ANALYSIS_BRIEF_MAX_TOKENS:4000}

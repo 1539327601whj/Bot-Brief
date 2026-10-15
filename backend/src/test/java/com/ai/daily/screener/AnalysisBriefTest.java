@@ -18,12 +18,20 @@ class AnalysisBriefTest {
     // ------------------------------------------------------------------
 
     @Test
-    void theThreeFailureStringsAiClientActuallyReturnsAreAllRecognised() {
-        // 这三句是 AiClientServiceImpl **实际会返回**的全部失败文案（不是照着文档抄的，
+    void everyFailureStringAiClientActuallyReturnsIsRecognised() {
+        // 这些是 AiClientServiceImpl **实际会返回**的全部失败文案（不是照着文档抄的，
         // 是那个类的所有 `return "AI 开头` 分支）。漏了任何一句，那一句就会漏成正文。
         assertThat(AnalysisBrief.isFailureText("AI 服务暂未配置，请先配置 DEEPSEEK_API_KEY。")).isTrue();
         assertThat(AnalysisBrief.isFailureText("AI 调用失败：Connection timed out")).isTrue();
         assertThat(AnalysisBrief.isFailureText("AI 暂未返回内容，请稍后重试。")).isTrue();
+        // 正文空白的另外两种成因（截断 / 只回了思考）现在是分开报的，同样是「AI 」开头。
+        assertThat(AnalysisBrief.isFailureText("AI 输出被 max_tokens 截断了，正文没留下（本次上限 4000）")).isTrue();
+        assertThat(AnalysisBrief.isFailureText("AI 只返回了思考过程、没有正文")).isTrue();
+        // 「返回里没有 choices」那一句会把响应原文接在末尾，原文里可能有 `#` 或换行。
+        // 判据先 stripLeading 再看开头，所以拼接**不会**把这一句带偏——仍然以「AI 」起头。
+        // 这一条钉的就是这个：往失败文案后面接任意原文，都不该让它变成「真解读」。
+        assertThat(AnalysisBrief.isFailureText(
+                "AI 返回里没有 choices（模型名 deepseek-v4-next 可能不对）：{\"choices\":[]}")).isTrue();
     }
 
     @Test
@@ -80,11 +88,43 @@ class AnalysisBriefTest {
     void theUnavailableNoteSaysWhatStillWorksAndHowToEnableIt() {
         // 未启用时用户最需要知道两件事：**其余几块还在**（否则以为整页坏了），
         // 以及**怎么开**。只写「未启用」是一句没有出路的话。
-        AnalysisBrief brief = AnalysisBrief.unavailable("未配置");
+        AnalysisBrief brief = AnalysisBrief.unavailable("AI 服务暂未配置，请先配置 DEEPSEEK_API_KEY。");
 
         assertThat(brief.note()).contains("规则判定与新闻列表不受影响");
         assertThat(brief.note()).contains("DEEPSEEK_API_KEY");
         assertThat(brief.note()).contains("倾向结论仍以");
+        assertThat(brief.note()).isEqualTo(AnalysisBrief.NOTE_NOT_CONFIGURED);
+    }
+
+    @Test
+    void aCallThatFailedDoesNotTellTheUserToGoConfigureTheKey() {
+        // **这一条是照着线上截图写的。** 页面上原来把「配置 DEEPSEEK_API_KEY 后重启」
+        // 无条件放在原因原文上面，于是出现过这样一段自相矛盾的话：
+        //   上面：「若要启用：在后端配置环境变量 DEEPSEEK_API_KEY 后重启」
+        //   下面：「AI 暂未返回内容，请稍后重试。」
+        // key 明明已经配好了——真没配的话根本到不了「返回空内容」这一步。
+        // 用户照着改一遍配置，什么都不会变，还会以为自己配错了。
+        AnalysisBrief brief = AnalysisBrief.fromAi("AI 暂未返回内容，请稍后重试。");
+
+        assertThat(brief.available()).isFalse();
+        assertThat(brief.note()).isEqualTo(AnalysisBrief.NOTE_CALL_FAILED);
+        assertThat(brief.note()).doesNotContain("DEEPSEEK_API_KEY");
+        // 「其余几块还在」这句两种情况下都得有：它是用户判断「要不要刷新整页」的依据
+        assertThat(brief.note()).contains("规则判定与新闻列表不受影响");
+    }
+
+    @Test
+    void theNotConfiguredBranchIsMatchedByPrefixNotByTheWholeSentence() {
+        // 按前缀认，不按整句认：`AiClientServiceImpl` 那句结尾的标点改一下，
+        // 这里就会静默退化成「调用失败」的说明——而那句会告诉用户「key 已经配好了」，
+        // 正好把该做的事说反。
+        assertThat(AnalysisBrief.noteFor("AI 服务暂未配置，请先配置 DEEPSEEK_API_KEY。"))
+                .isEqualTo(AnalysisBrief.NOTE_NOT_CONFIGURED);
+        assertThat(AnalysisBrief.noteFor("  AI 服务暂未配置。"))
+                .isEqualTo(AnalysisBrief.NOTE_NOT_CONFIGURED);
+        assertThat(AnalysisBrief.noteFor("AI 调用失败：Connection timed out"))
+                .isEqualTo(AnalysisBrief.NOTE_CALL_FAILED);
+        assertThat(AnalysisBrief.noteFor(null)).isEqualTo(AnalysisBrief.NOTE_CALL_FAILED);
     }
 
     @Test

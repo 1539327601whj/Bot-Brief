@@ -36,7 +36,15 @@ public class AiClientServiceImpl implements AiClientService {
     @Value("${deepseek.api-key:}")
     private String deepseekApiKey;
 
-    @Value("${deepseek.model:deepseek-v4-pro}")
+    /**
+     * 模型名。默认值与 {@code application.yml}、以及仓库里其余几处（两个 workflow、
+     * {@code daily_report.py}、{@code docker-compose.yml}）保持一致，都是 {@code deepseek-v4-flash}。
+     *
+     * <p>这里原来写的是 {@code deepseek-v4-pro}——一个整套发布链路里别处都没用过的名字。
+     * 名字不对的症状很难认：**HTTP 200、没有 error、choices 是空的**，
+     * 返回的是一句「AI 暂未返回内容」，从这个现象完全推不到模型名上去。
+     */
+    @Value("${deepseek.model:deepseek-v4-flash}")
     private String deepseekModel;
 
     @Value("${deepseek.base-url:https://api.deepseek.com}")
@@ -70,10 +78,46 @@ public class AiClientServiceImpl implements AiClientService {
                     log.warn("AI 返回错误 model={} error={}", deepseekModel, errorMessage);
                     return "AI 调用失败：" + errorMessage;
                 }
-                String content = root.path("choices").path(0).path("message").path("content").asText();
+                JsonNode choices = root.path("choices");
+                if (!choices.isArray() || choices.isEmpty()) {
+                    // 200、没有 error、却一个 choices 都没有：最常见的原因是模型名不对，
+                    // 网关把请求接下来了但没给结果。**这一支原来和「正文是空的」共用一句话**，
+                    // 而两者的处置完全不同（一个去改模型名，一个重试或放宽 max_tokens），
+                    // 所以分开报，并把原文带出去。
+                    String body = snippet(responseBody);
+                    log.warn("AI 返回里没有 choices model={} httpStatus={} body={}",
+                            deepseekModel, httpResponse.getCode(), body);
+                    return "AI 返回里没有 choices（模型名 " + deepseekModel + " 可能不对）：" + body;
+                }
+
+                JsonNode message = choices.path(0).path("message");
+                String content = message.path("content").asText();
                 if (content == null || content.isBlank()) {
-                    log.warn("AI 返回空内容 model={} httpStatus={} messages={}",
-                            deepseekModel, httpResponse.getCode(), messages.size());
+                    String finishReason = choices.path(0).path("finish_reason").asText("");
+                    String reasoning = message.path("reasoning_content").asText("");
+                    /*
+                     * 正文是空的至少三种成因，处置各不相同，所以**这三样必须都记下来**：
+                     * finish_reason（被截断就是 length）、有没有 reasoning_content
+                     * （思考型模型会把预算先花在思考上，正文一个字不剩）、以及原文。
+                     *
+                     * 原来这一行只记了 httpStatus 与消息条数。线上真的踩到时，
+                     * 日志里只有「返回空内容 httpStatus=200」，等于什么都没说——
+                     * 200 是必然的（否则走不到这支），消息条数也不可能是别的原因。
+                     */
+                    String body = snippet(responseBody);
+                    log.warn("AI 返回空正文 model={} httpStatus={} messages={} finishReason={} "
+                                    + "reasoningChars={} body={}",
+                            deepseekModel, httpResponse.getCode(), messages.size(),
+                            finishReason.isBlank() ? "(没给)" : finishReason,
+                            reasoning.length(), body);
+                    if ("length".equals(finishReason)) {
+                        return "AI 输出被 max_tokens 截断了，正文没留下（本次上限 " + maxTokens
+                                + "），把这个上限调大后重试。";
+                    }
+                    if (!reasoning.isBlank()) {
+                        return "AI 只返回了思考过程、没有正文（推理占满了 max_tokens " + maxTokens
+                                + " 的预算），把上限调大后重试。";
+                    }
                     return "AI 暂未返回内容，请稍后重试。";
                 }
                 return content;
@@ -83,6 +127,24 @@ public class AiClientServiceImpl implements AiClientService {
             log.error("AI 调用失败 model={} baseUrl={} messages={}", deepseekModel, deepseekBaseUrl, messages.size(), e);
             return "AI 调用失败：" + e.getMessage();
         }
+    }
+
+    /**
+     * 一段响应体，压成一行、截短，够塞进日志。
+     *
+     * <p><b>「返回空正文」这一类失败，不留下原文就等于没法查。</b> HTTP 200、没有 error、
+     * content 是空的——光凭这三个字排不出是模型名不对、被截断、还是有别的策略，
+     * 而原文里 {@code finish_reason} 与 {@code reasoning_content} 一读就明白。
+     *
+     * <p>截到 800 字符：够看清结构，又不会把整段材料复述回日志。换行压成空格，
+     * 否则一条日志会被拆成几十行，在日志文件里根本连不起来。
+     */
+    private static String snippet(String body) {
+        if (body == null) {
+            return "(空)";
+        }
+        String flat = body.replaceAll("\\s+", " ").strip();
+        return flat.length() <= 800 ? flat : flat.substring(0, 800) + "…";
     }
 
     /**
