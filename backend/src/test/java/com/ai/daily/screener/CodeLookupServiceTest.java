@@ -689,6 +689,106 @@ class CodeLookupServiceTest {
     }
 
     @Test
+    void theQuoteRowCarriesItsFundamentalsThroughWithoutAnyExtraCall() {
+        // ROE / 营收同比 / 毛利 / 负债率 / 股息率这些字段**一直在 QUOTE_FIELDS 里**，
+        // 以前只是没端出来。这条用例钉住两件事：它们真的到了 DTO，
+        // 且**没有为它们多打任何一次外呼**（否则就是把免费的字段买成了收费的）。
+        StockRow r = row("300274", "阳光电源", "82.49", "2.98", "15.57");
+        r.setRoe(new BigDecimal("21.30"));
+        r.setRevenueGrowth(new BigDecimal("18.40"));
+        r.setProfitGrowth(new BigDecimal("12.10"));
+        r.setGrossMargin(new BigDecimal("31.20"));
+        r.setDebtRatio(new BigDecimal("58.70"));
+        r.setDividendYield(new BigDecimal("1.05"));
+        r.setTurnoverRate(new BigDecimal("2.40"));
+        r.setAmount(new BigDecimal("3100000000"));
+        r.setFloatMarketCap(new BigDecimal("90000000000"));
+        r.setChange60d(new BigDecimal("-6.10"));
+        r.setYtdChange(new BigDecimal("3.30"));
+        r.setBps(new BigDecimal("12.80"));
+        r.setListDate(LocalDate.of(2011, 11, 2));
+        givenQuotes(r);
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        when(stockValuationClient.fetchHistory("300274")).thenReturn(
+                StockValuationClient.History.ok("300274", "阳光电源", denseStockPoints(580), 580));
+
+        CodeLookupDTO dto = service().lookup("300274");
+
+        CodeLookupDTO.FundamentalsView f = dto.fundamentals();
+        assertThat(f.available()).isTrue();
+        assertThat(f.provider()).isEqualTo(MarketDataClient.PROVIDER_EASTMONEY);
+        assertThat(f.roe()).isEqualByComparingTo("21.30");
+        assertThat(f.revenueGrowth()).isEqualByComparingTo("18.40");
+        assertThat(f.profitGrowth()).isEqualByComparingTo("12.10");
+        assertThat(f.grossMargin()).isEqualByComparingTo("31.20");
+        assertThat(f.debtRatio()).isEqualByComparingTo("58.70");
+        assertThat(f.dividendYield()).isEqualByComparingTo("1.05");
+        assertThat(f.turnoverRate()).isEqualByComparingTo("2.40");
+        assertThat(f.change60d()).isEqualByComparingTo("-6.10");
+        assertThat(f.bps()).isEqualByComparingTo("12.80");
+        // 上市日按 ISO 给页面，与其他日期（价格日线截止、估值数据日）同一格式。
+        assertThat(f.listDate()).isEqualTo("2011-11-02");
+        assertThat(f.notes()).isEmpty();
+
+        // **零额外外呼**：行情只批量问过一次。
+        verify(marketDataClient, times(1)).fetchQuotes(anyList());
+    }
+
+    @Test
+    void anEtfRowWithoutFinancialFieldsSaysSoInsteadOfPretendingItHasThem() {
+        // ETF 与指数的行情行里本来就没有这组财报口径的字段。全部为空时
+        // **不许写成「这家公司没有 ROE」**——页面区分不了「本来就没有」和「这次没带上」，
+        // 所以只如实说「这一行没有返回这几项」（与页面上行业/市值那两格同一条纪律）。
+        givenQuotes(row("512880", "证券ETF", "1.08", "0.93", null));
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        when(stockValuationClient.fetchHistory("512880")).thenReturn(
+                StockValuationClient.History.failed("512880", "估值分析源不可达"));
+
+        CodeLookupDTO dto = service().lookup("512880");
+
+        assertThat(dto.fundamentals().available()).isFalse();
+        assertThat(dto.fundamentals().roe()).isNull();
+        assertThat(dto.fundamentals().notes()).anySatisfy(n -> assertThat(n).contains("没有返回"));
+    }
+
+    @Test
+    void aFallbackQuoteLeavesFundamentalsEmptyAndBlamesTheSourceNotTheCompany() {
+        // 腾讯/新浪只给价格与成交额。这一块必须**整块留空并写明是换了源**，
+        // 而不是把东财那一套字段拿过来填——「值有出处、出处是错的」是最坏的一种。
+        when(marketDataClient.fetchQuotes(anyList()))
+                .thenThrow(new MarketDataException("行情批量接口全部失败—— 第 1 批：连接超时"));
+        givenFallbackQuote("512880", "证券ETF", "1.08", "0.93", AltQuoteSource.PROVIDER_TENCENT);
+        givenKline(tradingBars(DECADE_BARS, TODAY));
+        when(stockValuationClient.fetchHistory("512880")).thenReturn(
+                StockValuationClient.History.failed("512880", "估值分析源不可达"));
+
+        CodeLookupDTO dto = service().lookup("512880");
+
+        assertThat(dto.fundamentals().available()).isFalse();
+        assertThat(dto.fundamentals().provider()).isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
+        assertThat(dto.fundamentals().roe()).isNull();
+        assertThat(dto.fundamentals().notes()).anySatisfy(n -> assertThat(n).contains("腾讯"));
+    }
+
+    @Test
+    void aQuoteThatWasNeverFetchedDoesNotClaimTheCompanyHasNoFundamentals() {
+        // 池外指数根本不取行情（指数代码在报价源里没有可靠形态）。这时基本面为空的原因是
+        // **我们没去取**，不是「这家公司没有」——两者下一步完全不同（章程 §6 第 6 条）。
+        when(offPoolIndexClient.fetch(any())).thenReturn(OffPoolIndexClient.Result.failed(
+                IndexFundPool.SOURCE_CSINDEX, OffPoolIndexResolver.LABEL_CSINDEX,
+                "中证官网不可达（连接超时）"));
+        givenKline(tradingBars(400, TODAY));
+
+        CodeLookupDTO dto = service().lookup("930740");
+
+        assertThat(dto.quote()).isNull();
+        assertThat(dto.fundamentals().available()).isFalse();
+        assertThat(dto.fundamentals().notes()).anySatisfy(n -> assertThat(n).contains("没有取行情"));
+        assertThat(dto.fundamentals().notes())
+                .noneSatisfy(n -> assertThat(n).contains("没有返回"));
+    }
+
+    @Test
     void aStockHistoryShorterThanTenYearsSaysSoInsteadOfBorrowingANumber() {
         // 实测这个源只回约 8.7 年（2100 行）。十年那一档必须说「历史不足」——
         // 而不是拿窗口里最老的一天顶上，更不是那句已经作废的「个股没有 PE 分位」。

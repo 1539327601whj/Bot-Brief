@@ -94,11 +94,19 @@ server:
 # 允许 GitHub Actions 跨域调用（开发时放开，生产环境建议配置具体域名）
 allowed-origins: ${ALLOWED_ORIGINS:*}
 
-# DeepSeek API 配置（用于 AI 对话功能）
+# DeepSeek API 配置（AI 对话、内容生成、代码查询的深度解读）
 deepseek:
-  api-key: ${DEEPSEEK_API_KEY}
+  # **冒号后面那个空默认值是必须的**。原来写的是 ${DEEPSEEK_API_KEY}（没有默认值），
+  # 而 AiClientServiceImpl 用的是 @Value("${deepseek.api-key:}")——一个没有默认值的占位符
+  # 在变量缺失时**不一定会被解析成空白**，某些情况下会原样当字符串塞进来，
+  # 于是 isBlank() 判不出来，代码真去打一次接口换回 401。
+  # 加上空默认值，那条「未配置就走降级文案」的分支才是**可达**的。
+  api-key: ${DEEPSEEK_API_KEY:}
   model: ${DEEPSEEK_MODEL:deepseek-v4-pro}
   base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+  # 「生成深度解读」那一次调用的读超时。25 秒是「材料约 6 千字符 + 输出约 1.2k token」的量级下
+  # 留了余量又不至于让用户以为页面死了的值。对话与内容生成**不走这个值**（见 AiClientService）。
+  timeout-ms: ${DEEPSEEK_TIMEOUT_MS:25000}
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-please-change-in-production-must-be-at-least-32-bytes-long}
@@ -212,3 +220,16 @@ screener:
     # 手工补跑用：置 true 时无视「今天已跑过」这道闸门。照 INDEX_POOL_FORCE 的既有做法，
     # **不提供 HTTP 触发端点**——那又要多一层鉴权，而这个入口一年也用不上几次。
     force: ${SCREENER_PREFETCH_FORCE:false}
+  # 「代码查询 · 深度分析」（章程 §9）。这个端点与主查询**分开**，失败域也分开：
+  # 新闻/公告/政策/大模型任一路抽风都只灰掉自己那张卡，整体仍返回 200。
+  analysis:
+    # 喂给大模型的材料上限（字符）。超了截断并在材料里写明「已截断」——
+    # 不写的话模型会把截断处当成材料就这么多。
+    max-material-chars: ${SCREENER_ANALYSIS_MAX_MATERIAL_CHARS:6000}
+    # 大模型解读的缓存时长（秒）。键是**代码 + 底层快照的取数时刻**，所以同一份快照
+    # 重复点击不再计费；换了快照自然失效，不需要额外失效逻辑。**30 分钟**是
+    # 「够覆盖一次浏览里的反复点击，又不至于让用户看到过期的解读」的量级。
+    brief-cache-seconds: ${SCREENER_ANALYSIS_BRIEF_CACHE_SECONDS:1800}
+    # 解读的最大输出 token。压到 1200 是因为它只写固定几个小节，
+    # 不设上限时模型容易把材料复述一遍。
+    brief-max-tokens: ${SCREENER_ANALYSIS_BRIEF_MAX_TOKENS:1200}

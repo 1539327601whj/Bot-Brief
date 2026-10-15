@@ -360,6 +360,12 @@ public class CodeLookupService {
         LookbackCalculator.Result priceLookbacks = priceLookbacks(resolved, bars);
 
         CodeLookupDTO.QuoteView quoteView = quoteView(quote, resolved, degradations, notes);
+        // 基本面与行情**同生共死**：没取到行情就没有这一块，而「没取到行情」有它自己的原因
+        // （池外指数根本不取、或源明确回了没有这只标的），那句话已经由 quoteView() 写进 notes，
+        // 这里不重复，也不把它说成「这家公司没有 ROE」。
+        CodeLookupDTO.FundamentalsView fundamentals = quote == null
+                ? CodeLookupDTO.FundamentalsView.noQuote()
+                : quote.fundamentals();
         CodeLookupDTO.PositionView position = position(bars.bars());
 
         // **一次查询只读一次「现在」**，DTO 和缓存写的是同一个时刻。
@@ -372,6 +378,7 @@ public class CodeLookupService {
                 nameOf(resolved, quoteView),
                 resolved.kind(), kindLabel(resolved),
                 quoteView,
+                fundamentals,
                 priceLookbacks.current(),
                 priceLookbacks.currentDate() == null ? null : priceLookbacks.currentDate().format(ISO_DATE),
                 cells(priceLookbacks), position, valuation,
@@ -409,8 +416,57 @@ public class CodeLookupService {
     // 行情
     // ------------------------------------------------------------------
 
-    /** 一份报价，外加「它是哪个源给的」。 */
-    private record QuoteRef(CodeLookupDTO.QuoteView view, String provider) {}
+    /**
+     * 一份报价，外加「它是哪个源给的」和随它一起回来的基本面快照。
+     *
+     * <p>{@code fundamentals} 与 {@code view} **必须同源**：它是同一次 {@code ulist} 响应里
+     * 那几个字段拼出来的，换源之后就没有了。分开传会让「报价来自腾讯、基本面却来自东财」
+     * 这种不可能的组合变得可以写出来。
+     */
+    private record QuoteRef(CodeLookupDTO.QuoteView view, CodeLookupDTO.FundamentalsView fundamentals,
+                            String provider) {}
+
+    /**
+     * 把行情那一行里**本来就有、以前被丢掉**的基本面字段端出来。
+     *
+     * <p>这一块**不产生任何外呼**：{@link MarketDataClient#QUOTE_FIELDS} 里一直带着
+     * {@code f37/f41/f46/f49/f57/f133/f8/f24/f25}，只是 {@code QuoteView} 只装了 9 个。
+     *
+     * <p>{@code available} 取「至少有一项非空」。全部为空时**不写「这家公司没有 ROE」**——
+     * 页面区分不了「本来就没有」（ETF 与指数）和「这次没带上」（源改了返回），
+     * 所以只如实说「东财这一行没有返回这几项」（与页面上行业/市值那两格的写法同一条纪律）。
+     */
+    private static CodeLookupDTO.FundamentalsView fundamentalsOf(StockRow row, String provider) {
+        BigDecimal roe = row.getRoe();
+        BigDecimal revenueGrowth = row.getRevenueGrowth();
+        BigDecimal profitGrowth = row.getProfitGrowth();
+        BigDecimal grossMargin = row.getGrossMargin();
+        BigDecimal debtRatio = row.getDebtRatio();
+        BigDecimal dividendYield = row.getDividendYield();
+        BigDecimal turnoverRate = row.getTurnoverRate();
+        BigDecimal amount = row.getAmount();
+        BigDecimal floatMarketCap = row.getFloatMarketCap();
+        BigDecimal change60d = row.getChange60d();
+        BigDecimal ytdChange = row.getYtdChange();
+        BigDecimal bps = row.getBps();
+
+        boolean any = java.util.stream.Stream
+                .of(roe, revenueGrowth, profitGrowth, grossMargin, debtRatio, dividendYield,
+                        turnoverRate, amount, floatMarketCap, change60d, ytdChange, bps)
+                .anyMatch(java.util.Objects::nonNull);
+
+        String providerLabel = sourceLabel(provider);
+        List<String> notes = any
+                ? List.of()
+                : List.of(providerLabel + "这一行没有返回 ROE / 营收同比 / 净利同比 / 毛利率 / 资产负债率 / "
+                        + "股息率 / 换手率 / 流通市值 / 60 日涨跌 / 年初至今（ETF 与指数通常就没有这组财报口径的字段）");
+
+        return new CodeLookupDTO.FundamentalsView(any, provider, providerLabel,
+                roe, revenueGrowth, profitGrowth, grossMargin, debtRatio, dividendYield,
+                turnoverRate, amount, floatMarketCap, change60d, ytdChange, bps,
+                row.getListDate() == null ? null : row.getListDate().format(ISO_DATE),
+                notes);
+    }
 
     /** 「约 N 分钟后可再试」。**按 provider 取剩余时间**：兜底源也限流时要报的是它自己的等待量。 */
     private String cooldownMessage(String provider) {
@@ -458,6 +514,7 @@ public class CodeLookupService {
                             sourceLabel(MarketDataClient.PROVIDER_EASTMONEY),
                             row.getName(), row.getPrice(), row.getPctChange(), row.getPeTtm(), row.getPb(),
                             row.getIndustry(), row.getTotalMarketCap()),
+                            fundamentalsOf(row, MarketDataClient.PROVIDER_EASTMONEY),
                             MarketDataClient.PROVIDER_EASTMONEY);
                 }
                 eastmoneyAnsweredAbsent = true;
@@ -500,7 +557,11 @@ public class CodeLookupService {
                     degrade(degradations, notes, "行情取自兜底源" + sourceLabel(provider) + "（东财没给到）");
                     return new QuoteRef(new CodeLookupDTO.QuoteView(
                             provider, sourceLabel(provider), q.name(), q.price(), q.pctChange(),
-                            q.peTtm(), q.pb(), null, q.marketCap()), provider);
+                            q.peTtm(), q.pb(), null, q.marketCap()),
+                            // 兜底源只给价格与成交额。**不能拿东财那一套字段来填**——
+                            // 那是两个源，混起来就是「值有出处、出处是错的」。
+                            CodeLookupDTO.FundamentalsView.unavailableFrom(provider, sourceLabel(provider)),
+                            provider);
                 }
                 // 走到这里说明**真的发过请求**，且确实没有这一行
                 fallbackAnsweredAbsent = true;

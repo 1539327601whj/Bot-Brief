@@ -541,6 +541,32 @@ public class MarketDataClient {
      * 限流的翻译同理，必须在同一个地方做，否则「哪个客户端会进冷却」就说不清了。
      */
     static Map<String, Object> fetchJson(RestTemplate restTemplate, URI uri, String referer) {
+        String body = fetchBody(restTemplate, uri, referer);
+        try {
+            return MAPPER.readValue(body, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException e) {
+            // 服务端用纯文本回业务错误（例如 filter 写错）时会走到这里。
+            // 把原文截一段带上，别让人对着一个「解析失败」猜发生了什么。
+            throw new MarketDataException(
+                    "行情源返回的不是 JSON：" + snippet(body) + "（" + shortUrl(uri) + "）", e);
+        }
+    }
+
+    /**
+     * 发一次 GET，把响应体**原样**取回来。{@link #fetchJson} 与
+     * {@link EastMoneyNewsClient}（它要的是 JSONP，不是 JSON）共用这一段。
+     *
+     * <p>抽出来的理由与 {@code fetchJson} 当初抽成静态的理由逐字相同：
+     * 「先读 {@code byte[]}、自己定字符集、再把限流翻译成显式异常」这三件事
+     * **不能有第二份实现**。复制出去之后，哪天有人只改了其中一处的解码，
+     * 另一处就会继续把中文解成乱码——而那种乱码能通过 JSON 解析，一路混进结果页
+     * 不带任何报错。限流同理：分两处判断，「哪个客户端会进冷却」就说不清了。
+     *
+     * <p>JSONP 那一份**尤其需要**这条路径：它的响应体不是 JSON，
+     * 所以不能借 {@code fetchJson} 的解析结果，必须拿到原文自己剥壳。
+     */
+    static String fetchBody(RestTemplate restTemplate, URI uri, String referer) {
         String body;
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -564,15 +590,7 @@ public class MarketDataClient {
         if (body == null || body.isBlank()) {
             throw new MarketDataException("行情源返回了空响应（" + shortUrl(uri) + "）");
         }
-        try {
-            return MAPPER.readValue(body, new TypeReference<Map<String, Object>>() {
-            });
-        } catch (JsonProcessingException e) {
-            // 服务端用纯文本回业务错误（例如 filter 写错）时会走到这里。
-            // 把原文截一段带上，别让人对着一个「解析失败」猜发生了什么。
-            throw new MarketDataException(
-                    "行情源返回的不是 JSON：" + snippet(body) + "（" + shortUrl(uri) + "）", e);
-        }
+        return body;
     }
 
     /** 失败是否说明「服务端在拒绝我们」而不是「这一条请求有问题」。 */

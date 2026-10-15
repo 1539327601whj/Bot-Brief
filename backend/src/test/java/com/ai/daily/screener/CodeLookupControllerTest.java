@@ -28,12 +28,14 @@ import static org.mockito.Mockito.when;
 class CodeLookupControllerTest {
 
     private CodeLookupService service;
+    private CodeLookupAnalysisService analysisService;
     private CodeLookupController controller;
 
     @BeforeEach
     void setUp() {
         service = mock(CodeLookupService.class);
-        controller = new CodeLookupController(service);
+        analysisService = mock(CodeLookupAnalysisService.class);
+        controller = new CodeLookupController(service, analysisService);
     }
 
     @AfterEach
@@ -53,6 +55,11 @@ class CodeLookupControllerTest {
                 new CodeLookupDTO.QuoteView("eastmoney", "东财", "沪深300ETF",
                         new BigDecimal("4.05"), new BigDecimal("0.52"),
                         null, null, null, null),
+                // ETF 的行情行里本来就没有 ROE / 毛利 / 负债率这组财报口径字段，如实照写。
+                new CodeLookupDTO.FundamentalsView(false, "eastmoney", "东财",
+                        null, null, null, null, null, null,
+                        null, null, null, null, null, null, null,
+                        List.of("东财这一行没有返回 ROE / 营收同比 / 毛利率等字段")),
                 new BigDecimal("4.05"), "2026-09-30", List.of(), null,
                 new CodeLookupDTO.ValuationView(true, "csindex", "中证官网（中证口径）",
                         "CSI_PE_TTM_ROLLING_10Y", new BigDecimal("13.55"), new BigDecimal("42.10"),

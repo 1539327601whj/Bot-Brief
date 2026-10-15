@@ -37,6 +37,16 @@ final class MarketProviders {
             case "datacenter-web.eastmoney.com",
                  "push2.eastmoney.com",
                  "push2his.eastmoney.com" -> MarketDataClient.PROVIDER_EASTMONEY;
+            // 下面两个也是东财的域名，但**刻意不并入上面那一键**（章程 §9.9）。
+            // 归一键管的是「同一封禁面内的配额分摊」——那说的是扫描这种批量高频行为，
+            // 三个行情域共用一份 IP 配额，按域名分桶等于没做限速。
+            // 这两条管的是**不同封禁面之间的隔离**：合成的代价很具体——一次新闻限流
+            // 会把整条价格主链锁死 10 分钟，是纯粹的降级放大。生产证据
+            // （CodeLookupService 顶部注释）已记录过 push2 被封而 datacenter-web 仍 200，
+            // 说明封禁面并不总是同一片。
+            case "np-anotice-stock.eastmoney.com" -> StockNoticeClient.ORIGIN;
+            case "search-api-web.eastmoney.com" -> EastMoneyNewsClient.ORIGIN;
+            case "news.google.com" -> PolicyNewsClient.ORIGIN;
             case "qt.gtimg.cn", "web.ifzq.gtimg.cn" -> AltQuoteSource.PROVIDER_TENCENT;
             case "hq.sinajs.cn" -> AltQuoteSource.PROVIDER_SINA;
             case "www.csindex.com.cn", "csindex.com.cn" -> IndexFundPool.SOURCE_CSINDEX;

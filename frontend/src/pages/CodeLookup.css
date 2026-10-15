@@ -175,17 +175,508 @@
   border-top: 1px dashed var(--border);
 }
 
+/* ------------------------------------------------------------------ */
+/* 深度分析：倾向 / 维度卡 / 体检 / 新闻 / 人工核实 / 大模型解读        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 四态与四个倾向各自一个颜色槽位，**颜色本身不写在这里**——写在下面的类里，
+ * 全部取 index.css 的语义 token。深浅两套主题共用同一套类名：
+ * 写死颜色在深色下是「看不清」，在浅色下是「看不见」，而且不会有人报障。
+ *
+ * 槽位与语义的对应（改的时候照这条对齐，别凭感觉挑色）：
+ *   偏正面 / 偏可关注 → --success
+ *   中性   / 需等待   → --warning
+ *   偏负面 / 风险偏高 → --danger
+ *   未确认 / 数据不足 → 中性灰（--text-muted）——**它不是坏消息，是没消息**，
+ *                       涂成红色会让「本次没取到数」看起来像「出事了」
+ */
+
+/* 小标题：把一张长卡切成几栏，否则判定、体检、新闻、解读会连成一片 */
+.codelookup-subhead {
+  margin: 20px 22px 0;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* 倾向标签：整页唯一给出倾向的地方，所以给它最大的视觉权重            */
+/* ------------------------------------------------------------------ */
+
+.codelookup-tendency {
+  margin: 10px 22px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-tendency-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.codelookup-tendency-head label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.codelookup-tendency-head strong {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.codelookup-tendency-score {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelookup-tendency ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.codelookup-tendency ul li {
+  margin-top: 3px;
+}
+
+/*
+ * 「未计入本次倾向」**单独一行、单独一道左边框**。
+ * 它极易被读成「没问题」，所以不能混在上面的理由里当一个 bullet。
+ */
+.codelookup-tendency-excluded {
+  margin: 10px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-subtle);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.codelookup-tendency-excluded b {
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+.codelookup-tendency-watch { border-left-color: var(--success); }
+.codelookup-tendency-watch .codelookup-tendency-head strong { color: var(--success); }
+
+.codelookup-tendency-wait { border-left-color: var(--warning); }
+.codelookup-tendency-wait .codelookup-tendency-head strong { color: var(--warning); }
+
+.codelookup-tendency-risk { border-left-color: var(--danger); }
+.codelookup-tendency-risk .codelookup-tendency-head strong { color: var(--danger); }
+
+.codelookup-tendency-insufficient { border-left-color: var(--text-muted); }
+.codelookup-tendency-insufficient .codelookup-tendency-head strong { color: var(--text-muted); }
+
+/* ------------------------------------------------------------------ */
+/* 维度判定卡                                                          */
+/* ------------------------------------------------------------------ */
+
+.codelookup-verdict-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 12px 22px 0;
+}
+
+.codelookup-verdict {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--text-muted);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-verdict header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.codelookup-verdict header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.codelookup-verdict header span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.codelookup-verdict-fav { border-top-color: var(--success); }
+.codelookup-verdict-fav header span { color: var(--success); }
+
+.codelookup-verdict-neutral { border-top-color: var(--warning); }
+.codelookup-verdict-neutral header span { color: var(--warning); }
+
+.codelookup-verdict-unfav { border-top-color: var(--danger); }
+.codelookup-verdict-unfav header span { color: var(--danger); }
+
+.codelookup-verdict-insufficient { border-top-color: var(--text-muted); }
+.codelookup-verdict-insufficient header span { color: var(--text-muted); }
+
+.codelookup-verdict-uncounted {
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.codelookup-verdict-metrics {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 一格指标摊成两行：第一行「名字 …… 值」，第二行是**凭什么这么判**。
+ * 值必须等宽且右对齐——「9」比「1」窄，不等宽的话每一格的小数点对不齐，
+ * 而这一栏存在的意义就是让人横向扫一遍。
+ */
+.codelookup-verdict-metrics li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.codelookup-verdict-metrics li:last-child {
+  border-bottom: none;
+}
+
+.codelookup-verdict-metrics li b {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.codelookup-metric-value {
+  flex: 1 1 auto;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.codelookup-metric-basis {
+  flex: 1 0 100%;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.codelookup-verdict-reasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* ------------------------------------------------------------------ */
+/* 排雷体检：命中项必须一眼挑出来                                      */
+/* ------------------------------------------------------------------ */
+
+.codelookup-checkup {
+  margin: 10px 22px 0;
+  padding: 10px 14px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-checkup li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.codelookup-checkup li b {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.codelookup-checkup-state {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+}
+
+.codelookup-checkup-detail {
+  flex: 1 1 100%;
+  color: var(--text-subtle);
+}
+
+/*
+ * 命中项整行上警告色，并且**只在命中时才上**：12 条规则条条都是红的，
+ * 就等于没标——真命中的那一条会混在里面认不出来。
+ */
+.codelookup-checkup-hit {
+  /* 左边框压到容器的 padding 边上（容器左右各留 14px），命中行因此比未命中行
+     往外凸一道竖线——扫的时候是「这一列有东西」，不是「这一行文字变红了」 */
+  margin-left: -14px;
+  padding-left: 11px;
+  border-left: 3px solid var(--warning);
+}
+
+.codelookup-checkup-hit b,
+.codelookup-checkup-hit .codelookup-checkup-state {
+  color: var(--warning);
+}
+
+/* ------------------------------------------------------------------ */
+/* 新闻三组：公告 / 新闻 / 政策                                        */
+/* ------------------------------------------------------------------ */
+
+.codelookup-news {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin: 12px 22px 0;
+}
+
+.codelookup-news-group {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+/*
+ * 「这一路源没取到」与「源正常回、只是没有条目」**必须长得不一样**。
+ * 一样的灰卡会让「东财挂了」和「这只票最近没公告」在页面上无法区分，
+ * 而两者的下一步动作完全相反（一个去查源，一个什么也不用做）。
+ */
+.codelookup-news-failed {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  opacity: 0.72;
+}
+
+.codelookup-news-group header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.codelookup-news-group header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.codelookup-news-group header span {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.codelookup-news-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.codelookup-news-group li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.codelookup-news-group li:last-child {
+  border-bottom: none;
+}
+
+/* 日期等宽：一列日期对齐之后，才能一眼扫出「最近一条是什么时候」 */
+.codelookup-news-date {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelookup-news-group li a {
+  flex: 1 1 240px;
+  color: var(--text);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.codelookup-news-group li a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.codelookup-news-source {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.codelookup-news-note {
+  margin: 8px 0 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* 人工核实清单：**全是问句**，所以版式上也要像一份待办，不像结论       */
+/* ------------------------------------------------------------------ */
+
+.codelookup-manual {
+  margin: 10px 22px 0;
+  padding: 10px 14px 10px 34px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.codelookup-manual li {
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* 大模型解读                                                          */
+/* ------------------------------------------------------------------ */
+
+.codelookup-ai {
+  margin: 10px 22px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.codelookup-ai-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 0 6px;
+}
+
+.codelookup-ai-head h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.codelookup-ai-head span {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+/*
+ * 失败原因**不当解读正文排版**：它长得像结论，实际是一句报错。
+ * 等宽 + 左边框，视觉上就是「这是机器的原话」，不是模型在说话。
+ */
+.codelookup-ai-failure {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning);
+  color: var(--text-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.codelookup-ai-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* 解读正文：Markdown 渲染出来的小节标题跟着这一块的节奏收一收 */
+.codelookup-ai .market-markdown {
+  margin-top: 6px;
+}
+
+.codelookup-ai .market-markdown .md-section {
+  margin-top: 14px;
+  font-size: 14px;
+}
+
+.codelookup-ai .market-markdown p,
+.codelookup-ai .market-markdown li {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
 @media (max-width: 720px) {
   .codelookup-meta,
   .codelookup-baselines,
   .codelookup-missing,
-  .codelookup-notes {
+  .codelookup-notes,
+  .codelookup-subhead,
+  .codelookup-tendency,
+  .codelookup-checkup,
+  .codelookup-manual,
+  .codelookup-ai {
     padding-left: 14px;
     padding-right: 14px;
   }
 
   .codelookup-missing,
-  .codelookup-notes {
+  .codelookup-notes,
+  .codelookup-tendency,
+  .codelookup-verdict-grid,
+  .codelookup-checkup,
+  .codelookup-manual,
+  .codelookup-news,
+  .codelookup-ai {
     margin-left: 14px;
     margin-right: 14px;
   }
@@ -193,5 +684,16 @@
   .codelookup-missing li {
     flex-direction: column;
     gap: 2px;
+  }
+
+  /* 窄屏下两栏并排是读不了的——判定卡与新闻组各自单列 */
+  .codelookup-verdict-grid,
+  .codelookup-news {
+    grid-template-columns: 1fr;
+  }
+
+  .codelookup-subhead {
+    margin-left: 14px;
+    margin-right: 14px;
   }
 }
