@@ -170,6 +170,9 @@ class RateLimitConfig:
     min_interval_ms: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_MIN_INTERVAL_MS))
     max_wait_ms: int = 8000
     cooldown_seconds: int = 600
+    # 连接被重置/TLS 中断通常不是瞬断，而是对端按 IP 或域名族封禁。
+    # 这类失败也要写冷却，否则 worker 会按重试间隔反复撞同一个域名，把封禁拖得更久。
+    network_cooldown_seconds: int = 900
     # 批量链路拿到 429 时，交互链路也同步退避一小段，避免 Java 在这段时间继续撞墙。
     interactive_backoff_seconds: int = 120
     breaker_seconds: int = 30
@@ -195,6 +198,7 @@ class RateLimitConfig:
             min_interval_ms=intervals,
             max_wait_ms=env_int("WAREHOUSE_MAX_WAIT_MS", 8000, 100),
             cooldown_seconds=env_int("WAREHOUSE_COOLDOWN_SECONDS", 600, 30),
+            network_cooldown_seconds=env_int("WAREHOUSE_NETWORK_COOLDOWN_SECONDS", 900, 60),
             interactive_backoff_seconds=env_int("WAREHOUSE_INTERACTIVE_BACKOFF_SECONDS", 120, 0),
             breaker_seconds=env_int("WAREHOUSE_DB_BREAKER_SECONDS", 30, 1),
             cooldown_cache_ms=env_int("WAREHOUSE_COOLDOWN_CACHE_MS", 1000, 0),

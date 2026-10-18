@@ -19,6 +19,7 @@ from typing import Any, Sequence
 
 from ..db import WarehouseDb
 from ..normalize import now_beijing
+from ..rate_limit import RateLimited, SourceCooling
 from ..sources.csindex import (
     SOURCE_INDUSTRY,
     SOURCE_PROFILE,
@@ -132,6 +133,10 @@ def sync_csindex_detail(
     try:
         basic = csindex.fetch_basic_info(csindex_code)
         parts["basic"] = SyncOutcome("OK", rows=1, source=SOURCE_PROFILE)
+    except (RateLimited, SourceCooling):
+        # 限流/冷却必须打断整批：单段隔离会把它吞成 FAILED，
+        # 然后继续对同一个源发几十次请求，正是把封禁拖长的做法。
+        raise
     except Exception as exc:  # noqa: BLE001 - 单段失败要隔离
         parts["basic"] = SyncOutcome("FAILED", source=SOURCE_PROFILE, error=str(exc))
 
@@ -146,6 +151,8 @@ def sync_csindex_detail(
         parts["top10"] = SyncOutcome(
             "OK" if rows else "EMPTY", rows=written, source=SOURCE_TOP10
         )
+    except (RateLimited, SourceCooling):
+        raise
     except Exception as exc:  # noqa: BLE001
         parts["top10"] = SyncOutcome("FAILED", source=SOURCE_TOP10, error=str(exc))
 
@@ -160,6 +167,8 @@ def sync_csindex_detail(
         parts["industry"] = SyncOutcome(
             "OK" if rows else "EMPTY", rows=written, source=SOURCE_INDUSTRY
         )
+    except (RateLimited, SourceCooling):
+        raise
     except Exception as exc:  # noqa: BLE001
         parts["industry"] = SyncOutcome("FAILED", source=SOURCE_INDUSTRY, error=str(exc))
 

@@ -413,6 +413,36 @@ class RateGate:
             logger.warning("源被限流，已进入冷却 provider=%s host=%s detail=%s", provider, host_key, detail)
             self._last_warn_at = now
 
+    def note_network_failure(self, provider: str, host_key: str | None, detail: str) -> None:
+        """连接被重置/TLS 中断后写域名族冷却。
+
+        只冷却**域名族**，不冷却整个 ``eastmoney:batch`` 车道：push2 被重置时
+        datacenter-web 往往仍然可用（实测如此），一刀切会把还能跑的任务一起停掉。
+        """
+        seconds = min(max(60, self.config.network_cooldown_seconds), 6 * 3600)
+        keys = [host_key or provider]
+        # 行情域名被封时，交互链路多半也撞同一堵墙，让它同步退避一小段。
+        if host_key in ("eastmoney:push2", "eastmoney:push2his") and \
+                self.config.interactive_backoff_seconds > 0:
+            keys.append("eastmoney:interactive")
+        for key in dict.fromkeys(keys):
+            key_seconds = (
+                self.config.interactive_backoff_seconds
+                if key == "eastmoney:interactive" else seconds
+            )
+            try:
+                self.store.enter_cooldown(key, key_seconds, detail)
+            except SourceStateUnavailable as exc:
+                logger.warning("写入网络冷却失败 provider=%s: %s", key, exc)
+            self._cache_cooldown(key, CooldownInfo(key, True, key_seconds * 1000, detail))
+        now = self.clock()
+        if now - self._last_warn_at > 60:
+            logger.warning(
+                "源连接被重置，按域名族冷却 provider=%s host=%s %ss detail=%s",
+                provider, host_key, seconds, detail,
+            )
+            self._last_warn_at = now
+
     def recently_active(self, provider: str, window_seconds: int) -> bool:
         try:
             return self.store.recently_active(provider, window_seconds)
@@ -489,9 +519,26 @@ class HttpSource:
                 timeout=timeout or self.config.http_timeout,
             )
         except requests.RequestException as exc:
+            # 连接被重置 / TLS 中断不是普通的超时：对端在握手后立刻断开，
+            # 典型原因就是按 IP 或域名族封禁。写冷却，避免每次重试都再撞一次。
+            if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.SSLError)):
+                key = host_key_for(url) if provider.startswith("eastmoney") else None
+                if key:
+                    self.gate.note_network_failure(
+                        provider, key, f"{type(exc).__name__}: {exc}"[:500],
+                    )
             raise SourceUnavailable(f"{provider} 网络错误: {type(exc).__name__}: {exc}") from exc
 
         text = response.text or ""
+        # 中证官网对突发请求回 403 + WAF 页面（实测 basic-info 最敏感），
+        # 这不是「没权限」，按限流处理：写冷却、不重试，避免继续触发。
+        if response.status_code == 403 and provider == "csindex":
+            detail = f"HTTP 403 {provider}"
+            # WAF 封禁通常比普通 429 更久，用 30 分钟冷却，别在封禁期反复试。
+            self.gate.note_rate_limited(
+                provider, host_key_for(url), detail, retry_after_seconds=1800,
+            )
+            raise RateLimited(provider, 1800, detail)
         if is_rate_limited(response.status_code, text):
             detail = f"HTTP {response.status_code} {provider}"
             self.gate.note_rate_limited(

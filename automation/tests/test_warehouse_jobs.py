@@ -109,6 +109,10 @@ class EnqueueSqlTest(unittest.TestCase):
         self.assertIn("WHEN status = 'DONE' THEN status", sql)
         self.assertIn("WHEN status = 'RUNNING' THEN status", sql)
 
+    def test_skipped_jobs_are_not_reopened_by_the_scheduler(self):
+        # 调度器每几秒重入队一次；SKIPPED 若被重置回 PENDING，重试上限就失效了。
+        self.assertIn("WHEN status = 'SKIPPED' THEN status", jobs.ENQUEUE_SQL)
+
     def test_payload_roundtrip(self):
         raw = jobs.encode_payload({"name": "贵州茅台", "attempts": 2})
         self.assertIn("贵州茅台", raw)

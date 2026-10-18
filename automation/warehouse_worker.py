@@ -32,7 +32,7 @@ from warehouse.sync import SyncOutcome, combine
 from warehouse.sync.events import sync_events
 from warehouse.sync.index_profile import sync_index_detail
 from warehouse.sync.industry import sync_industry_boards
-from warehouse.sync.instruments import load_index_pool
+from warehouse.sync.instruments import load_index_pool, pool_rows, upsert_instruments
 from warehouse.sync.snapshot import sync_market_snapshot
 from warehouse.sync.stock import sync_stock_detail
 from warehouse.logs import configure as configure_logging
@@ -40,6 +40,15 @@ from warehouse.logs import configure as configure_logging
 logger = logging.getLogger("warehouse.worker")
 
 NEWS_POLICY_SUBJECT_LIMIT = 30
+
+# 每日批量任务在限流后最多重试到上限就收工；用户任务则等冷却结束继续。
+# 否则一次长时间封禁会让批量任务整晚每隔一个冷却周期再撞一次。
+BATCH_TASKS = frozenset({
+    jobs.TASK_DAILY_MARKET_SNAPSHOT,
+    jobs.TASK_DAILY_INDEX_PROFILE,
+    jobs.TASK_DAILY_INDUSTRY,
+    jobs.TASK_NEWS_REFRESH,
+})
 
 
 def _stock_code(job: dict[str, Any]) -> str | None:
@@ -63,6 +72,14 @@ def _index_payload(job: dict[str, Any]) -> dict[str, Any]:
 
 def _run_index_profile(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
     pool = load_index_pool(clients.config)
+    # 画像有数据、标的母表却是空的，v2 连名字和资产类型都查不到。
+    # 池子已经在手里，直接落库；这一步失败不阻塞画像。
+    try:
+        written = upsert_instruments(clients.db, pool_rows(pool))
+        logger.info("index pool instruments -> rows=%s", written)
+    except Exception:  # noqa: BLE001
+        logger.exception("指数池标的写入失败")
+
     cursor = job.get("cursor")
     resume = bool(cursor)
     parts: dict[str, SyncOutcome] = {}
@@ -83,8 +100,11 @@ def _run_index_profile(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
             danjuan_code=entry.get("danjuanCode"),
         )
         parts[index_code] = outcome
-        last_done = index_code
-        jobs.set_cursor(clients.db, job, last_done)
+        if outcome.status != "FAILED":
+            # 失败的那一只要在下次重跑时还回到起点，否则游标越过它之后
+            # 「续跑」会静默跳过，当天的画像就永远缺一块。
+            last_done = index_code
+            jobs.set_cursor(clients.db, job, last_done)
         # 单只指数没有可用来源是正常情况（例如场外指数），不阻塞整批。
         logger.info("index profile %s -> %s rows=%s", index_code, outcome.status, outcome.rows)
 
@@ -165,11 +185,16 @@ def handle_job(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
         outcome = dispatch(clients, job)
     except RateLimited as exc:
         seconds = max(clients.config.rate.cooldown_seconds, exc.retry_after_seconds)
-        jobs.mark_failed(
+        status = jobs.mark_failed(
             clients.db, job, f"限流: {exc}",
-            retry_after_seconds=seconds, permanent=False,
+            retry_after_seconds=seconds,
+            permanent=job["task"] in BATCH_TASKS,
+            max_attempts=clients.config.job_max_attempts,
         )
-        logger.warning("job rate-limited key=%s retryAfter=%ss", job["job_key"], seconds)
+        logger.warning(
+            "job rate-limited key=%s status=%s retryAfter=%ss",
+            job["job_key"], status, seconds,
+        )
         return SyncOutcome("FAILED", error=str(exc))
     except SourceCooling as exc:
         seconds = max(1, exc.remaining_ms // 1000 + 1)

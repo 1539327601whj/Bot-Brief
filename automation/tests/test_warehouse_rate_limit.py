@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import unittest
 
+import requests
+
 import warehouse_fixtures
 
 warehouse_fixtures.ensure_path()
@@ -79,6 +81,16 @@ class FakeSession:
         return self.response
 
 
+class ErrorSession(FakeSession):
+    def __init__(self, error):
+        super().__init__(None)
+        self.error = error
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(url)
+        raise self.error
+
+
 def make_gate(clock=None, store=None):
     clock = clock or FakeClock()
     store = store or InMemorySourceStateStore(clock)
@@ -88,6 +100,12 @@ def make_gate(clock=None, store=None):
 def make_http(response, clock=None):
     gate, clock, store = make_gate(clock)
     session = FakeSession(response)
+    return HttpSource(gate, RateLimitConfig(), session=session), session, store, clock
+
+
+def make_error_http(error, clock=None):
+    gate, clock, store = make_gate(clock)
+    session = ErrorSession(error)
     return HttpSource(gate, RateLimitConfig(), session=session), session, store, clock
 
 
@@ -172,6 +190,28 @@ class RateGateTest(unittest.TestCase):
         clock.advance(601)
         gate.acquire("p")  # 不抛异常即通过
 
+    def test_network_failure_cools_host_family_not_batch_lane(self):
+        gate, clock, store = make_gate()
+        gate.note_network_failure("eastmoney:batch", "eastmoney:push2", "RemoteDisconnected")
+        self.assertTrue(store.cooldown("eastmoney:push2").cooling)
+        # datacenter-web 仍然可用，不能被整个 batch 车道一起停掉。
+        self.assertFalse(store.cooldown("eastmoney:batch").cooling)
+        self.assertTrue(store.cooldown("eastmoney:interactive").cooling)
+
+    def test_datacenter_network_failure_does_not_stop_interactive(self):
+        gate, clock, store = make_gate()
+        gate.note_network_failure(
+            "eastmoney:batch", "eastmoney:datacenter-web", "RemoteDisconnected",
+        )
+        self.assertTrue(store.cooldown("eastmoney:datacenter-web").cooling)
+        self.assertFalse(store.cooldown("eastmoney:interactive").cooling)
+
+    def test_network_cooldown_expires(self):
+        gate, clock, _ = make_gate()
+        gate.note_network_failure("eastmoney:batch", "eastmoney:push2", "RemoteDisconnected")
+        clock.advance(901)
+        gate.acquire("eastmoney:push2")  # 不抛异常即通过
+
     def test_busy_when_budget_is_exceeded(self):
         gate, clock, _ = make_gate()
         gate.acquire("p", interval_ms=10000)
@@ -204,6 +244,29 @@ class HttpSourceTest(unittest.TestCase):
     def test_rate_limit_marker_in_body(self):
         self.assertTrue(is_rate_limited(200, "访问频率过高"))
         self.assertFalse(is_rate_limited(200, "ok"))
+
+    def test_connection_reset_is_not_retried_and_cools_host(self):
+        error = requests.exceptions.ConnectionError(
+            "Remote end closed connection without response"
+        )
+        http, session, store, _ = make_error_http(error)
+        with self.assertRaises(SourceUnavailable):
+            http.get_json("eastmoney:batch", "https://push2.eastmoney.com/api")
+        self.assertEqual(len(session.calls), 1)
+        self.assertTrue(store.cooldown("eastmoney:push2").cooling)
+        self.assertFalse(store.cooldown("eastmoney:batch").cooling)
+        # 冷却期内再次请求应直接失败，不再打网络。
+        with self.assertRaises(SourceCooling):
+            http.get_json("eastmoney:batch", "https://push2.eastmoney.com/api")
+        self.assertEqual(len(session.calls), 1)
+
+    def test_csindex_403_is_treated_as_rate_limited(self):
+        http, session, store, _ = make_http(FakeResponse(403, "<html>405</html>"))
+        with self.assertRaises(RateLimited):
+            http.get_json("csindex", "https://www.csindex.com.cn/csindex-home/indexInfo/index-basic-info/399975")
+        self.assertEqual(len(session.calls), 1)
+        self.assertTrue(store.cooldown("csindex").cooling)
+        self.assertEqual(store.cooldown("csindex").remaining_ms, 1800 * 1000)
 
     def test_server_error_is_unavailable(self):
         http, session, _, _ = make_http(FakeResponse(503, "down"))

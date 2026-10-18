@@ -16,7 +16,9 @@ from warehouse.sources.eastmoney import parse_quote_row  # noqa: E402
 from warehouse.sources.news import SOURCE_NEWS  # noqa: E402
 from warehouse.sync import SyncOutcome  # noqa: E402
 from warehouse.sync.events import sync_events  # noqa: E402
+from warehouse.sync.index_profile import sync_csindex_detail  # noqa: E402
 from warehouse.sync.instruments import (  # noqa: E402
+    _pool_items,
     index_market,
     load_index_pool,
     pool_rows,
@@ -363,6 +365,36 @@ class InstrumentsTest(unittest.TestCase):
             config = Config.from_env().with_pool_path(path)
             with self.assertRaises(RuntimeError):
                 load_index_pool(config)
+
+    def test_backend_result_wrapper_is_accepted(self):
+        # 后端 /api/index-pool 走统一 Result 包装：{"code":200,"data":[...]}。
+        payload = {"code": 200, "message": "success", "data": self.pool()}
+        self.assertEqual(_pool_items(payload, "test")[0]["indexCode"], "SH000300")
+
+    def test_backend_error_is_reported_with_code_and_message(self):
+        payload = {"code": 401, "message": "查询 token 无效", "data": None}
+        with self.assertRaises(RuntimeError) as ctx:
+            _pool_items(payload, "backend:/api/index-pool")
+        self.assertIn("401", str(ctx.exception))
+        self.assertIn("查询 token 无效", str(ctx.exception))
+
+
+class IndexProfileRateLimitTest(unittest.TestCase):
+    class LimitedCsindex:
+        def fetch_basic_info(self, code):
+            raise RateLimited("csindex", 0, "HTTP 403")
+
+        def fetch_top10(self, code):
+            raise AssertionError("限流后不应继续打同一个源")
+
+        def fetch_industry_weight(self, code):
+            raise AssertionError("限流后不应继续打同一个源")
+
+    def test_rate_limit_is_not_swallowed_by_section_isolation(self):
+        with self.assertRaises(RateLimited):
+            sync_csindex_detail(
+                FakeDb(), self.LimitedCsindex(), "SZ399975", "399975",
+            )
 
 
 if __name__ == "__main__":

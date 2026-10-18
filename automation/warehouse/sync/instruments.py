@@ -74,7 +74,23 @@ def load_index_pool(config: Config, timeout: float = 10.0) -> list[dict[str, Any
 
 
 def _pool_items(payload: Any, origin: str) -> list[dict[str, Any]]:
-    items = payload.get("indices") if isinstance(payload, dict) else payload
+    """本地 ``index-pool.json`` 与后端 ``/api/index-pool`` 的两种外壳都接受。
+
+    本地文件是 ``{"indices": [...]}``；后端走统一 ``Result`` 包装，
+    实际是 ``{"code":200,"message":"success","data":[...]}``。只认 ``indices``
+    会让容器里永远读不到池子，还必须等到任务失败三次才会发现。
+    """
+    if isinstance(payload, dict):
+        if "data" in payload and "code" in payload:
+            code = payload.get("code")
+            if str(code) != "200":
+                message = clean_text(payload.get("message")) or "未知错误"
+                raise RuntimeError(f"指数池接口返回 {code}: {message}（{origin}）")
+            items = payload.get("data")
+        else:
+            items = payload.get("indices")
+    else:
+        items = payload
     if not isinstance(items, list) or not items:
         raise RuntimeError(f"指数池为空或格式错误: {origin}")
     return [item for item in items if isinstance(item, dict)]

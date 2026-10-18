@@ -72,6 +72,9 @@ ON DUPLICATE KEY UPDATE
     status = CASE
         WHEN status = 'RUNNING' THEN status
         WHEN status = 'DONE' THEN status
+        -- SKIPPED 是「今天不再试了」：调度器每几秒重入队一次，
+        -- 若把它重置回 PENDING，重试上限就形同虚设，被封的域名会被整晚反复撞。
+        WHEN status = 'SKIPPED' THEN status
         WHEN retry_after IS NOT NULL AND retry_after > NOW(3) THEN status
         ELSE 'PENDING'
     END
