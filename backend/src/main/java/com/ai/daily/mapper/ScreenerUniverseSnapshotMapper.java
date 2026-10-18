@@ -33,6 +33,19 @@ public interface ScreenerUniverseSnapshotMapper extends BaseMapper<ScreenerUnive
     int countByPrefetchDate(@Param("prefetchDate") LocalDate prefetchDate);
 
     /**
+     * 不晚于 {@code date} 的最近一个**交易日**。
+     *
+     * <p>「今天没有快照」不等于「库里没有可用的快照」：预取失败、周末、节假日都会让
+     * 今天那一行不存在，而上一份收盘数据仍然是对的。读侧用它做陈旧兜底，
+     * **不是**拿它冒充今天的数据——调用方会把交易日原样写进页面。
+     *
+     * <p>用 {@code MAX(trade_date)} 而不是按 {@code prefetch_date} 找：
+     * 快照的「新鲜度」由交易日决定，预取自然日只是任务运行时间。
+     */
+    @Select("SELECT MAX(trade_date) FROM screener_universe_snapshot WHERE trade_date <= #{date}")
+    LocalDate findLatestTradeDateUpTo(@Param("date") LocalDate date);
+
+    /**
      * 取某交易日的头。**唯一键保证最多一行**，所以不用 {@code LIMIT}。
      *
      * <p>这里能用 {@code SELECT *} 而明细表那条必须逐列写出来：本表十列的名字与属性名

@@ -620,7 +620,7 @@ public class WarehouseRepository {
 
     public Optional<WarehouseRows.SyncJob> findJob(String jobKey) {
         List<WarehouseRows.SyncJob> rows = jdbcTemplate.query(
-                "SELECT id, job_key, task, status, priority, instrument_code, payload_json, cursor, "
+                "SELECT id, job_key, task, status, priority, instrument_code, payload_json, `cursor`, "
                         + "rows_affected, error, retry_after, started_at, finished_at "
                         + "FROM md_sync_job WHERE job_key = ?",
                 (rs, rowNum) -> syncJob(rs), jobKey);
@@ -629,7 +629,7 @@ public class WarehouseRepository {
 
     public Optional<WarehouseRows.SyncJob> latestJob(String instrumentCode, String task) {
         List<WarehouseRows.SyncJob> rows = jdbcTemplate.query(
-                "SELECT id, job_key, task, status, priority, instrument_code, payload_json, cursor, "
+                "SELECT id, job_key, task, status, priority, instrument_code, payload_json, `cursor`, "
                         + "rows_affected, error, retry_after, started_at, finished_at "
                         + "FROM md_sync_job WHERE instrument_code = ? AND task = ? "
                         + "ORDER BY id DESC LIMIT 1",

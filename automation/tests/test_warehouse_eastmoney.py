@@ -11,13 +11,13 @@ from warehouse.sources.eastmoney import (  # noqa: E402
     KLINE_URL,
     MONEYFLOW_URL,
     QUOTE_URL,
-    UNIVERSE_FIELDS,
     EastmoneyClient,
     parse_financial_payloads,
     parse_kline_line,
     parse_quote_row,
     quote_to_instrument,
     quote_trade_date,
+    universe_list_query,
 )
 
 FakeHttp = warehouse_fixtures.FakeHttp
@@ -188,12 +188,78 @@ class ClientTest(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["main_net"], 1200000.0)
         self.assertAlmostEqual(rows[1]["main_ratio"], -1.7)
 
-    def test_fetch_universe_passes_expected_fields(self):
-        http = FakeHttp({"qt/clist/get": load_json("eastmoney_universe.json")})
+    def test_universe_list_query_keeps_filter_raw(self):
+        """filter 不能百分号编码：服务端用 ANTLR 解析它且不做 URL 解码。"""
+        url = universe_list_query(300, "TOTAL_MARKET_CAP", -1, "(TRADE_DATE='2025-09-30')")
+        self.assertIn("filter=(TRADE_DATE='2025-09-30')", url)
+        self.assertNotIn("%", url)
+        self.assertIn("sortTypes=-1", url)
+
+    def test_fetch_universe_uses_datacenter_list_then_batched_quotes(self):
+        """清单走 datacenter-web，基本面走 ulist；北交所不进池子。"""
+        http = FakeHttp({
+            # 第一问：最新交易日。必须排在清单前面，否则同一个 URL 会先命中清单夹具。
+            "columns=TRADE_DATE": {
+                "result": {"data": [{"TRADE_DATE": "2025-09-30 00:00:00"}], "count": 1},
+            },
+            "reportName=RPT_VALUEANALYSIS_DET": {
+                "result": {
+                    "data": [
+                        {"SECURITY_CODE": "600519", "SECUCODE": "600519.SH",
+                         "SECURITY_NAME_ABBR": "贵州茅台", "TOTAL_MARKET_CAP": 1.5e12},
+                        {"SECURITY_CODE": "300274", "SECUCODE": "300274.SZ",
+                         "SECURITY_NAME_ABBR": "阳光电源", "TOTAL_MARKET_CAP": 1.0e11},
+                        {"SECURITY_CODE": "000001", "SECUCODE": "000001.SZ",
+                         "SECURITY_NAME_ABBR": "平安银行", "TOTAL_MARKET_CAP": 8.0e10},
+                        {"SECURITY_CODE": "830001", "SECUCODE": "830001.BJ",
+                         "SECURITY_NAME_ABBR": "北交标的", "TOTAL_MARKET_CAP": 5.0e9},
+                    ],
+                    "count": 4,
+                },
+            },
+            "qt/ulist.np/get": load_json("eastmoney_universe.json"),
+        })
+
         rows = client(http).fetch_universe(10)
-        self.assertEqual(len(rows), 3)
-        _, _, params = http.calls[0]
-        self.assertEqual(params["fields"], UNIVERSE_FIELDS)
+
+        self.assertEqual([row["raw_code"] for row in rows], ["600519", "300274", "000001"])
+        self.assertIn("columns=TRADE_DATE", http.calls[0][1])
+        list_url = http.calls[1][1]
+        self.assertIn("filter=(TRADE_DATE='2025-09-30')", list_url)
+        self.assertNotIn("%28", list_url)
+        # 北交所（830001）必须被剔掉，不能进 secids
+        self.assertEqual(http.calls[2][2]["secids"], "1.600519,0.300274,0.000001")
+
+    def test_fetch_universe_pages_when_server_truncates_the_page_size(self):
+        """服务端把 pageSize=4 截成 2 条时，按实际条数继续翻，不能静默少扫。"""
+        def list_row(code, secucode):
+            return {"SECURITY_CODE": code, "SECUCODE": secucode,
+                    "SECURITY_NAME_ABBR": code, "TOTAL_MARKET_CAP": 1.0}
+
+        http = FakeHttp({
+            "columns=TRADE_DATE": {
+                "result": {"data": [{"TRADE_DATE": "2025-09-30 00:00:00"}], "count": 1},
+            },
+            # 第二页：同一个 reportName，靠 pageNumber 区分，所以必须排在它前面
+            "pageNumber=2": {
+                "result": {"data": [list_row("000001", "000001.SZ"),
+                                    list_row("600000", "600000.SH")], "count": 4},
+            },
+            "reportName=RPT_VALUEANALYSIS_DET": {
+                "result": {"data": [list_row("600519", "600519.SH"),
+                                    list_row("300274", "300274.SZ")], "count": 4},
+            },
+            "qt/ulist.np/get": load_json("eastmoney_universe.json"),
+        })
+
+        client(http).fetch_universe(4)
+
+        second_page_url = http.calls[2][1]
+        self.assertIn("pageNumber=2", second_page_url)
+        # 页大小用服务端实际返回的 2，而不是某个配置里的默认页大小
+        self.assertIn("pageSize=2", second_page_url)
+        self.assertEqual(http.calls[3][2]["secids"],
+                         "1.600519,0.300274,0.000001,1.600000")
 
 
 if __name__ == "__main__":

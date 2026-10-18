@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -153,6 +154,30 @@ class StockScreenerServicePrefetchReadTest {
         // 连「今天有没有快照」都不该问：判据在钟点这一项就断了，库一次都不碰
         verify(prefetchService, never()).hasSnapshotFor(any());
         verify(prefetchService, never()).snapshotFor(any());
+        // 陈旧兜底同理：盘中拿昨天的收盘价冒充今天的现价位置，比空白更糟
+        verify(prefetchService, never()).latestSnapshotUpTo(any(), anyInt());
+    }
+
+    /**
+     * 今天那份没有（预取被限流 / 周末 / 节假日）时，用最近一份收盘快照顶上，
+     * **不要再打行情源**——预取失败通常意味着源正在限流。
+     */
+    @Test
+    void withoutTodaysSnapshotTheLatestPrefetchIsUsedInsteadOfTheSource() {
+        when(prefetchService.hasSnapshotFor(any(LocalDate.class))).thenReturn(false);
+        when(prefetchService.latestSnapshotUpTo(any(LocalDate.class), anyInt()))
+                .thenReturn(Optional.of(snapshot(List.of(row("600519", "贵州茅台")))));
+
+        var result = service(AFTER_CLOSE, true).scan(ScreenerParams.defaults());
+
+        verify(client, never()).fetchUniverse();
+        assertThat(result.summary().scanned()).isEqualTo(1);
+        // 页面必须看得见「这是哪一天的数据」，不能把旧快照当今天
+        assertThat(result.summary().degradations())
+                .anySatisfy(d -> assertThat(d).contains("交易日 " + TRADE_DATE))
+                .anySatisfy(d -> assertThat(d).contains("不是今天的数据"));
+        assertThat(result.summary().notes())
+                .anySatisfy(n -> assertThat(n).contains("最近一份"));
     }
 
     @Test

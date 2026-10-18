@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS md_sync_job (
     priority INT NOT NULL DEFAULT 50 COMMENT '数字越大越先跑；用户任务 100，批量任务 10',
     instrument_code VARCHAR(64) DEFAULT NULL,
     payload_json TEXT DEFAULT NULL,
-    cursor VARCHAR(255) DEFAULT NULL COMMENT '续跑游标',
+    `cursor` VARCHAR(255) DEFAULT NULL COMMENT '续跑游标',
     rows_affected INT DEFAULT NULL,
     error VARCHAR(1000) DEFAULT NULL,
     retry_after DATETIME(3) DEFAULT NULL COMMENT '限流冷却结束前不重排',

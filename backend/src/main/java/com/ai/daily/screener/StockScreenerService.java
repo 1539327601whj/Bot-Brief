@@ -91,6 +91,16 @@ public class StockScreenerService {
     private final int indexPoolMaxLiveFetches;
     private final ExecutorService fetchPool;
 
+    /**
+     * 陈旧预取快照最多能用多少天。超过就当「没有可用数据」，退回实时。
+     *
+     * <p>用字段注入而不是构造器：这是一个纯策略旋钮，加进构造器会逼着所有
+     * 直接 {@code new} 这个类的测试一起改签名，而它们测的是取数链，不是这个数。
+     * 测试里不经过 Spring 时保留初始值 14。
+     */
+    @Value("${screener.prefetch.max-stale-days:14}")
+    private int prefetchMaxStaleDays = 14;
+
     public StockScreenerService(
             MarketDataClient marketDataClient,
             ScreenerCache cache,
@@ -148,10 +158,19 @@ public class StockScreenerService {
         if (p.wantsStocks()) {
             // 该不该读预取库，在取数**之前**定下来。判据本身是纯函数，时间与「库里有没有」
             // 都由这里给（后者做成懒查询，见 ScreenerPrefetchPolicy）。
-            boolean usePrefetched = ScreenerPrefetchPolicy.shouldReadFromDb(
-                    prefetchReadEnabled, localTimeNow(), () -> prefetchService.hasSnapshotFor(today));
-            Optional<MarketDataClient.UniverseSnapshot> fromPrefetch =
-                    usePrefetched ? loadUniverseFromPrefetch(notes, today) : Optional.empty();
+            Optional<MarketDataClient.UniverseSnapshot> fromPrefetch = Optional.empty();
+            if (ScreenerPrefetchPolicy.canReadFromDb(prefetchReadEnabled, localTimeNow())) {
+                boolean hasToday = prefetchService.hasSnapshotFor(today);
+                fromPrefetch = hasToday
+                        ? loadUniverseFromPrefetch(notes, today)
+                        : Optional.empty();
+                // 今天那份没有（预取被限流、周末、节假日）时，先用最近一份收盘快照顶上。
+                // 这一步是**在撞行情源之前**做的：预取失败通常意味着源正在限流，
+                // 再实时打一次只会把封禁推得更深，而上一份收盘数据本来就是当前可得的最近事实。
+                if (fromPrefetch.isEmpty()) {
+                    fromPrefetch = loadLatestUniverseFromPrefetch(today, notes, degradations);
+                }
+            }
             // 预取库没有 / 读挂了都走这一支，实时路径一行没变。
             snapshot = fromPrefetch.isPresent() ? fromPrefetch.get() : loadUniverse(degradations);
             universe = snapshot.rows();
@@ -346,6 +365,44 @@ public class StockScreenerService {
             return fromDb;
         } catch (RuntimeException e) {
             log.warn("读本地预取库失败，本次退回实时路径：{}", e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 今天那份快照拿不到时，用最近一份收盘快照顶上。**没有就返回 empty，交给实时路径。**
+     *
+     * <p>这不是「拿旧数据冒充新数据」：交易日会原样写进口径摘要与降级提示，
+     * 页面上看得见这份快照属于哪一天。它换来的是「预取被限流时页面不空白」——
+     * 而预取失败通常正是行情源正在限流的信号，此时再实时打一次只会加深封禁。
+     *
+     * <p>与 {@link #loadUniverseFromPrefetch} 一样，任何异常都不许冒出来。
+     */
+    private Optional<MarketDataClient.UniverseSnapshot> loadLatestUniverseFromPrefetch(
+            LocalDate today, List<String> notes, List<String> degradations) {
+        try {
+            Optional<MarketDataClient.UniverseSnapshot> fromDb =
+                    prefetchService.latestSnapshotUpTo(today, prefetchMaxStaleDays);
+            if (fromDb.isEmpty()) {
+                return Optional.empty();
+            }
+            MarketDataClient.UniverseSnapshot s = fromDb.get();
+            cache.putUniverseFromPrefetch(s);
+            boolean sameDay = s.tradeDate() != null && s.tradeDate().equals(today);
+            if (sameDay) {
+                notes.add("本次全市场快照取自本地预取库（" + s.tradeDate()
+                        + " 收盘后预取，未外呼行情源）");
+            } else {
+                degradations.add("今日盘后预取未完成，本次全市场快照用的是本地最近一份"
+                        + "（交易日 " + s.tradeDate() + "），不是今天的数据；"
+                        + "基本面、估值与当日涨跌幅都是该交易日收盘口径。");
+                notes.add("全市场快照取自本地预取库的最近一份，未外呼行情源");
+            }
+            log.info("全市场快照取自本地预取库最近一份：tradeDate={} {} 只（今天 {}）",
+                    s.tradeDate(), s.rows().size(), today);
+            return fromDb;
+        } catch (RuntimeException e) {
+            log.warn("读本地预取库的最近一份失败，本次退回实时路径：{}", e.toString());
             return Optional.empty();
         }
     }

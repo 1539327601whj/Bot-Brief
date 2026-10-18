@@ -171,14 +171,29 @@ mysql -u root -p ai_daily < backend/sql/V15__investment_warehouse.sql
 
 ```sql
 CREATE USER IF NOT EXISTS 'warehouse'@'%' IDENTIFIED BY '<strong-password>';
-GRANT SELECT, INSERT, UPDATE ON ai_daily.md\_% TO 'warehouse'@'%';
+-- MySQL 的 GRANT 只支持库名通配，不支持表名通配（md_% / md\_% 都会报错），
+-- 因此逐表授权；以后新增 md_* 表时要在这里补一条。
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_instrument` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_price_daily` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_valuation_daily` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_financial_report` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_moneyflow_daily` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_index_profile` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_index_industry_weight` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_index_constituent` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_industry_board` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_industry_constituent` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_event` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_analysis_cache` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_sync_job` TO 'warehouse'@'%';
+GRANT SELECT, INSERT, UPDATE ON `ai_daily`.`md_source_state` TO 'warehouse'@'%';
 -- 只读这一张：healthcheck 要通过 information_schema 看到 V15 补的两列，
 -- 而 MySQL 只展示当前账号有权限的表。
-GRANT SELECT ON ai_daily.market_valuation_history TO 'warehouse'@'%';
+GRANT SELECT ON `ai_daily`.`market_valuation_history` TO 'warehouse'@'%';
 FLUSH PRIVILEGES;
 ```
 
-`GRANT ... ON ai_daily.md\_%` 是通配表名匹配，不是正则；`\_` 用于转义下划线。若 MySQL 账号不允许创建用户，请交给 DBA 执行，并在 `docker-compose.yml` 所在 `.env` 中配置：
+MySQL 的 `GRANT ... ON db.table` **不支持表名通配符**，只支持库名通配（`db.*`）：写 `md_%` 会报 1064，写 `` `md\_%` `` 会把模式当成字面表名报 1146。所以只能逐表授权；新增 `md_*` 表时要同步补一条 GRANT，否则 worker 会报无权限。若 MySQL 账号不允许创建用户，请交给 DBA 执行，并在 `docker-compose.yml` 所在 `.env` 中配置：
 
 ```text
 WAREHOUSE_DB_USER=warehouse

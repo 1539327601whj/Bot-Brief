@@ -193,6 +193,42 @@ class ScreenerPrefetchServiceTest {
     }
 
     @Test
+    void theLatestSnapshotUpToADateKeepsItsOwnTradeDate() {
+        service.save(snapshot(List.of(fullRow(1)), 1, 0), 300);
+        ScreenerUniverseSnapshot header = capturedHeader();
+        List<ScreenerUniverseStock> details = capturedDetails();
+        when(snapshotMapper.findLatestTradeDateUpTo(any())).thenReturn(TRADE_DATE);
+        when(snapshotMapper.findByTradeDate(TRADE_DATE)).thenReturn(header);
+        when(stockMapper.findByTradeDate(TRADE_DATE)).thenReturn(details);
+
+        // 今天是 TRADE_DATE 之后第三天（比如预取连着失败），拿到的仍是那一天的数据。
+        // **tradeDate 必须是数据所属交易日，不能改写成今天**——页面靠它说清「这是哪天的」。
+        Optional<MarketDataClient.UniverseSnapshot> back =
+                service.latestSnapshotUpTo(TRADE_DATE.plusDays(3), 14);
+
+        assertThat(back).isPresent();
+        assertThat(back.get().tradeDate()).isEqualTo(TRADE_DATE);
+        assertThat(back.get().rows()).hasSize(1);
+    }
+
+    @Test
+    void aSnapshotOlderThanTheLimitIsTreatedAsUnavailable() {
+        when(snapshotMapper.findLatestTradeDateUpTo(any())).thenReturn(TRADE_DATE);
+
+        assertThat(service.latestSnapshotUpTo(TRADE_DATE.plusDays(20), 14)).isEmpty();
+
+        // 判定在头表就结束了，不该再去读明细：省一次查询，也让「没有可用数据」这条
+        // 路径不会因为明细表出问题而变成异常。
+        verify(stockMapper, never()).findByTradeDate(any());
+    }
+
+    @Test
+    void latestSnapshotUpToNullIsAnsweredWithoutTouchingTheDatabase() {
+        assertThat(service.latestSnapshotUpTo(null, 14)).isEmpty();
+        verifyNoInteractions(snapshotMapper);
+    }
+
+    @Test
     void theTwoGatesAskTwoDifferentQuestions() {
         when(snapshotMapper.countByTradeDate(TRADE_DATE)).thenReturn(1);
         when(snapshotMapper.countByPrefetchDate(TRADE_DATE)).thenReturn(0);

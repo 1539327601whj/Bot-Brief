@@ -3,3 +3,5 @@ requests>=2.28.0
 feedparser>=6.0.0
 # warehouse 直连 MySQL（独立进程、独立只读/写 md_* 的账号）。
 pymysql>=1.1.0
+# MySQL 8 默认 caching_sha2_password；PyMySQL 走非 SSL 连接时做完整认证需要它。
+cryptography>=42.0.0

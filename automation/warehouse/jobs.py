@@ -98,7 +98,7 @@ def claim_next(db: WarehouseDb) -> dict[str, Any] | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, job_key, task, priority, instrument_code, payload_json, cursor, error
+                SELECT id, job_key, task, priority, instrument_code, payload_json, `cursor`, error
                 FROM md_sync_job
                 WHERE status = 'PENDING'
                    OR (status = 'FAILED' AND (retry_after IS NULL OR retry_after <= NOW(3)))
@@ -182,7 +182,7 @@ def mark_failed(
 
 
 def set_cursor(db: WarehouseDb, job: dict[str, Any], cursor: str | None) -> None:
-    db.execute("UPDATE md_sync_job SET cursor=%s WHERE job_key=%s", (cursor, job["job_key"]))
+    db.execute("UPDATE md_sync_job SET `cursor`=%s WHERE job_key=%s", (cursor, job["job_key"]))
 
 
 def retry_delay_seconds(attempts: int) -> int:

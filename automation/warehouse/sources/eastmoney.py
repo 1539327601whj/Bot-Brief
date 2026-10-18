@@ -47,7 +47,7 @@ SOURCE_KLINE = "eastmoney-kline"
 SOURCE_VALUATION = "eastmoney-valueanalysis"
 SOURCE_FINANCIAL = "eastmoney-datacenter"
 SOURCE_MONEYFLOW = "eastmoney-fflow"
-SOURCE_UNIVERSE = "eastmoney-clist"
+SOURCE_UNIVERSE = "eastmoney-valueanalysis-universe"
 SOURCE_BOARD = "eastmoney-board"
 SOURCE_INDUSTRY_CONSTITUENT = "eastmoney-industry-constituent"
 
@@ -57,14 +57,18 @@ DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 MONEYFLOW_URL = "https://push2.eastmoney.com/api/qt/stock/fflow/daykline/get"
 CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
+# 全市场清单走 datacenter-web，与行情族（push2*）是两个独立域名。
+# **不要退回 clist**：Java 侧（MarketDataClient 类注释）已经确认 clist 会触发东财按 IP 的封禁，
+# 而 push2 被封时 datacenter-web 通常还活着——这正是「被限流」与「网络断了」的判断依据。
+LIST_REPORT = "RPT_VALUEANALYSIS_DET"
+LIST_COLUMNS = "SECURITY_CODE,SECUCODE,SECURITY_NAME_ABBR,TOTAL_MARKET_CAP"
+
 QUOTE_HEADERS = {"Referer": "https://quote.eastmoney.com/"}
 KLINE_HEADERS = {"Referer": "https://quote.eastmoney.com/"}
 DATACENTER_HEADERS = {"Referer": "https://data.eastmoney.com/"}
 CLIST_HEADERS = {"Referer": "https://quote.eastmoney.com/center/gridlist.html"}
 
 QUOTE_FIELDS = "f2,f3,f6,f8,f9,f12,f14,f20,f21,f23,f100,f115,f124,f133"
-UNIVERSE_FIELDS = QUOTE_FIELDS
-UNIVERSE_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 INDUSTRY_FS = "m:90+t:2"
 
 # 财务接口的四个报表。实测 _NEW / DMSK_FN_MAIN 没有数据，保留会让每只票多两次空请求。
@@ -85,6 +89,65 @@ def _diff_rows(data: dict[str, Any] | None) -> list[dict[str, Any]]:
     if isinstance(diff, list):
         return [row for row in diff if isinstance(row, dict)]
     return []
+
+
+def _result_rows(body: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """datacenter-web 的数据在 ``result.data``；缺失一律当空。"""
+    result = (body or {}).get("result") or {}
+    data = result.get("data") or []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def universe_list_query(page_size: int, sort_column: str, sort_type: int | None,
+                        filter_expr: str | None, sort_columns_page: int = 1,
+                        columns: str = LIST_COLUMNS) -> str:
+    """拼全市场清单的**完整 URL**，手拼、不经 ``requests`` 的 ``params``。
+
+    原因与 Java 侧 ``MarketDataClient.listUrl`` 完全相同：``filter`` 里的括号、引号、等号
+    必须原样出现在查询串里。服务端用 ANTLR 解析它且不做 URL 解码，``requests`` 会把这些
+    字符百分号编码（``(`` → ``%28``），于是直接回
+    ``参数预处理错误: NoViableAltException``。这个方向与旧的 clist ``fs`` 正好相反，
+    所以拼装权必须留在调用方，不能交给 ``params``。
+    """
+    parts = [
+        f"reportName={LIST_REPORT}",
+        f"columns={columns}",
+        f"pageSize={page_size}",
+        f"pageNumber={sort_columns_page}",
+        f"sortColumns={sort_column}",
+    ]
+    if sort_type is not None:
+        parts.append(f"sortTypes={sort_type}")
+    if filter_expr is not None:
+        parts.append(f"filter={filter_expr}")
+    parts.append("source=WEB&client=WEB")
+    return f"{DATACENTER_URL}?" + "&".join(parts)
+
+
+def _secid_from_list_row(row: dict[str, Any]) -> str | None:
+    """清单行 → 东财 secid（沪 1 / 深 0）。北交所与认不出的一律返回 None。
+
+    以 ``SECUCODE`` 的后缀为准，其次才按代码前缀猜：清单里的后缀是交易所事实，
+    前缀规则在 6/9 开头之类的边界上迟早会漂。
+    """
+    secucode = clean_text(row.get("SECUCODE")) or ""
+    if "." in secucode:
+        code, market = secucode.split(".", 1)
+        suffix = market.upper()
+        if suffix == "SH":
+            return f"1.{code}"
+        if suffix == "SZ":
+            return f"0.{code}"
+        return None
+    code = clean_text(row.get("SECURITY_CODE"))
+    if not code:
+        return None
+    market = guess_market(code, "STOCK")
+    if market == "SH":
+        return f"1.{code}"
+    if market == "SZ":
+        return f"0.{code}"
+    return None
 
 
 def _epoch_datetime(value: Any) -> datetime | None:
@@ -454,43 +517,72 @@ class EastmoneyClient:
     # ------------------------------------------------------------------
     # 全市场快照 / 行业板块
     # ------------------------------------------------------------------
+    def _fetch_list_page(self, page_size: int, page: int, trade_date: date | None, *,
+                         columns: str = LIST_COLUMNS,
+                         sort_column: str = "TOTAL_MARKET_CAP"
+                         ) -> tuple[list[dict[str, Any]], int | None]:
+        """取一页清单（datacenter-web）。返回 (行, 服务端报的总数)。
+
+        ``filter`` 必须是**未编码**的表达式，所以整条 URL 由
+        :func:`universe_list_query` 拼好再传，不能走 ``params``。
+        """
+        expr = None if trade_date is None else f"(TRADE_DATE='{trade_date.isoformat()}')"
+        url = universe_list_query(page_size, sort_column, -1, expr, page, columns)
+        body = self.http.get_json(PROVIDER, url, headers=DATACENTER_HEADERS)
+        if body.get("success") is False:
+            raise SourceError(PROVIDER, f"清单业务错误: {body.get('message')}")
+        count = to_number((body.get("result") or {}).get("count"))
+        return _result_rows(body), (int(count) if count is not None else None)
+
+    def fetch_latest_trade_date(self) -> date | None:
+        """清单所属的最新交易日。**不猜今天**：周末与节假日返回的是上一个交易日。"""
+        # 只问一列，按同一列倒序取第一行——与 Java 侧 latestTradeDate() 逐字对应。
+        rows, _ = self._fetch_list_page(
+            1, 1, None, columns="TRADE_DATE", sort_column="TRADE_DATE")
+        if not rows:
+            return None
+        return parse_date(rows[0].get("TRADE_DATE"))
+
     def fetch_universe(self, max_count: int | None = None) -> list[dict[str, Any]]:
+        """总市值前 N 只 + 它们的完整行情字段。
+
+        路径与 Java 侧 ``MarketDataClient.fetchUniverse`` 逐段对应：
+        1. datacenter-web 清单只回答「谁在池子里」（一次请求）；
+        2. 基本面与行业一律走 ``ulist.np`` 批量行情，字段口径与点击实时路径**完全相同**。
+
+        **不再用 clist 分页**：那是 Java 侧已经确认会触发 IP 封禁的接口。
+        这里用 ``pageSize=limit`` 一次取完；如果服务端悄悄把页大小截断（返回条数少于
+        ``count``），才退回分页——宁可多发几次 datacenter 请求，也不静默少扫标的。
+        """
         limit = max_count or self.config.universe_size
-        page_size = max(1, self.config.universe_page_size)
-        rows: list[dict[str, Any]] = []
-        page = 1
-        while len(rows) < limit:
-            body = self.http.get_json(
-                PROVIDER,
-                CLIST_URL,
-                params={
-                    "pn": str(page),
-                    "pz": str(page_size),
-                    "po": "1",
-                    "np": "1",
-                    "fltt": "2",
-                    "invt": "2",
-                    "fid": "f20",
-                    "fs": UNIVERSE_FS,
-                    "fields": UNIVERSE_FIELDS,
-                },
-                headers=CLIST_HEADERS,
-            )
-            data = body.get("data")
-            page_rows = _diff_rows(data)
-            if not page_rows:
-                break
-            for row in page_rows:
-                parsed = parse_quote_row(row)
-                if parsed:
-                    rows.append(parsed)
-            total = to_number((data or {}).get("total"))
-            if total is not None and page * page_size >= total:
-                break
-            if len(page_rows) < page_size:
-                break
-            page += 1
-        return rows[:limit]
+        trade_date = self.fetch_latest_trade_date()
+        if trade_date is None:
+            raise SourceError(PROVIDER, "清单接口没有返回交易日，无法确定快照属于哪一天")
+
+        rows, count = self._fetch_list_page(limit, 1, trade_date)
+        if len(rows) < limit and count is not None and count > len(rows):
+            # 服务端把 pageSize 截断了。**按它实际返回的条数当页大小**继续翻，
+            # 而不是拿一个固定的页大小硬套——那个数同样可能被截断，
+            # 那样第一页就会因为「返回条数 < 请求页大小」被误判成最后一页，静默少扫。
+            page_size = max(1, len(rows))
+            page = 2
+            while len(rows) < limit:
+                page_rows, _ = self._fetch_list_page(page_size, page, trade_date)
+                if not page_rows:
+                    break
+                rows.extend(page_rows)
+                if len(page_rows) < page_size:
+                    break
+                page += 1
+
+        secids: list[str] = []
+        for row in rows[:limit]:
+            secid = _secid_from_list_row(row)
+            if secid:
+                secids.append(secid)
+        if not secids:
+            return []
+        return self.fetch_quotes(secids)
 
     def fetch_industry_boards(self, page_size: int = 200) -> list[dict[str, Any]]:
         body = self.http.get_json(
@@ -600,4 +692,5 @@ __all__ = [
     "parse_quote_row",
     "quote_to_instrument",
     "quote_trade_date",
+    "universe_list_query",
 ]

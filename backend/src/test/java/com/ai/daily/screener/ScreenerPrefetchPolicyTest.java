@@ -72,6 +72,23 @@ class ScreenerPrefetchPolicyTest {
     }
 
     @Test
+    void theStaleFallbackMayReadTheStoreEvenWhenTodayHasNoSnapshot() {
+        // 两件事必须分开：shouldReadFromDb 问「能不能用今天那份」，
+        // canReadFromDb 问「现在允不允许碰库」。陈旧兜底要的是后者——
+        // 今天没有，但上一份收盘数据仍然是当前可得的最近事实。
+        assertThat(ScreenerPrefetchPolicy.canReadFromDb(true, AFTER_CLOSE)).isTrue();
+        assertThat(ScreenerPrefetchPolicy.shouldReadFromDb(true, AFTER_CLOSE, () -> false)).isFalse();
+    }
+
+    @Test
+    void theStaleFallbackStillObeysTheSwitchAndTheSession() {
+        // 与 shouldReadFromDb 同一条纪律：盘中读昨天收盘价冒充今天的现价位置，比空白更糟。
+        assertThat(ScreenerPrefetchPolicy.canReadFromDb(false, AFTER_CLOSE)).isFalse();
+        assertThat(ScreenerPrefetchPolicy.canReadFromDb(true, IN_SESSION)).isFalse();
+        assertThat(ScreenerPrefetchPolicy.canReadFromDb(true, null)).isFalse();
+    }
+
+    @Test
     void theSessionBoundariesAreInclusiveSoBothEdgesBehaveAsWritten() {
         // isTradingHours 的定义是 09:30–15:00 闭区间（见 ScreenerCache）。这里把它钉在
         // 判据这一侧：两处若哪天不一致，盘中最后一刻会读到收盘后的快照。

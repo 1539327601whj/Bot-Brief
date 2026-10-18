@@ -34,8 +34,21 @@ final class ScreenerPrefetchPolicy {
     }
 
     static boolean shouldReadFromDb(boolean readEnabled, LocalTime now, BooleanSupplier hasTodaySnapshot) {
+        return canReadFromDb(readEnabled, now) && hasTodaySnapshot.getAsBoolean();
+    }
+
+    /**
+     * 「现在允许不允许碰预取库」——只有开关与钟点，不含「今天有没有」。
+     *
+     * <p>单独抽出来是给**陈旧兜底**用的：今天那份没有时，读侧还要问一句
+     * 「最近一份是什么时候」。那一问同样必须遵守「盘中不读库」——
+     * 否则盘中会拿昨天的收盘价冒充今天的现价位置。
+     *
+     * <p>{@link #shouldReadFromDb} 仍然保留，是因为「今天有没有」那条懒查询的语义
+     * （开关关掉时一次库都不查）已经被测试钉住，改签名会让它失去意义。
+     */
+    static boolean canReadFromDb(boolean readEnabled, LocalTime now) {
         if (!readEnabled) return false;
-        if (now == null || ScreenerCache.isTradingHours(now)) return false;
-        return hasTodaySnapshot.getAsBoolean();
+        return now != null && !ScreenerCache.isTradingHours(now);
     }
 }

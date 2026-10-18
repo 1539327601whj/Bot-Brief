@@ -204,6 +204,32 @@ public class ScreenerPrefetchService {
                 header.getCapFloor()));
     }
 
+    /**
+     * 不晚于 {@code date} 的最近一份快照。**只在今天那份拿不到时用**。
+     *
+     * <p>它解决的问题很具体：预取因限流失败、周末不预取、节假日不预取时，
+     * 「今天没有」会被读侧理解成「退回实时」，于是又去撞限流，最后整页空白。
+     * 而上一份收盘快照本来就是当前可得的最近事实——带着交易日端出来，
+     * 比一个错误框有用得多。
+     *
+     * <p><b>最大陈旧天数由调用方给</b>：太旧的快照不该继续冒充「当前视图」。
+     * {@code maxStaleDays <= 0} 表示不设上限（测试与显式关闭用）。
+     *
+     * <p>返回的 {@code tradeDate} 是**数据所属交易日**，不是今天。调用方必须据此标注。
+     */
+    public Optional<MarketDataClient.UniverseSnapshot> latestSnapshotUpTo(
+            LocalDate date, int maxStaleDays) {
+        if (date == null) return Optional.empty();
+        LocalDate latest = snapshotMapper.findLatestTradeDateUpTo(date);
+        if (latest == null) return Optional.empty();
+        if (maxStaleDays > 0 && latest.isBefore(date.minusDays(maxStaleDays))) {
+            log.info("预取库最近一份快照交易日 {} 已超过 {} 天上限，按没有可用数据处理",
+                    latest, maxStaleDays);
+            return Optional.empty();
+        }
+        return snapshotFor(latest);
+    }
+
     private static StockRow toRow(ScreenerUniverseStock d) {
         StockRow row = new StockRow();
         row.setCode(d.getStockCode());

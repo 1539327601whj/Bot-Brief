@@ -220,7 +220,8 @@ class Config:
     industry_start_minute: int = 30
     news_refresh_enabled: bool = False
     universe_size: int = 3000
-    universe_page_size: int = 100
+    #: 行情批量大小。清单走 datacenter-web 优先一次取完，只有服务端截断页大小才翻页，
+    #: 所以这里只剩这一个批量旋钮。
     quote_batch_size: int = 100
     db_batch_size: int = 500
     kline_limit: int = 2600
@@ -249,7 +250,6 @@ class Config:
             industry_start_minute=env_int("WAREHOUSE_INDUSTRY_START_MINUTE", 30, 0),
             news_refresh_enabled=env_bool("WAREHOUSE_NEWS_REFRESH_ENABLED", False),
             universe_size=env_int("WAREHOUSE_UNIVERSE_SIZE", 3000, 100),
-            universe_page_size=env_int("WAREHOUSE_UNIVERSE_PAGE_SIZE", 100, 1),
             quote_batch_size=env_int("WAREHOUSE_QUOTE_BATCH_SIZE", 100, 1),
             db_batch_size=env_int("WAREHOUSE_DB_BATCH_SIZE", 500, 1),
             kline_limit=env_int("WAREHOUSE_KLINE_LIMIT", 2600, 250),
