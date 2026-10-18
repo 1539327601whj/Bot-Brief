@@ -24,6 +24,12 @@ public class MarketValuationHistory {
 
     private BigDecimal pePercentile;
 
+    /** PB(MRQ)。V15 新增，可空——历史行与只提供 PE 的源不会有值。 */
+    private BigDecimal pb;
+
+    /** 股息率（百分数，例如 2.35 表示 2.35%）。V15 新增，可空。 */
+    private BigDecimal dividendYield;
+
     private String percentileMethod;
 
     private String valuationLevel;

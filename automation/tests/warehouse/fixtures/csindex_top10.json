@@ -1,0 +1,39 @@
+{
+  "code": 200,
+  "msg": "success",
+  "success": true,
+  "data": {
+    "updateDate": "2025-09-30",
+    "top10Sum": 22.95,
+    "weightList": [
+      {
+        "rowNum": 1,
+        "indexCode": "000300",
+        "tradeDate": "20250930",
+        "securityCode": "600519",
+        "securityName": "贵州茅台",
+        "cics1stName": "主要消费",
+        "cics1stNameEn": "Major Consumer",
+        "weight": 3.51,
+        "preciseWeight": 3.5059
+      },
+      {
+        "rowNum": 2,
+        "indexCode": "000300",
+        "tradeDate": "20250930",
+        "securityCode": "300750",
+        "securityName": "宁德时代",
+        "cics1stName": "工业",
+        "cics1stNameEn": "Industrials",
+        "weight": "2.73"
+      },
+      {
+        "rowNum": 3,
+        "indexCode": "000300",
+        "tradeDate": "20250930",
+        "securityCode": "-",
+        "securityName": "无效行"
+      }
+    ]
+  }
+}

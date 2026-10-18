@@ -1,0 +1,11 @@
+{
+  "code": 200,
+  "msg": "success",
+  "success": true,
+  "data": [
+    {"tradeDate": "2025-09-29", "peg": 12.3},
+    {"tradeDate": "2025-09-30", "peg": "12.6"},
+    {"tradeDate": "2025-10-08", "peg": "-"},
+    {"tradeDate": "2099-01-01", "peg": 30.0}
+  ]
+}

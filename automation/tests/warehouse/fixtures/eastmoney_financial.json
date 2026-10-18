@@ -1,0 +1,72 @@
+{
+  "RPT_DMSK_FN_BALANCE": {
+    "success": true,
+    "result": {
+      "data": [
+        {
+          "REPORT_DATE": "2025-06-30",
+          "NOTICE_DATE": "2025-08-20",
+          "TOTAL_ASSETS": 1000.0,
+          "TOTAL_LIABILITIES": 400.0,
+          "TOTAL_EQUITY": 600.0,
+          "ACCOUNTS_RECE": 50.0
+        }
+      ]
+    }
+  },
+  "RPT_DMSK_FN_INCOME": {
+    "success": true,
+    "result": {
+      "data": [
+        {
+          "REPORT_DATE": "2025-06-30",
+          "TOTAL_OPERATE_INCOME": 500.0,
+          "TOI_RATIO": 12.5,
+          "PARENT_NETPROFIT": 80.0,
+          "PARENT_NETPROFIT_RATIO": 9.9,
+          "FINANCE_EXPENSE": 5.0,
+          "TOTAL_PROFIT": 100.0
+        }
+      ]
+    }
+  },
+  "RPT_DMSK_FN_CASHFLOW": {
+    "success": true,
+    "result": {
+      "data": [
+        {
+          "REPORT_DATE": "2025-06-30",
+          "NETCASH_OPERATE": 70.0
+        }
+      ]
+    }
+  },
+  "RPT_F10_FINANCE_MAINFINADATA": {
+    "success": true,
+    "result": {
+      "data": [
+        {
+          "REPORT_DATE": "2025-06-30",
+          "TOTALOPERATEREVE": 500.0,
+          "TOTALOPERATEREVETZ": 12.5,
+          "PARENTNETPROFIT": 80.0,
+          "PARENTNETPROFITTZ": 9.9,
+          "ROEJQ": 15.2,
+          "XSMLL": 40.0,
+          "XSJLL": 16.0,
+          "NETCASH_OPERATE_PK": 70.0,
+          "TOTAL_ASSETS_PK": 1000.0,
+          "TOTAL_EQUITY_PK": 600.0
+        },
+        {
+          "REPORT_DATE": "2099-06-30",
+          "ROEJQ": 99.0
+        },
+        {
+          "REPORT_DATE": "not-a-date",
+          "ROEJQ": 88.0
+        }
+      ]
+    }
+  }
+}

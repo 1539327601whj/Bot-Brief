@@ -32,6 +32,20 @@ public class MarketValuationIngestDTO {
     @DecimalMax(value = "100.0")
     private BigDecimal pePercentile;
 
+    /**
+     * PB(MRQ)，可选。老数据源（蛋卷）没有这一列；缺失就是 NULL，不要填 0。
+     */
+    @DecimalMin(value = "0.0", inclusive = false)
+    @DecimalMax(value = "300.0")
+    private BigDecimal pb;
+
+    /**
+     * 股息率（百分数），可选。缺失就是 NULL。
+     */
+    @DecimalMin(value = "0.0")
+    @DecimalMax(value = "50.0")
+    private BigDecimal dividendYield;
+
     @NotBlank
     @Size(max = 64)
     private String percentileMethod;

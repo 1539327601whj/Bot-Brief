@@ -230,6 +230,59 @@ class MarketDataClientParsingTest {
     }
 
     @Test
+    void parsesFullKlineRowsIncludingTurnover() {
+        // 位置按东财 klines 的实际列序：日期,开,收,高,低,量,额,振幅,涨跌幅,涨跌额,换手。
+        // 「收」在「高」前面，这条最容易被按常规 OHLC 顺序写反。
+        List<MarketDataClient.KlineRow> rows = MarketDataClient.parseKlineRows(List.of(
+                "2026-10-16,1500.00,1520.50,1533.00,1490.10,123456,1800000000.00,2.8,1.35,20.30,0.42"));
+
+        assertThat(rows).hasSize(1);
+        MarketDataClient.KlineRow row = rows.get(0);
+        assertThat(row.tradeDate()).isEqualTo(LocalDate.of(2026, 10, 16));
+        assertThat(row.openPrice()).isEqualByComparingTo("1500.00");
+        assertThat(row.closePrice()).isEqualByComparingTo("1520.50");
+        assertThat(row.highPrice()).isEqualByComparingTo("1533.00");
+        assertThat(row.lowPrice()).isEqualByComparingTo("1490.10");
+        assertThat(row.volume()).isEqualByComparingTo("123456");
+        assertThat(row.amount()).isEqualByComparingTo("1800000000.00");
+        assertThat(row.pctChange()).isEqualByComparingTo("1.35");
+        assertThat(row.turnoverRate()).isEqualByComparingTo("0.42");
+    }
+
+    @Test
+    void anEightColumnRowLeavesTheTailFieldsNullInsteadOfBorrowingTheAmplitude() {
+        // 老调用点只要了 f51…f58。这时第 8 位是「振幅」，不是涨跌幅；
+        // 按长度判越界，换手率必须是 null，不能把振幅塞进去。
+        List<MarketDataClient.KlineRow> rows = MarketDataClient.parseKlineRows(List.of(
+                "2026-10-16,10.0,10.5,10.6,9.9,1000,10500.0,2.8"));
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).pctChange()).isNull();
+        assertThat(rows.get(0).turnoverRate()).isNull();
+    }
+
+    @Test
+    void klineRowsWithoutAUsableCloseAreDropped() {
+        assertThat(MarketDataClient.parseKlineRows(List.of(
+                "2026-10-16,10.0,-,10.6,9.9,1000",
+                "2026-10-15,10.0,0,10.6,9.9,1000",
+                "not-a-date,10.0,10.5,10.6,9.9,1000",
+                "2026-10-14,10.0,10.5,10.6,9.9,1000")))
+                .extracting(MarketDataClient.KlineRow::closePrice)
+                .containsExactly(new BigDecimal("10.5"));
+    }
+
+    @Test
+    void klineRowsAlsoAcceptTencentArrays() {
+        List<MarketDataClient.KlineRow> rows = MarketDataClient.parseKlineRows(List.of(
+                List.of("2026-10-16", "4.100", "4.180", "4.200", "4.090", "500000")));
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).closePrice()).isEqualByComparingTo("4.180");
+        assertThat(rows.get(0).turnoverRate()).isNull();
+    }
+
+    @Test
     void listAndQuoteAndKlineLiveOnThreeDifferentHosts() {
         // 清单域名与行情域名分开是有意的：行情域名被限流时清单域名通常还活着，
         // 这正好提供了「是被限流」而不是「网络断了」的判断依据。

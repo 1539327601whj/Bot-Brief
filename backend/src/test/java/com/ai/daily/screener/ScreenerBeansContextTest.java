@@ -2,6 +2,7 @@ package com.ai.daily.screener;
 
 import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
+import com.ai.daily.warehouse.SharedRateLimitStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
@@ -71,6 +72,9 @@ class ScreenerBeansContextTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(PropertySourcesPlaceholderConfigurer.class);
             context.registerBean(MarketCallMetrics.class);
+            // 跨进程闸门是构造器依赖；这里只验装配，用 mock 即可。
+            context.registerBean(SharedRateLimitStore.class,
+                    () -> mock(SharedRateLimitStore.class));
             context.registerBean(MarketRateLimitGate.class);
             context.registerBean(MarketRateLimitInterceptor.class);
 

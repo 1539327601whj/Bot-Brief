@@ -30,6 +30,10 @@ COPY scripts/daily_report.py scripts/daily_report.py
 COPY scripts/etf_report.py scripts/etf_report.py
 COPY scripts/index_pool_sync.py scripts/index_pool_sync.py
 COPY scripts/etf_allocation_analyst.py scripts/etf_allocation_analyst.py
+COPY scripts/warehouse_sync.py scripts/warehouse_sync.py
+COPY scripts/verify_warehouse_schema.py scripts/verify_warehouse_schema.py
+COPY warehouse/ warehouse/
 COPY poll_loop.py .
+COPY warehouse_worker.py .
 
 CMD ["python", "-u", "poll_loop.py"]

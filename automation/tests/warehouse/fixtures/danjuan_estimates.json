@@ -1,0 +1,25 @@
+{
+  "result_code": 0,
+  "data": {
+    "items": [
+      {
+        "index_code": "SH000300",
+        "name": "沪深300",
+        "pe": 12.3,
+        "pe_percentile": 0.42,
+        "ts": 1759215600000
+      },
+      {
+        "index_code": "CSI930901",
+        "name": "动漫游戏",
+        "pe": "-",
+        "pe_percentile": 37.5,
+        "date": "2025-09-30"
+      },
+      {
+        "index_code": "-",
+        "name": "无效行"
+      }
+    ]
+  }
+}

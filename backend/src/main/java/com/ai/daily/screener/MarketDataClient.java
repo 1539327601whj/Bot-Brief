@@ -464,6 +464,25 @@ public class MarketDataClient {
      * {@link MarketValuationHistoryService} 与 {@link StockValuationClient}。
      */
     public KlineOutcome fetchKline(String secid, int limit) {
+        KlineRowsOutcome outcome = fetchKlineRows(secid, limit);
+        if (!outcome.ok()) {
+            return new KlineOutcome(List.of(), outcome.failureReason(), outcome.throttled(),
+                    outcome.provider());
+        }
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>(outcome.rows().size());
+        for (KlineRow row : outcome.rows()) {
+            bars.add(new PricePositionCalculator.Bar(row.tradeDate(), row.closePrice()));
+        }
+        return KlineOutcome.ok(bars, outcome.provider());
+    }
+
+    /**
+     * 完整日线行（OHLC + 量额 + 换手）。打分要算 ATR、技术支撑与量能，只有收盘价不够。
+     *
+     * <p>与 {@link #fetchKline(String, int)} 共用同一个 URL、同一份传输与限流翻译——
+     * 后者只是把这里的行压成收盘价。**不要再写第三个取日线的方法**。
+     */
+    public KlineRowsOutcome fetchKlineRows(String secid, int limit) {
         // 0 或负数会让东财按「不限」处理并回一大坨，也可能直接报错；
         // 夹到 1 至少语义明确
         int lmt = Math.max(1, limit);
@@ -474,25 +493,54 @@ public class MarketDataClient {
                 .queryParam("lmt", lmt)
                 .queryParam("end", 20500101)
                 .queryParam("fields1", "f1,f2,f3,f4,f5,f6")
-                .queryParam("fields2", "f51,f52,f53,f54,f55,f56,f57,f58")
+                // f59=涨跌幅、f61=换手率；以前没要这两列，落库时只能写 NULL。
+                .queryParam("fields2", "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61")
                 .build().encode().toUriString();
         try {
             Map<String, Object> body = getJson(URI.create(url), QUOTE_REFERER);
             Object data = body == null ? null : body.get("data");
             if (!(data instanceof Map<?, ?> dm)) {
-                return KlineOutcome.failed("日线返回结构异常，价格位置未确认");
+                return KlineRowsOutcome.failed("日线返回结构异常，价格位置未确认");
             }
             Object klines = dm.get("klines");
             if (!(klines instanceof List<?> list)) {
-                return KlineOutcome.failed("日线为空，价格位置未确认");
+                return KlineRowsOutcome.failed("日线为空，价格位置未确认");
             }
-            List<PricePositionCalculator.Bar> bars = parseDelimitedBars(list);
-            if (bars.isEmpty()) return KlineOutcome.failed("日线无有效收盘价，价格位置未确认");
-            return KlineOutcome.ok(bars);
+            List<KlineRow> rows = parseKlineRows(list);
+            if (rows.isEmpty()) {
+                return KlineRowsOutcome.failed("日线无有效收盘价，价格位置未确认");
+            }
+            return KlineRowsOutcome.ok(rows);
         } catch (MarketDataException.MarketDataRateLimitedException e) {
-            return KlineOutcome.throttled("行情源限流，价格位置未能更新");
+            return KlineRowsOutcome.throttled("行情源限流，价格位置未能更新");
         } catch (RuntimeException e) {
-            return KlineOutcome.failed("日线不可达（" + shortReason(e) + "），价格位置未确认");
+            return KlineRowsOutcome.failed("日线不可达（" + shortReason(e) + "），价格位置未确认");
+        }
+    }
+
+    /** 一根完整日线。缺失的字段一律 null，不补 0。 */
+    public record KlineRow(LocalDate tradeDate, BigDecimal openPrice, BigDecimal highPrice,
+                           BigDecimal lowPrice, BigDecimal closePrice, BigDecimal volume,
+                           BigDecimal amount, BigDecimal pctChange, BigDecimal turnoverRate) {
+    }
+
+    /** {@link #fetchKlineRows(String, int)} 的结果；失败语义与 {@link KlineOutcome} 一致。 */
+    public record KlineRowsOutcome(List<KlineRow> rows, String failureReason, boolean throttled,
+                                   String provider) {
+        public boolean ok() {
+            return rows != null && !rows.isEmpty();
+        }
+
+        public static KlineRowsOutcome ok(List<KlineRow> rows) {
+            return new KlineRowsOutcome(rows, null, false, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineRowsOutcome failed(String reason) {
+            return new KlineRowsOutcome(List.of(), reason, false, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineRowsOutcome throttled(String reason) {
+            return new KlineRowsOutcome(List.of(), reason, true, PROVIDER_EASTMONEY);
         }
     }
 
@@ -631,8 +679,13 @@ public class MarketDataClient {
         return host.replaceFirst("^https?://", "");
     }
 
-    /** 取最根因的一句话。RestTemplate 的外层消息会把整条 URL 塞进来，读不出重点。 */
-    static String shortReason(Throwable t) {
+    /**
+     * 取最根因的一句话。RestTemplate 的外层消息会把整条 URL 塞进来，读不出重点。
+     *
+     * <p>v2 也要用它写「这个源为什么没给到」，而它在另一个包里；放开成 public
+     * 比在 v2 再抄一份根因提取要好——两份迟早会在「哪一层算根因」上分叉。
+     */
+    public static String shortReason(Throwable t) {
         Throwable root = rootCause(t);
         String msg = root.getMessage();
         return root.getClass().getSimpleName() + (msg == null || msg.isBlank() ? "" : "：" + msg);
@@ -777,6 +830,45 @@ public class MarketDataClient {
             bars.add(new PricePositionCalculator.Bar(date, close));
         }
         return bars;
+    }
+
+    /**
+     * 东财日线的完整字段位置：{@code 0=日期,1=开,2=收,3=高,4=低,5=成交量,6=成交额,
+     * 7=振幅,8=涨跌幅,9=涨跌额,10=换手率}。
+     *
+     * <p>换手率在 f61，只有请求里点了名才会出现；老调用点仍用
+     * {@code fields2=f51…f58}，那时这一列是缺失的——所以按**实际长度**取，
+     * 越界就是 null，不能让 {@code f58}（振幅）被当成换手率。
+     *
+     * <p>收盘价缺失或 ≤0 的行整根丢弃，与 {@link #parseDelimitedBars} 同一口径：
+     * 没有收盘价的行算不出任何技术指标，留着只会让均线错位。
+     */
+    static List<KlineRow> parseKlineRows(List<?> rows) {
+        List<KlineRow> out = new ArrayList<>();
+        if (rows == null) return out;
+        for (Object row : rows) {
+            String[] p = delimitedParts(row);
+            if (p == null || p.length < 3) continue;
+            BigDecimal close = parseDecimal(p[2]);
+            if (close == null || close.signum() <= 0) continue;
+            LocalDate date = parseDate(p[0]);
+            if (date == null) continue;
+            out.add(new KlineRow(
+                    date,
+                    at(p, 1),
+                    at(p, 3),
+                    at(p, 4),
+                    close,
+                    at(p, 5),
+                    at(p, 6),
+                    at(p, 8),
+                    at(p, 10)));
+        }
+        return out;
+    }
+
+    private static BigDecimal at(String[] parts, int index) {
+        return index < parts.length ? parseDecimal(parts[index]) : null;
     }
 
     /** 一行日线 → 格子数组。认识 CSV 字符串与数组两种形状，其余一律返回 null 跳过。 */

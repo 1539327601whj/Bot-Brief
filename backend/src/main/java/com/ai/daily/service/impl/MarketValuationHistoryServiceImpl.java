@@ -48,6 +48,9 @@ public class MarketValuationHistoryServiceImpl extends ServiceImpl<MarketValuati
         history.setIndexName(dto.getIndexName().trim());
         history.setPeTtm(dto.getPeTtm());
         history.setPePercentile(dto.getPePercentile());
+        // 两个新列都可空：缺失就是 NULL，绝不能拿 0 顶上（0 会被读成「极低估值」）。
+        history.setPb(dto.getPb());
+        history.setDividendYield(dto.getDividendYield());
         history.setPercentileMethod(dto.getPercentileMethod().trim());
         history.setTradeDate(dto.getTradeDate());
         if (dto.getValuationLevel() != null && !dto.getValuationLevel().isBlank()) {

@@ -1,11 +1,13 @@
 package com.ai.daily.screener;
 
+import com.ai.daily.warehouse.SharedRateLimitStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -65,10 +67,16 @@ public class MarketRateLimitGate {
 
     private static final long NANOS_PER_MILLI = 1_000_000L;
 
+    private final long minIntervalMillis;
     private final long minIntervalNanos;
     private final long maxWaitNanos;
     private final NanoClock clock;
     private final Sleeper sleeper;
+
+    /**
+     * 跨进程闸门。{@code null} 表示只用进程内限速（测试构造器与降级路径）。
+     */
+    private final SharedRateLimitStore sharedStore;
 
     /** provider → 锁对象。按源分开：锁的粒度必须与额度的粒度一致，否则一个源排队会拖住另一个。 */
     private final Map<String, Object> locks = new ConcurrentHashMap<>();
@@ -77,7 +85,7 @@ public class MarketRateLimitGate {
     private final Map<String, Long> nextAllowedNanos = new ConcurrentHashMap<>();
 
     /**
-     * <b>{@code @Autowired} 不能省</b>：这个类有两个构造器（这个和下面那个测试用的），
+     * <b>{@code @Autowired} 不能省</b>：这个类有多个构造器（这个和下面两个测试用的），
      * 而不标注时 Spring 会退回去找**无参构造器**，找不到就抛
      * {@code NoDefaultConstructorFoundException}——那是**启动时**才报的错，
      * 本地全量测试一样绿。{@link MarketRateLimitGateTest} 里有一条用例专门钉住这件事。
@@ -85,16 +93,30 @@ public class MarketRateLimitGate {
     @Autowired
     public MarketRateLimitGate(
             @Value("${screener.rate-limit-min-interval-ms:150}") long minIntervalMs,
-            @Value("${screener.rate-limit-max-wait-ms:8000}") long maxWaitMs) {
-        this(minIntervalMs, maxWaitMs, System::nanoTime, MarketRateLimitGate::realSleep);
+            @Value("${screener.rate-limit-max-wait-ms:8000}") long maxWaitMs,
+            SharedRateLimitStore sharedStore) {
+        this(minIntervalMs, maxWaitMs, System::nanoTime, MarketRateLimitGate::realSleep, sharedStore);
+    }
+
+    /** 测试与降级用的构造：没有共享闸门时行为与旧版完全一致。 */
+    public MarketRateLimitGate(long minIntervalMs, long maxWaitMs) {
+        this(minIntervalMs, maxWaitMs, System::nanoTime, MarketRateLimitGate::realSleep, null);
     }
 
     /** 测试用构造：换成假时钟与记录型 sleeper，间隔置 0 时 {@link #acquire} 一步都不走。 */
     MarketRateLimitGate(long minIntervalMs, long maxWaitMs, NanoClock clock, Sleeper sleeper) {
-        this.minIntervalNanos = Math.max(0, minIntervalMs) * NANOS_PER_MILLI;
+        this(minIntervalMs, maxWaitMs, clock, sleeper, null);
+    }
+
+    /** 测试用构造：同时注入共享闸门，验证进程内与跨进程两层叠加后的行为。 */
+    MarketRateLimitGate(long minIntervalMs, long maxWaitMs, NanoClock clock, Sleeper sleeper,
+                        SharedRateLimitStore sharedStore) {
+        this.minIntervalMillis = Math.max(0, minIntervalMs);
+        this.minIntervalNanos = this.minIntervalMillis * NANOS_PER_MILLI;
         this.maxWaitNanos = Math.max(0, maxWaitMs) * NANOS_PER_MILLI;
         this.clock = clock;
         this.sleeper = sleeper;
+        this.sharedStore = sharedStore;
     }
 
     /**
@@ -108,26 +130,62 @@ public class MarketRateLimitGate {
             return;
         }
         String key = provider == null || provider.isBlank() ? "unknown" : provider;
-        long waitNanos;
+
+        // 第一层：进程内。先占本地槽再睡；超时不占槽。
+        long localWaitNanos = reserveLocal(key);
+        sleep(localWaitNanos, key);
+
+        // 第二层：跨进程。本地已经等掉的时间从共享预算里扣掉，
+        // 否则两层各自等满 maxWait，总等待会翻倍。
+        if (sharedStore == null) {
+            return;
+        }
+        long elapsedMs = localWaitNanos / NANOS_PER_MILLI;
+        long remainingBudgetMs = Math.max(0, maxWaitNanos / NANOS_PER_MILLI - elapsedMs);
+        Optional<SharedRateLimitStore.Reservation> shared =
+                sharedStore.reserve(key, minIntervalMillis, remainingBudgetMs);
+        if (shared.isEmpty()) {
+            // 共享闸门不可用：已在 SharedRateLimitStore 里打过 WARN 并熔断，
+            // 这里不再重复记日志，也不阻断请求。
+            return;
+        }
+        SharedRateLimitStore.Reservation reservation = shared.get();
+        if (!reservation.allowed()) {
+            // 与本地超时同一种语义：**本次没有外呼**。
+            // 冷却期拒绝用另一句文案，页面才能说清是「被打回来了」还是「排队没排上」。
+            throw new MarketDataException(reservation.cooling()
+                    ? "行情源共享闸门冷却中（" + key + "），本次未外呼"
+                    : "行情源共享限速排队超时（" + key + "），本次未外呼");
+        }
+        sleep(reservation.waitMs() * NANOS_PER_MILLI, key);
+    }
+
+    /** 进程内预约，返回需要等待的纳秒数。超时抛异常且不推进 nextAllowed。 */
+    private long reserveLocal(String key) {
         synchronized (locks.computeIfAbsent(key, k -> new Object())) {
             long now = clock.nanos();
             Long prior = nextAllowedNanos.get(key);
             long fireAt = prior == null ? now : Math.max(now, prior);
-            waitNanos = fireAt - now;
+            long waitNanos = fireAt - now;
             if (waitNanos > maxWaitNanos) {
                 // 先判超时、再占槽：超时的这次不许把后面所有人的发车时刻往后推
                 throw new MarketDataException(
                         "行情源本地限速排队超时（" + key + "），本次未外呼");
             }
             nextAllowedNanos.put(key, fireAt + minIntervalNanos);
+            return waitNanos;
         }
-        if (waitNanos > 0) {
-            try {
-                sleeper.sleepNanos(waitNanos);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new MarketDataException("等待行情源限速额度时被中断（" + key + "）");
-            }
+    }
+
+    private void sleep(long nanos, String key) {
+        if (nanos <= 0) {
+            return;
+        }
+        try {
+            sleeper.sleepNanos(nanos);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MarketDataException("等待行情源限速额度时被中断（" + key + "）");
         }
     }
 

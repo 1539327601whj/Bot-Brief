@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>光伏设备 政策 - Google 新闻</title>
+    <item>
+      <title>两部门发布光伏产业高质量发展指导意见</title>
+      <link>https://news.google.com/rss/articles/example-1</link>
+      <pubDate>Mon, 29 Sep 2025 08:00:00 GMT</pubDate>
+      <source url="https://www.gov.cn">中国政府网</source>
+    </item>
+    <item>
+      <title>缺少日期的条目</title>
+      <link>https://news.google.com/rss/articles/example-2</link>
+    </item>
+    <item>
+      <title>&lt;b&gt;带标签&lt;/b&gt;的政策标题</title>
+      <link>https://news.google.com/rss/articles/example-3</link>
+      <pubDate>Tue, 30 Sep 2025 07:00:00 GMT</pubDate>
+      <source>新华社</source>
+    </item>
+  </channel>
+</rss>

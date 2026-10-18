@@ -158,9 +158,77 @@ mysql -u root -p ai_daily < backend/sql/V9__report_business_date_idempotency.sql
 mysql -u root -p ai_daily < backend/sql/V10__topic_sections_and_user_reports.sql
 mysql -u root -p ai_daily < backend/sql/V11__topic_windows_and_display_time.sql
 mysql -u root -p ai_daily < backend/sql/V12__ops_heartbeat_and_generation_status.sql
+mysql -u root -p ai_daily < backend/sql/V13__screener_prefetch.sql
+mysql -u root -p ai_daily < backend/sql/V14__screener_scan_history.sql
+mysql -u root -p ai_daily < backend/sql/V15__investment_warehouse.sql
 ```
 
-在已有数据库上执行 V6 及之后的变更前，请先备份数据库并阅读脚本内说明。现网升级到按主题推送前必须先跑 V10、V11 和 V12（V12 提供 poller 心跳和主题生成状态表），否则后端发布会被拦住。
+在已有数据库上执行 V6 及之后的变更前，请先备份数据库并阅读脚本内说明。现网升级到按主题推送前必须先跑 V10、V11 和 V12（V12 提供 poller 心跳和主题生成状态表），否则后端发布会被拦住。V15 会建 14 张 `md_*` 表和若干索引，并给 `market_valuation_history` 补 `pb` / `dividend_yield` 两列；脚本可重复执行，不含 `DROP` / `TRUNCATE`。
+
+#### 数据仓库账号（代码查询 v2 需要）
+
+`warehouse` 容器直连 MySQL，必须使用**独立账号**，只授 `md_*` 的 `SELECT/INSERT/UPDATE`——不给 DDL、不给 `DELETE`，也不授 `market_valuation_history` 以外的业务表。生产环境不要复用应用账号。
+
+```sql
+CREATE USER IF NOT EXISTS 'warehouse'@'%' IDENTIFIED BY '<strong-password>';
+GRANT SELECT, INSERT, UPDATE ON ai_daily.md\_% TO 'warehouse'@'%';
+-- 只读这一张：healthcheck 要通过 information_schema 看到 V15 补的两列，
+-- 而 MySQL 只展示当前账号有权限的表。
+GRANT SELECT ON ai_daily.market_valuation_history TO 'warehouse'@'%';
+FLUSH PRIVILEGES;
+```
+
+`GRANT ... ON ai_daily.md\_%` 是通配表名匹配，不是正则；`\_` 用于转义下划线。若 MySQL 账号不允许创建用户，请交给 DBA 执行，并在 `docker-compose.yml` 所在 `.env` 中配置：
+
+```text
+WAREHOUSE_DB_USER=warehouse
+WAREHOUSE_DB_PASSWORD=<strong-password>
+```
+
+未配置 `WAREHOUSE_DB_USER` 时 worker 会退回应用账号并打 `WARN`，仅建议本地开发使用。容器启动命令为 `python -u warehouse_worker.py`，healthcheck 每 60 秒执行一次 `verify_warehouse_schema.py --manifest`：缺表/缺列或数据库不可达时退出码为 2，容器标记 unhealthy。
+
+迁移与回滚：
+
+1. 升级：备份数据库 → 执行 V15 → 启动 backend（`WarehouseSchemaGuard` 只检查、不自动改表）→ 启动 warehouse → 看 healthcheck。
+2. 表结构异常：`python automation/scripts/verify_warehouse_schema.py --manifest --json` 会列出缺失的表和列；补齐后重跑。
+3. 回滚：先停 warehouse 容器（它停掉不影响 v1 与 poller）；前端关闭 v2 开关即可回到旧页。v2 新增的 `md_*` 表可以保留，不需要删表；`market_valuation_history` 新增的两列可空，旧代码不受影响。
+4. 手工回填/探针：`python automation/scripts/warehouse_sync.py --help`；数据源连通性用 `python automation/scripts/verify_warehouse_sources.py --code 300274 --code 600519 --code 510300 --code 000300 --noproxy`。
+
+#### 监控、冒烟与回滚演练
+
+运行监控在管理员接口 `GET /api/code-lookup/v2/metrics`，返回**进程内、最近窗口**的聚合值：
+
+| 字段 | 含义 |
+| --- | --- |
+| `coreRequests` / `coreOk` | 首屏请求数与成功数 |
+| `cacheHitRate` | 成功首屏里「本轮零外呼」的比例 |
+| `p95Ms` / `avgMs` | 最近 256 次成功首屏的耗时 |
+| `syncPending` | 返回了部分数据、且已排后台同步的次数 |
+| `rateLimited` | 源限流次数（含「本地降级但仍返回 200」） |
+| `failures` | 除限流外的服务端失败次数 |
+
+指标不含用户与代码，重启清零；长期趋势请看日志平台，不要把它当审计日志。
+
+Docker 冒烟顺序（在装有 Docker 与 MySQL 的机器上）：
+
+```bash
+mysql -u root -p ai_daily < backend/sql/V15__investment_warehouse.sql
+python automation/scripts/verify_warehouse_schema.py --manifest --json
+docker compose up -d backend warehouse
+python automation/scripts/warehouse_sync.py --index --etf
+curl -s -H "Authorization: Bearer <token>" \
+  'http://127.0.0.1:8081/api/code-lookup/v2/core?code=300274'
+curl -s -H "Authorization: Bearer <token>" \
+  'http://127.0.0.1:8081/api/code-lookup/v2/metrics'
+```
+
+源可用时，第一次查询应当是 `fromCache=false`（本轮确实外呼），紧接着的第二次查询应当是 `fromCache=true` 且 `retryAfterMs=0`；`metrics` 的 `rateLimited` 不应该持续增长。若第一次就返回 429，先等冷却时间过去，**不要连续重试**。真实数据下的页面还需要人工在浏览器里看一遍；仓库里的截图脚本 `verify_code_lookup_v2.mjs` 用的是假接口，只负责版式与状态渲染。
+
+回滚演练（三步互不影响）：
+
+1. 停 `warehouse` 容器：批量/按需的后台任务停止，v1、poller 和新查询的只读路径不受影响。
+2. 后端设 `WAREHOUSE_ON_DEMAND_ENABLED=false`：v2 只读本地库，不再外呼；页面会显示数据日期与 `PARTIAL`。
+3. 后端设 `WAREHOUSE_ENABLED=false`：v2 端点统一返回 503 并提示使用旧版；前端设置 `VITE_CODE_LOOKUP_V2=false` 重新构建即回到 v1（`/code-lookup/legacy` 始终可用）。
 
 ### 4. 配置后端
 
@@ -272,7 +340,12 @@ mvn -f backend/pom.xml test
 
 # 前端类型检查与生产构建
 npm --prefix frontend run build
+
+# 代码查询 v2 假接口截图（需要本机 Edge；先跑上面的构建）
+node automation/scripts/verify_code_lookup_v2.mjs
 ```
+
+`frontend` 的 `/code-lookup` 默认使用 v2；设置 `VITE_CODE_LOOKUP_V2=false` 后构建可切回 v1，旧页始终保留在 `/code-lookup/legacy`。截图脚本的 `--case stock|etf|index|partial|rate-limited` 可只跑一张，产物在 `automation/screenshots/code-lookup-v2/`。
 
 `.github/workflows/market-data-tests.yml` 会在相关代码推送或提交 Pull Request 时运行 Python 和 Java 测试。
 

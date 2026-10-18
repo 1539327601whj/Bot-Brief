@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "msg": "success",
+  "success": true,
+  "data": {
+    "indexShortNameCn": "沪深300",
+    "indexFullNameCn": "沪深300指数",
+    "consNumber": null,
+    "publishDate": "2005-04-08",
+    "basicDate": "2004-12-31"
+  }
+}

@@ -1,7 +1,9 @@
 package com.ai.daily.screener;
 
 import com.ai.daily.entity.MarketValuationHistory;
+import com.ai.daily.warehouse.SharedRateLimitStore;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -57,6 +59,12 @@ public class ScreenerCache {
     private final long cooldownMinutesDefault;
     private final Object universeLock = new Object();
 
+    /**
+     * 跨进程冷却状态。{@code null} 表示只记本进程（测试构造器）。
+     * 见 {@link SharedRateLimitStore}：DB 不可用时它会自己降级，这里不必再兜一层。
+     */
+    private final SharedRateLimitStore sharedRateLimit;
+
     private volatile MarketDataClient.UniverseSnapshot universe;
     private volatile LocalDateTime universeAt;
 
@@ -71,15 +79,26 @@ public class ScreenerCache {
 
     private record KlineEntry(MarketDataClient.KlineOutcome outcome, LocalDate stamp, LocalDateTime at) {}
 
+    /** Spring 用这一个：多注入共享冷却。 */
+    @Autowired
     public ScreenerCache(
             @Value("${screener.universe-ttl-minutes:15}") long universeTtlMinutes,
             @Value("${screener.kline-intraday-ttl-minutes:20}") long klineIntradayTtlMinutes,
             @Value("${screener.valuation-ttl-minutes:60}") long valuationTtlMinutes,
-            @Value("${screener.rate-limit-cooldown-minutes:10}") long cooldownMinutesDefault) {
+            @Value("${screener.rate-limit-cooldown-minutes:10}") long cooldownMinutesDefault,
+            SharedRateLimitStore sharedRateLimit) {
         this.universeTtlMinutes = universeTtlMinutes;
         this.klineIntradayTtlMinutes = klineIntradayTtlMinutes;
         this.valuationTtlMinutes = Math.max(1, valuationTtlMinutes);
         this.cooldownMinutesDefault = Math.max(1, cooldownMinutesDefault);
+        this.sharedRateLimit = sharedRateLimit;
+    }
+
+    /** 测试与降级用：只记本进程冷却，行为与改造前一致。 */
+    public ScreenerCache(long universeTtlMinutes, long klineIntradayTtlMinutes,
+                         long valuationTtlMinutes, long cooldownMinutesDefault) {
+        this(universeTtlMinutes, klineIntradayTtlMinutes, valuationTtlMinutes,
+                cooldownMinutesDefault, null);
     }
 
     // ==================================================================
@@ -167,7 +186,8 @@ public class ScreenerCache {
     }
 
     public void enterCooldown(String provider, long minutes) {
-        LocalDateTime until = LocalDateTime.now(SHANGHAI).plusMinutes(Math.max(1, minutes));
+        long safeMinutes = Math.max(1, minutes);
+        LocalDateTime until = LocalDateTime.now(SHANGHAI).plusMinutes(safeMinutes);
         String key = provider == null ? MarketDataClient.PROVIDER_EASTMONEY : provider;
         LocalDateTime current = cooldowns.get(key);
         if (current == null || until.isAfter(current)) {
@@ -175,6 +195,10 @@ public class ScreenerCache {
             // 只在真的把冷却推后时打日志：同一批里每只标的都报一次会刷屏，
             // 而「最早那次」才是值得看的那条
             log.warn("{} 限流，冷却至 {}", key, until);
+            // 同步给另一个进程。失败不会阻断：SharedRateLimitStore 内部会熔断降级。
+            if (sharedRateLimit != null) {
+                sharedRateLimit.enterCooldown(key, safeMinutes * 60L, "请求被行情源限流");
+            }
         }
     }
 
@@ -184,8 +208,28 @@ public class ScreenerCache {
     }
 
     public boolean inCooldown(String provider) {
-        LocalDateTime until = cooldowns.get(provider == null ? MarketDataClient.PROVIDER_EASTMONEY : provider);
-        return until != null && LocalDateTime.now(SHANGHAI).isBefore(until);
+        String key = provider == null ? MarketDataClient.PROVIDER_EASTMONEY : provider;
+        LocalDateTime now = LocalDateTime.now(SHANGHAI);
+        LocalDateTime until = cooldowns.get(key);
+        if (until != null && now.isBefore(until)) {
+            return true;
+        }
+        if (sharedRateLimit == null) {
+            return false;
+        }
+        // 另一个进程（warehouse）写下的冷却。读侧有 1 秒缓存，不会每次外呼都打 DB。
+        // 读到就顺手镜像到本地：本次进程后续的多次判断命中本地，行为也更一致。
+        return sharedRateLimit.cooldown(key)
+                .filter(SharedRateLimitStore.CooldownInfo::cooling)
+                .map(info -> {
+                    LocalDateTime sharedUntil = now.plusNanos(Math.max(0, info.remainingMs()) * 1_000_000L);
+                    LocalDateTime current = cooldowns.get(key);
+                    if (current == null || sharedUntil.isAfter(current)) {
+                        cooldowns.put(key, sharedUntil);
+                    }
+                    return true;
+                })
+                .orElse(false);
     }
 
     public Optional<LocalDateTime> cooldownUntil() {
@@ -217,7 +261,12 @@ public class ScreenerCache {
     }
 
     public void clearCooldown(String provider) {
-        cooldowns.remove(provider == null ? MarketDataClient.PROVIDER_EASTMONEY : provider);
+        String key = provider == null ? MarketDataClient.PROVIDER_EASTMONEY : provider;
+        cooldowns.remove(key);
+        // 诊断/测试里手动解封时，共享状态也一起清；否则另一个进程会继续把冷却镜像回来。
+        if (sharedRateLimit != null) {
+            sharedRateLimit.clearCooldown(key);
+        }
     }
 
     // ==================================================================

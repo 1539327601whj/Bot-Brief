@@ -1,5 +1,10 @@
 # 低估精选 · 筛选规则章程
 
+> **边界说明（2026-10 起）**：「代码查询 v2」有单独的一套规则章程
+> `automation/agents/code_lookup_analysis_rules.md`，它允许「结论标签 + 参考区间」，
+> 那是**另一页、另一套口径**，不适用于本文件。
+> **本文件的禁止词表与「不构成建议」约束对低估精选 / ETF 日报原样保留，不因 v2 放宽。**
+
 本文件是「低估精选」功能的规则来源。Java 侧实现位于
 `backend/src/main/java/com/ai/daily/screener/ScreeningRules.java`，
 代码顶部注释指向本文件。**改规则先改本文件，再改代码。**

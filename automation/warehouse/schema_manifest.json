@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "comment": "代码查询 v2 数据底座的 schema 契约。warehouse 启动自检与 verify_warehouse_schema.py 共用。缺表/缺列必须直接失败，不允许带着半个 schema 跑。改表时同时改这里、V15__investment_warehouse.sql 和 backend/sql/init.sql。",
+  "tables": {
+    "market_valuation_history": {
+      "owner": "existing",
+      "requiredColumns": [
+        "index_code", "index_name", "pe_ttm", "pe_percentile", "pb",
+        "dividend_yield", "percentile_method", "trade_date", "source"
+      ]
+    },
+    "md_instrument": {
+      "owner": "warehouse",
+      "requiredColumns": [
+        "instrument_code", "asset_type", "market", "raw_code", "name", "aliases",
+        "industry", "industry_code", "tracking_index_code", "list_date", "status",
+        "source", "fetched_at"
+      ]
+    },
+    "md_price_daily": {
+      "owner": "shared",
+      "requiredColumns": [
+        "instrument_code", "trade_date", "adj_type", "open_price", "high_price",
+        "low_price", "close_price", "volume", "amount", "turnover_rate",
+        "pct_change", "source", "fetched_at"
+      ]
+    },
+    "md_valuation_daily": {
+      "owner": "shared",
+      "requiredColumns": [
+        "instrument_code", "trade_date", "pe_ttm", "pb_mrq", "ps_ttm",
+        "dividend_yield", "close_price", "percentile_method", "source", "fetched_at"
+      ]
+    },
+    "md_financial_report": {
+      "owner": "shared",
+      "requiredColumns": [
+        "stock_code", "report_date", "report_type", "announce_date", "available_from",
+        "revenue", "revenue_yoy", "net_profit", "net_profit_yoy", "roe",
+        "gross_margin", "net_margin", "ocf", "total_assets", "total_equity",
+        "total_liabilities", "current_assets", "current_liabilities",
+        "interest_expense", "ebit", "goodwill", "accounts_receivable",
+        "source", "fetched_at"
+      ]
+    },
+    "md_moneyflow_daily": {
+      "owner": "shared",
+      "requiredColumns": [
+        "stock_code", "trade_date", "main_net", "super_net", "large_net",
+        "medium_net", "small_net", "main_ratio", "source", "fetched_at"
+      ]
+    },
+    "md_index_profile": {
+      "owner": "warehouse",
+      "requiredColumns": [
+        "index_code", "as_of", "name", "constituent_count", "top10_weight",
+        "pe_ttm", "dividend_yield", "total_market_cap", "tracking_index_code",
+        "source", "fetched_at"
+      ]
+    },
+    "md_index_industry_weight": {
+      "owner": "warehouse",
+      "requiredColumns": [
+        "index_code", "as_of", "industry_code", "industry_name", "weight",
+        "source", "fetched_at"
+      ]
+    },
+    "md_index_constituent": {
+      "owner": "warehouse",
+      "requiredColumns": [
+        "index_code", "as_of", "stock_code", "stock_name", "weight",
+        "source", "fetched_at"
+      ]
+    },
+    "md_industry_board": {
+      "owner": "warehouse",
+      "requiredColumns": ["board_code", "name", "source", "fetched_at"]
+    },
+    "md_industry_constituent": {
+      "owner": "warehouse",
+      "requiredColumns": [
+        "board_code", "stock_code", "stock_name", "as_of", "source", "fetched_at"
+      ]
+    },
+    "md_event": {
+      "owner": "shared",
+      "requiredColumns": [
+        "instrument_code", "category", "event_type", "title", "summary", "url",
+        "published_at", "source", "importance", "polarity", "content_hash", "fetched_at"
+      ]
+    },
+    "md_analysis_cache": {
+      "owner": "java",
+      "requiredColumns": [
+        "instrument_code", "snapshot_hash", "rules_version", "prompt_version",
+        "payload_json", "created_at", "expires_at"
+      ]
+    },
+    "md_sync_job": {
+      "owner": "shared",
+      "requiredColumns": [
+        "job_key", "task", "status", "priority", "instrument_code", "payload_json",
+        "cursor", "rows_affected", "error", "retry_after", "started_at", "finished_at"
+      ]
+    },
+    "md_source_state": {
+      "owner": "shared",
+      "requiredColumns": [
+        "provider", "next_allowed_at", "cooldown_until", "last_error", "updated_at"
+      ]
+    }
+  }
+}

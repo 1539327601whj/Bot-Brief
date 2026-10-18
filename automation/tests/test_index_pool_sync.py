@@ -50,7 +50,11 @@ def danjuan_fund(code, index_code, danjuan_code, etf=None):
     }
 
 
-def history(trade_date="2026-09-30", pe=13.5, percentile=48.8, rows=1200):
+def history(trade_date=None, pe=13.5, percentile=48.8, rows=1200):
+    # 默认用「今天」而不是写死的日期：csindex_valuations 会按 15 天新鲜度过滤，
+    # 写死日期会让这组用例在两周后自己变红（2026-10 就踩过一次）。
+    if trade_date is None:
+        trade_date = report.now_beijing().date().isoformat()
     return [{
         "tradeDate": trade_date,
         "peTtm": pe,
@@ -114,7 +118,7 @@ class CsindexSegmentTests(unittest.TestCase):
         rows = sync.csindex_valuations([csindex_fund("000300")], fetcher=lambda code: history())
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["percentileMethod"], report.CSI_PE_TTM_ROLLING_10Y)
-        self.assertEqual(rows[0]["tradeDate"], "2026-09-30")
+        self.assertEqual(rows[0]["tradeDate"], report.now_beijing().date().isoformat())
         self.assertEqual(rows[0]["pePercentile"], 48.8)
         self.assertIn(report.CSI_PE_SOURCE_LABEL, rows[0]["source"])
 

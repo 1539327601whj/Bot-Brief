@@ -1,0 +1,14 @@
+{
+  "code": 200,
+  "msg": "success",
+  "success": true,
+  "data": {
+    "updateDate": "2025-09-30",
+    "industryWeightList": [
+      {"rowNum": 1, "tradeDate": "20250930", "csiTypeL1": "金融", "csiTypeL1En": "Financials", "weightPct": "21.86", "preciseWeight": "21.8613"},
+      {"rowNum": 2, "tradeDate": "20250930", "csiTypeL1": "工业", "csiTypeL1En": "Industrials", "weightPct": "18.20"},
+      {"rowNum": 3, "tradeDate": "20250930", "csiTypeL1": "—", "csiTypeL1En": null, "weightPct": "1.00"},
+      {"rowNum": 4, "tradeDate": "20250930", "csiTypeL1": "无英文", "csiTypeL1En": "", "weightPct": "5.00"}
+    ]
+  }
+}

@@ -241,3 +241,26 @@ screener:
     # 所以放宽到 4000；「不许把材料复述一遍」那件事靠 system prompt 里的小节要求，
     # 不靠这个上限（上限卡得刚好，卡掉的是结论而不是复述）。
     brief-max-tokens: ${SCREENER_ANALYSIS_BRIEF_MAX_TOKENS:4000}
+
+# 「代码查询 v2」的本地数据仓库。表结构见 backend/sql/V15__investment_warehouse.sql，
+# 启动时 WarehouseSchemaGuard 只检查、不自动建表；缺表时 v2 返回 503，v1 不受影响。
+warehouse:
+  # 总开关。关掉后 v2 端点整体 503，v1 完全不受影响。
+  enabled: ${WAREHOUSE_ENABLED:true}
+  # 用户查询时是否允许 Java 同步外呼取数。关掉后只读本地库（回退绳）。
+  on-demand-enabled: ${WAREHOUSE_ON_DEMAND_ENABLED:true}
+  # core 端点的时间预算（毫秒）。超预算就返回已有数据 + syncPending。
+  core-budget-ms: ${WAREHOUSE_CORE_BUDGET_MS:3500}
+  # 个股财务/资金/行业多久算过期（小时）。
+  stock-detail-stale-hours: ${WAREHOUSE_STOCK_DETAIL_STALE_HOURS:24}
+  # 价格超过几个交易日视为陈旧。
+  price-stale-trading-days: ${WAREHOUSE_PRICE_STALE_TRADING_DAYS:3}
+  # 全市场估值快照取总市值前多少只。
+  market-snapshot-size: ${WAREHOUSE_MARKET_SNAPSHOT_SIZE:3000}
+  # 跨进程限流闸门。DB 不可用时自动降级为进程内限速并打 WARN，不阻断查询。
+  # 这是显式回退绳：出现异常时置 false 重启即可。
+  shared-rate-limit-enabled: ${WAREHOUSE_SHARED_RATE_LIMIT_ENABLED:true}
+  # 共享冷却状态的本地缓存毫秒数，避免每次外呼都打一次 DB。
+  shared-cooldown-cache-ms: ${WAREHOUSE_SHARED_COOLDOWN_CACHE_MS:1000}
+  # 批量任务允许启动的最早时刻（小时，0–23）。17 点前不跑批量。
+  batch-start-hour: ${WAREHOUSE_BATCH_START_HOUR:17}

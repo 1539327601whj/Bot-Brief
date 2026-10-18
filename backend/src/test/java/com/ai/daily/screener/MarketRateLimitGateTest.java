@@ -133,9 +133,11 @@ class MarketRateLimitGateTest {
         java.lang.reflect.Constructor<?>[] ctors = MarketRateLimitGate.class.getDeclaredConstructors();
         java.lang.reflect.Constructor<?> production = java.util.Arrays.stream(ctors)
                 .filter(c -> java.util.Arrays.equals(c.getParameterTypes(),
-                        new Class<?>[]{long.class, long.class}))
+                        new Class<?>[]{long.class, long.class,
+                                com.ai.daily.warehouse.SharedRateLimitStore.class}))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("生产的 (long, long) 构造器不见了"));
+                .orElseThrow(() -> new AssertionError(
+                        "生产的 (long, long, SharedRateLimitStore) 构造器不见了"));
 
         assertThat(production.isAnnotationPresent(Autowired.class))
                 .as("生产构造器必须带 @Autowired，否则 Spring 找不到无参构造器就抛 "

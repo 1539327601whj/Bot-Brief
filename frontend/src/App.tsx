@@ -13,7 +13,8 @@ import PushChannels from './pages/PushChannels'
 import Notifications from './pages/Notifications'
 import MarketWatch from './pages/MarketWatch'
 import StockPick from './pages/StockPick'
-import CodeLookup from './pages/CodeLookup'
+import CodeLookupLegacy from './pages/CodeLookup'
+import CodeLookupV2Page from './pages/codeLookup/CodeLookupPage'
 import Pricing from './pages/Pricing'
 import CreatorTools from './pages/CreatorTools'
 import ShopAnalytics from './pages/ShopAnalytics'
@@ -184,7 +185,13 @@ export default function App() {
                   <Route path="/reports" element={<History />} />
                   <Route path="/market-watch" element={<MarketWatch />} />
                   <Route path="/stock-pick" element={<StockPick />} />
-                  <Route path="/code-lookup" element={<CodeLookup />} />
+                  <Route
+                    path="/code-lookup"
+                    element={import.meta.env.VITE_CODE_LOOKUP_V2 === 'false'
+                      ? <CodeLookupLegacy />
+                      : <CodeLookupV2Page />}
+                  />
+                  <Route path="/code-lookup/legacy" element={<CodeLookupLegacy />} />
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/creator-tools" element={<CreatorTools />} />
                   <Route path="/content-growth" element={<ContentGrowth />} />

@@ -71,6 +71,48 @@ services:
       - ./logs/poller:/app/logs
     restart: always
 
+  # 数据仓库：与 poller 共用镜像，但独立进程、独立 DB 凭据、独立重启。
+  # poller 仍然不拿 DB 凭据；DB 只授 md_* 的 SELECT/INSERT/UPDATE。
+  warehouse:
+    image: ${POLLER_IMAGE:-bot-brief-poller:local}
+    build:
+      context: ./automation
+    container_name: bot-brief-warehouse
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Asia/Shanghai
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      # 生产环境必须给独立的只写 md_* 账号；不配就退回应用账号并打 WARN。
+      WAREHOUSE_DB_USER: ${WAREHOUSE_DB_USER:-}
+      WAREHOUSE_DB_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-}
+      BACKEND_API_URL: ${POLLER_BACKEND_URL:-http://backend:8081}
+      REPORT_INGEST_TOKEN: ${REPORT_INGEST_TOKEN}
+      # 国内行情域名不走系统代理；容器里也没有代理。
+      WAREHOUSE_TRUST_ENV: "false"
+      WAREHOUSE_BATCH_START_HOUR: ${WAREHOUSE_BATCH_START_HOUR:-17}
+      WAREHOUSE_UNIVERSE_SIZE: ${WAREHOUSE_UNIVERSE_SIZE:-3000}
+      WAREHOUSE_NEWS_REFRESH_ENABLED: ${WAREHOUSE_NEWS_REFRESH_ENABLED:-false}
+      WAREHOUSE_JOB_POLL_SECONDS: ${WAREHOUSE_JOB_POLL_SECONDS:-2.0}
+      LOG_LEVEL: ${WAREHOUSE_LOG_LEVEL:-INFO}
+      PYTHONIOENCODING: UTF-8
+    volumes:
+      - ./logs/warehouse:/app/logs
+    # 镜像默认 CMD 是 poller，这里必须显式覆盖。
+    command: ["python", "-u", "warehouse_worker.py"]
+    # 缺表/缺列或数据库不可达都会退出 2，容器标记为 unhealthy（便于部署脚本发现）。
+    healthcheck:
+      test: ["CMD", "python", "scripts/verify_warehouse_schema.py", "--manifest", "--json", "--connect-timeout", "3"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    restart: always
+
   frontend:
     image: ${FRONTEND_IMAGE:-bot-brief-frontend:local}
     build:

@@ -16,15 +16,18 @@ public interface MarketValuationHistoryMapper extends BaseMapper<MarketValuation
 
     @Insert("""
             INSERT INTO market_valuation_history
-                (index_code, index_name, pe_ttm, pe_percentile, percentile_method,
-                 valuation_level, trade_date, source, created_at)
+                (index_code, index_name, pe_ttm, pe_percentile, pb, dividend_yield,
+                 percentile_method, valuation_level, trade_date, source, created_at)
             VALUES
-                (#{indexCode}, #{indexName}, #{peTtm}, #{pePercentile}, #{percentileMethod},
-                 #{valuationLevel}, #{tradeDate}, #{source}, #{createdAt})
+                (#{indexCode}, #{indexName}, #{peTtm}, #{pePercentile}, #{pb}, #{dividendYield},
+                 #{percentileMethod}, #{valuationLevel}, #{tradeDate}, #{source}, #{createdAt})
             ON DUPLICATE KEY UPDATE
                 index_name = VALUES(index_name),
                 pe_ttm = VALUES(pe_ttm),
                 pe_percentile = VALUES(pe_percentile),
+                /* 新列可能只有部分源提供：本次没给（NULL）时保留旧值，不要抹掉。 */
+                pb = COALESCE(VALUES(pb), pb),
+                dividend_yield = COALESCE(VALUES(dividend_yield), dividend_yield),
                 valuation_level = VALUES(valuation_level),
                 source = VALUES(source)
             """)
@@ -34,11 +37,12 @@ public interface MarketValuationHistoryMapper extends BaseMapper<MarketValuation
     @Insert("""
             <script>
             INSERT INTO market_valuation_history
-                (index_code, index_name, pe_ttm, pe_percentile, percentile_method,
-                 valuation_level, trade_date, source, created_at)
+                (index_code, index_name, pe_ttm, pe_percentile, pb, dividend_yield,
+                 percentile_method, valuation_level, trade_date, source, created_at)
             VALUES
             <foreach collection="histories" item="item" separator=",">
                 (#{item.indexCode}, #{item.indexName}, #{item.peTtm}, #{item.pePercentile},
+                 #{item.pb}, #{item.dividendYield},
                  #{item.percentileMethod}, #{item.valuationLevel}, #{item.tradeDate},
                  #{item.source}, #{item.createdAt})
             </foreach>
@@ -46,6 +50,9 @@ public interface MarketValuationHistoryMapper extends BaseMapper<MarketValuation
                 index_name = VALUES(index_name),
                 pe_ttm = VALUES(pe_ttm),
                 pe_percentile = VALUES(pe_percentile),
+                /* 同单条 upsert：缺失的新列不覆盖已有值。 */
+                pb = COALESCE(VALUES(pb), pb),
+                dividend_yield = COALESCE(VALUES(dividend_yield), dividend_yield),
                 valuation_level = VALUES(valuation_level),
                 source = VALUES(source)
             </script>

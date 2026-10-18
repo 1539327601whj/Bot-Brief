@@ -148,8 +148,20 @@ public class AltQuoteSource {
      *         记 {@link ScreenerCache#enterCooldown(String)}——**只记腾讯那一路**。
      */
     public Map<String, MarketDataClient.EtfQuote> fetchTencentQuotes(List<String> codes) {
+        return fetchTencentQuotesBySymbols(symbolsOf(codes, "腾讯行情"));
+    }
+
+    /**
+     * 按**显式符号**取腾讯行情（{@code sh600519} / {@code sz300274}）。
+     *
+     * <p>与 {@link #fetchTencentQuotes(List)} 的区别只有一处：符号由调用方判好，
+     * 不经过 {@link #tencentSymbol(String)}。那条老映射刻意只认基金段（5/1 开头），
+     * 因为它是给 ETF 块用的；v2 的行情兜底要覆盖个股，再把个股塞进那条映射里
+     * 会让 v1 的「判断不了就跳过」失去意义。
+     */
+    public Map<String, MarketDataClient.EtfQuote> fetchTencentQuotesBySymbols(List<String> symbols) {
         Map<String, MarketDataClient.EtfQuote> out = new LinkedHashMap<>();
-        List<String> symbols = symbolsOf(codes, "腾讯行情");
+        symbols = validSymbols(symbols);
         for (int i = 0; i < symbols.size(); i += MAX_BATCH) {
             List<String> batch = symbols.subList(i, Math.min(i + MAX_BATCH, symbols.size()));
             // 逗号必须原样出现在查询串里，所以这里直接拼字符串，不走 UriComponentsBuilder 的编码。
@@ -191,6 +203,21 @@ public class AltQuoteSource {
         if (symbol == null) {
             return MarketDataClient.KlineOutcome.failed(
                     "腾讯日线不认这个代码的市场前缀", PROVIDER_TENCENT);
+        }
+        return tencentKlineOutcome(symbol, end, limit);
+    }
+
+    /**
+     * 按**显式符号**取腾讯日线（{@code sh600519} / {@code sz300274}）。
+     *
+     * <p>{@link #fetchTencentKline(String, LocalDate, int)} 只能表示基金代码；
+     * v2 要把个股日线也落本地，符号由调用方判好后走这里。
+     */
+    public MarketDataClient.KlineOutcome fetchTencentKlineBySymbol(String symbol, LocalDate end,
+                                                                   int limit) {
+        if (!isSymbol(symbol)) {
+            return MarketDataClient.KlineOutcome.failed(
+                    "腾讯日线符号不是 sh/sz+6 位：" + symbol, PROVIDER_TENCENT);
         }
         return tencentKlineOutcome(symbol, end, limit);
     }
@@ -313,8 +340,13 @@ public class AltQuoteSource {
      *         记 {@link ScreenerCache#enterCooldown(String)}。
      */
     public Map<String, MarketDataClient.EtfQuote> fetchSinaQuotes(List<String> codes) {
+        return fetchSinaQuotesBySymbols(symbolsOf(codes, "新浪行情"));
+    }
+
+    /** 按显式符号取新浪行情。理由见 {@link #fetchTencentQuotesBySymbols(List)}。 */
+    public Map<String, MarketDataClient.EtfQuote> fetchSinaQuotesBySymbols(List<String> symbols) {
         Map<String, MarketDataClient.EtfQuote> out = new LinkedHashMap<>();
-        List<String> symbols = symbolsOf(codes, "新浪行情");
+        symbols = validSymbols(symbols);
         for (int i = 0; i < symbols.size(); i += MAX_BATCH) {
             List<String> batch = symbols.subList(i, Math.min(i + MAX_BATCH, symbols.size()));
             String body = getDecoded(URI.create(SINA_QUOTE_URL + String.join(",", batch)),
@@ -440,6 +472,25 @@ public class AltQuoteSource {
     private static boolean isSymbol(String symbol) {
         return symbol != null && symbol.length() == 8
                 && (symbol.startsWith("sh") || symbol.startsWith("sz"));
+    }
+
+    /**
+     * 只留下 {sh,sz}+6 位的符号。
+     *
+     * <p>显式符号入口也要过这一道：调用方判错时（比如把中证代码拼成 sh930782）
+     * 宁可不发请求，也不要让源回一堆认不出的语句、再被当成「源说没有这只标的」。
+     */
+    private static List<String> validSymbols(List<String> symbols) {
+        List<String> out = new ArrayList<>();
+        if (symbols == null) return out;
+        for (String symbol : symbols) {
+            if (isSymbol(symbol)) {
+                out.add(symbol);
+            } else {
+                log.warn("行情符号不是 sh/sz+6 位，已跳过：{}", symbol);
+            }
+        }
+        return out;
     }
 
     /** 越界一律 null：字段数比预期的少时，按缺失处理比读到一个不存在的位置好。 */
