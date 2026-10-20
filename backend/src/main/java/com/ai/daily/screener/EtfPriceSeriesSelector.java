@@ -65,6 +65,19 @@ public final class EtfPriceSeriesSelector {
      *         不允许拿任何默认值糊上**
      */
     public static List<PricePositionCalculator.Bar> select(List<Point> points, int limit) {
+        List<Point> chosen = selectPoints(points, limit);
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>(chosen.size());
+        for (Point p : chosen) {
+            bars.add(new PricePositionCalculator.Bar(p.date(), p.close()));
+        }
+        return bars;
+    }
+
+    /**
+     * 与 {@link #select} 同一套判据，但保留完整的 {@link Point}（含来源）。
+     * 需要开高低收的画图场景用它——{@link PricePositionCalculator.Bar} 只剩收盘价。
+     */
+    public static List<Point> selectPoints(List<Point> points, int limit) {
         if (points == null || points.isEmpty()) return List.of();
 
         // 分组用 LinkedHashMap：平手时要取「先出现的那个」，插入顺序必须稳定，
@@ -90,11 +103,7 @@ public final class EtfPriceSeriesSelector {
 
         List<Point> chosen = best.series();
         int from = Math.max(0, chosen.size() - Math.max(1, limit));
-        List<PricePositionCalculator.Bar> bars = new ArrayList<>(chosen.size() - from);
-        for (Point p : chosen.subList(from, chosen.size())) {
-            bars.add(new PricePositionCalculator.Bar(p.date(), p.close()));
-        }
-        return bars;
+        return new ArrayList<>(chosen.subList(from, chosen.size()));
     }
 
     /** 坏行不是「便宜」，是坏行。留着会把价格分位压到 0 并伪造一个巨大回撤。 */

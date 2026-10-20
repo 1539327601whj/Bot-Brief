@@ -106,6 +106,14 @@ CSI_PE_SOURCE_LABEL = "中证指数官网PE(TTM)"
 DANJUAN_PE_SOURCE_LABEL = "蛋卷基金指数估值"
 PRICE_ADJUSTMENT_TYPE = "QFQ"
 PRICE_HISTORY_LIMIT = 800
+# 腾讯日线的两个入口。实测 `web.ifzq.gtimg.cn` 会对机房 IP 回 WAF 拦截页
+# （HTML，不是 JSON），而 `proxy.finance.qq.com` 是同一套接口的另一个域名，
+# 参数与返回结构完全一致（`qfqday` / `day`）。两个都试，不能因为一个域名
+# 被拦就把整池 ETF 的日线判成「没有数据」。
+TENCENT_KLINE_URLS = (
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+    "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get",
+)
 PRICE_CACHE_QUERY_LIMIT = 800
 PRICE_INGEST_BATCH_SIZE = 250
 VALUATION_HISTORY_LIMIT = 800
@@ -461,32 +469,44 @@ def _extract_tencent_rows(body: Any, code: str) -> list[Any]:
 
 
 def fetch_etf_daily_prices_from_tencent(etf: dict[str, str]) -> list[dict[str, Any]]:
-    """腾讯前复权日线。**`qfq` 参数下没有复权事件的标的回的是 `day`**，见 `_extract_tencent_rows`。"""
+    """腾讯前复权日线。**`qfq` 参数下没有复权事件的标的回的是 `day`**，见 `_extract_tencent_rows`。
+
+    主域名被 WAF 拦时换同接口的备用域名再试一次。**这是同一个源、同一条口径**，
+    不是换源：两个入口的参数和返回结构完全一致，只是域名不同。
+    """
     symbol = etf["sina_code"]
-    resp = http_get(
-        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-        params={"param": f"{symbol},day,,,{PRICE_HISTORY_LIMIT},qfq"},
-        timeout=(5, 15),
-        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"},
-    )
-    resp.raise_for_status()
-    body = resp.json()
-    if not isinstance(body, dict) or str(body.get("code", 0)) not in ("0", "200"):
-        raise RuntimeError(f"腾讯日线业务错误: {body.get('code') if isinstance(body, dict) else 'invalid'}")
-    raw_items = []
-    for row in _extract_tencent_rows(body, symbol):
-        if isinstance(row, list) and len(row) >= 5:
-            raw_items.append({
-                "date": row[0], "open": row[1], "close": row[2],
-                "high": row[3], "low": row[4], "source": "腾讯前复权日线",
-                "adjustmentType": PRICE_ADJUSTMENT_TYPE,
-            })
-    prices = normalize_daily_prices(raw_items)
-    if len(prices) < 20 or not is_fresh_date(
-        prices[-1]["date"], now_beijing().date(), PRICE_MAX_STALENESS_DAYS
-    ):
-        raise RuntimeError("腾讯 ETF 前复权日线数量不足或数据过旧")
-    return prices
+    errors: list[str] = []
+    for url in TENCENT_KLINE_URLS:
+        try:
+            resp = http_get(
+                url,
+                params={"param": f"{symbol},day,,,{PRICE_HISTORY_LIMIT},qfq"},
+                timeout=(5, 15),
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            if not isinstance(body, dict) or str(body.get("code", 0)) not in ("0", "200"):
+                raise RuntimeError(
+                    f"腾讯日线业务错误: {body.get('code') if isinstance(body, dict) else 'invalid'}")
+            raw_items = []
+            for row in _extract_tencent_rows(body, symbol):
+                if isinstance(row, list) and len(row) >= 5:
+                    raw_items.append({
+                        "date": row[0], "open": row[1], "close": row[2],
+                        "high": row[3], "low": row[4], "source": "腾讯前复权日线",
+                        "adjustmentType": PRICE_ADJUSTMENT_TYPE,
+                    })
+            prices = normalize_daily_prices(raw_items)
+            if len(prices) < 20 or not is_fresh_date(
+                prices[-1]["date"], now_beijing().date(), PRICE_MAX_STALENESS_DAYS
+            ):
+                raise RuntimeError("腾讯 ETF 前复权日线数量不足或数据过旧")
+            return prices
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+            logger.warning("  ⚠️ 腾讯日线入口失败 %s: %s", url, e)
+    raise RuntimeError("腾讯 ETF 前复权日线两个入口都失败: " + "; ".join(errors))
 
 
 def fetch_etf_daily_prices(etf: dict[str, str]) -> list[dict[str, Any]]:
@@ -1058,31 +1078,39 @@ def fetch_etf_unadjusted_closes_from_eastmoney(etf: dict[str, str]) -> list[dict
 
 def fetch_etf_unadjusted_closes_from_tencent(etf: dict[str, str]) -> list[dict[str, Any]]:
     symbol = etf["sina_code"]
-    resp = http_get(
-        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-        params={"param": f"{symbol},day,,,{UNADJUSTED_CLOSE_LIMIT},"},
-        timeout=(5, 15),
-        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"},
-    )
-    resp.raise_for_status()
-    body = resp.json()
-    data = body.get("data") if isinstance(body, dict) else None
-    node = (data.get(symbol) or data.get(f"sh{etf['code']}") or data.get(f"sz{etf['code']}")) if isinstance(data, dict) else None
-    rows = node.get("day") if isinstance(node, dict) else None
-    if not isinstance(rows, list):
-        raise RuntimeError("腾讯不复权日线缺少 day 列表")
-    raw_items = []
-    for row in rows:
-        if isinstance(row, list) and len(row) >= 3:
-            raw_items.append({
-                "date": row[0],
-                "close": row[2],
-                "source": "腾讯不复权日线",
-            })
-    closes = normalize_unadjusted_closes(raw_items)
-    if len(closes) < 10:
-        raise RuntimeError("腾讯不复权收盘数量不足")
-    return closes
+    errors: list[str] = []
+    for url in TENCENT_KLINE_URLS:
+        try:
+            resp = http_get(
+                url,
+                params={"param": f"{symbol},day,,,{UNADJUSTED_CLOSE_LIMIT},"},
+                timeout=(5, 15),
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            data = body.get("data") if isinstance(body, dict) else None
+            node = ((data.get(symbol) or data.get(f"sh{etf['code']}")
+                     or data.get(f"sz{etf['code']}")) if isinstance(data, dict) else None)
+            rows = node.get("day") if isinstance(node, dict) else None
+            if not isinstance(rows, list):
+                raise RuntimeError("腾讯不复权日线缺少 day 列表")
+            raw_items = []
+            for row in rows:
+                if isinstance(row, list) and len(row) >= 3:
+                    raw_items.append({
+                        "date": row[0],
+                        "close": row[2],
+                        "source": "腾讯不复权日线",
+                    })
+            closes = normalize_unadjusted_closes(raw_items)
+            if len(closes) < 10:
+                raise RuntimeError("腾讯不复权收盘数量不足")
+            return closes
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+            logger.warning("  ⚠️ 腾讯不复权日线入口失败 %s: %s", url, e)
+    raise RuntimeError("腾讯不复权日线两个入口都失败: " + "; ".join(errors))
 
 
 def fetch_etf_unadjusted_closes(etf: dict[str, str]) -> list[dict[str, Any]]:

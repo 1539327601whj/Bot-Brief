@@ -386,6 +386,29 @@ class HistoryTests(unittest.TestCase):
         body = {"data": {ETF["sina_code"]: {"qt": [], "prec": "4"}}}
         self.assertEqual(report._extract_tencent_rows(body, ETF["sina_code"]), [])
 
+    @patch.object(report, "now_beijing", return_value=NOW)
+    @patch.object(report, "http_get")
+    def test_tencent_daily_falls_back_to_the_second_host_when_the_first_is_waf_blocked(
+            self, get, _):
+        """主域名回 WAF 的 HTML 时，换同接口的备用域名再试一次。
+
+        两个域名参数与返回结构一致，属于**同一个源**；不换口径。
+        只认主域名会让整池 ETF 的日线一天都补不进库。
+        """
+        blocked = Mock()
+        blocked.raise_for_status.side_effect = None
+        blocked.json.side_effect = ValueError("Expecting value: line 1 column 1")
+        rows = [[f"2026-07-{day:02d}", "4.0", "4.1", "4.2", "3.9", "1000"]
+                for day in range(1, 26)]
+        good = response({"code": 0, "data": {ETF["sina_code"]: {"qfqday": rows}}})
+        get.side_effect = [blocked, good]
+
+        result = report.fetch_etf_daily_prices_from_tencent(ETF)
+
+        self.assertEqual(len(result), 25)
+        self.assertEqual(get.call_count, 2)
+        self.assertIn("proxy.finance.qq.com", get.call_args_list[1].args[0])
+
     @patch.object(report, "http_get")
     def test_history_rejects_fewer_than_twenty_rows(self, get):
         get.return_value = response({

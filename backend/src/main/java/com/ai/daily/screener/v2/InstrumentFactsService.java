@@ -1,7 +1,14 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.entity.EtfPriceHistory;
 import com.ai.daily.entity.MarketValuationHistory;
+import com.ai.daily.screener.EtfPriceSeriesSelector;
 import com.ai.daily.screener.IndexFundPool;
+import com.ai.daily.screener.OffPoolIndexClient;
+import com.ai.daily.screener.OffPoolIndexResolver;
+import com.ai.daily.screener.PricePositionCalculator;
+import com.ai.daily.screener.RollingPercentile;
+import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.ai.daily.warehouse.InstrumentCode;
 import com.ai.daily.warehouse.InstrumentResolver;
@@ -18,9 +25,12 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 把本地仓库里的数据装配成一只标的的 {@link FactsSnapshot}。
@@ -55,6 +65,20 @@ public class InstrumentFactsService {
     private final WarehouseRepository repository;
     private final MarketValuationHistoryService valuationHistoryService;
     private final IndexFundPool indexFundPool;
+    private final EtfPriceHistoryService etfPriceHistoryService;
+    private final OffPoolIndexClient offPoolIndexClient;
+
+    /**
+     * 本地估值库为空时现取中证/蛋卷历史的短期缓存。
+     *
+     * <p>键是「标的 + 口径」。只缓存 10 分钟：足够挡住用户连点，又不至于让盘中刚同步的
+     * 新值被一份旧缓存压住。失败结果只缓存 1 分钟，网络抖一下不该把页面锁住十分钟。
+     */
+    private final Map<String, LiveValuation> liveValuations = new ConcurrentHashMap<>();
+
+    private record LiveValuation(FactsSnapshot.Domain<FactsSnapshot.IndexValuation> domain,
+                                 long expiresAt) {
+    }
 
     public FactsSnapshot snapshot(String rawCode) {
         InstrumentCode instrument = resolver.resolve(rawCode);
@@ -70,6 +94,20 @@ public class InstrumentFactsService {
                 repository.latestPrices(instrument.key(), OnDemandSyncService.ADJ_QFQ, PRICE_BARS);
         DataStatus priceStatus = report.priceStatus();
         String priceNote = report.priceNote();
+        if (instrument.isEtf()) {
+            // 代码查询的日线原先只走 md_price_daily（按需从东财拉）。但指数池 ETF 的
+            // 日线每天 16:30 已经由 poller 预取进 etf_price_history（同一口径 QFQ）。
+            // 东财被限流时 md_price_daily 是空的，而预取库里有几百根——不读它，
+            // 页面就会在一个"本地明明有数据"的标的上显示「数据不足」。
+            List<WarehouseRows.PriceBar> prefetched = etfPrefetchedPrices(instrument, PRICE_BARS, today);
+            if (prefetched.size() > prices.size()) {
+                prices = prefetched;
+                priceStatus = prices.size() >= 250 ? DataStatus.OK : DataStatus.PARTIAL;
+                priceNote = "日线取自本地 ETF 预取库（前复权，"
+                        + prices.size() + " 根，截止 "
+                        + prices.get(prices.size() - 1).tradeDate() + "）";
+            }
+        }
         if (prices.isEmpty()) {
             if (priceStatus.usable()) {
                 // 报告说拿到了，读库却是空的：只能以库为准，不能把「有数据」写进快照。
@@ -231,6 +269,41 @@ public class InstrumentFactsService {
         return "GENERAL";
     }
 
+    /**
+     * 本地预取库里的 ETF 日线，按 {@link EtfPriceSeriesSelector} 选出一条同源序列。
+     *
+     * <p>只用于 ETF；库里的唯一键含 {@code source}，同一天可能同时有东财行与腾讯行，
+     * 必须选源后再用，否则曲线会在中间静默换源。表是空的或读库失败都返回空列表——
+     * 调用方据此保留原来的 md_price_daily 结果，绝不拿默认值顶上。
+     */
+    private List<WarehouseRows.PriceBar> etfPrefetchedPrices(InstrumentCode instrument, int limit,
+                                                             LocalDate today) {
+        try {
+            List<EtfPriceHistory> rows = etfPriceHistoryService.latestBatch(
+                    List.of(instrument.rawCode()), today.minusYears(11), EtfPriceHistoryService.QFQ);
+            if (rows.isEmpty()) {
+                return List.of();
+            }
+            List<EtfPriceSeriesSelector.Point> points = new ArrayList<>(rows.size());
+            for (EtfPriceHistory row : rows) {
+                points.add(new EtfPriceSeriesSelector.Point(
+                        row.getTradeDate(), row.getClose(), row.getSource(),
+                        row.getAdjustmentType()));
+            }
+            List<PricePositionCalculator.Bar> bars = EtfPriceSeriesSelector.select(points, limit);
+            List<WarehouseRows.PriceBar> out = new ArrayList<>(bars.size());
+            for (PricePositionCalculator.Bar bar : bars) {
+                out.add(new WarehouseRows.PriceBar(instrument.key(), bar.date(),
+                        EtfPriceHistoryService.QFQ, null, null, null, bar.close(),
+                        null, null, null, null, "etf_price_history", null));
+            }
+            return out;
+        } catch (RuntimeException e) {
+            log.warn("读 ETF 预取日线失败 code={}：{}", instrument.rawCode(), e.toString());
+            return List.of();
+        }
+    }
+
     private static FactsSnapshot.Domain<FactsSnapshot.Quote> quoteDomain(
             OnDemandSyncService.SyncReport report) {
         FactsSnapshot.Quote quote = report.quote();
@@ -270,6 +343,14 @@ public class InstrumentFactsService {
         List<MarketValuationHistory> history = valuationHistoryService.historyBetween(
                 indexCode, fund.percentileMethod(), today.minusYears(11), today);
         if (history.isEmpty()) {
+            // 本地库为空时不能只报「没有」：估值维占 30 分，缺了它覆盖率就过不了 50%，
+            // 整页会退回「数据不足」。池子的口径已经钉死，这里按同一个口径现取一次历史，
+            // 与旧版代码查询/ETF 日报走同一条源；取不到再如实报空。
+            FactsSnapshot.Domain<FactsSnapshot.IndexValuation> live =
+                    liveIndexValuation(instrument, fund);
+            if (live != null) {
+                return live;
+            }
             return FactsSnapshot.Domain.of(null, DataStatus.EMPTY,
                     "估值库里还没有 " + indexCode + " 的分位历史", null);
         }
@@ -303,6 +384,83 @@ public class InstrumentFactsService {
                 history.get(0).getTradeDate(), latest.getTradeDate());
         return FactsSnapshot.Domain.of(view, status, note,
                 latest.getTradeDate() == null ? null : latest.getTradeDate().toString());
+    }
+
+    /** 带短期缓存的现取入口；同一只标的连点时只打一次源。 */
+    private FactsSnapshot.Domain<FactsSnapshot.IndexValuation> liveIndexValuation(
+            InstrumentCode instrument, IndexFundPool.Fund fund) {
+        String cacheKey = instrument.key() + "|" + fund.percentileMethod();
+        long now = System.currentTimeMillis();
+        LiveValuation cached = liveValuations.get(cacheKey);
+        if (cached != null && cached.expiresAt() > now) {
+            return cached.domain();
+        }
+        FactsSnapshot.Domain<FactsSnapshot.IndexValuation> domain;
+        try {
+            domain = fetchLiveIndexValuation(instrument, fund);
+        } catch (RuntimeException e) {
+            log.warn("现取指数估值失败 index={}：{}", fund.indexCode(), e.toString());
+            domain = null;
+        }
+        if (domain != null) {
+            boolean usable = domain.status() != null && domain.status().usable();
+            liveValuations.put(cacheKey, new LiveValuation(domain,
+                    now + (usable ? 10 * 60_000L : 60_000L)));
+        }
+        return domain;
+    }
+
+    /**
+     * 按池子钉死的口径现取一次历史并算分位。**不跨源**：中证配的就只查中证，
+     * 蛋卷配的就只查蛋卷；查不到返回 null，不允许拿另一家的数顶上。
+     */
+    private FactsSnapshot.Domain<FactsSnapshot.IndexValuation> fetchLiveIndexValuation(
+            InstrumentCode instrument, IndexFundPool.Fund fund) {
+        OffPoolIndexClient.Result result;
+        if (IndexFundPool.SOURCE_CSINDEX.equals(fund.valuationSource()) && fund.hasCsindexCode()) {
+            result = offPoolIndexClient.fetch(new OffPoolIndexResolver.Route(
+                    OffPoolIndexResolver.Source.CSINDEX, fund.csindexCode(), "中证口径"));
+        } else if (IndexFundPool.SOURCE_DANJUAN.equals(fund.valuationSource())
+                && fund.danjuanCode() != null && !fund.danjuanCode().isBlank()) {
+            result = offPoolIndexClient.fetchDanjuanHistory(fund.danjuanCode());
+        } else {
+            return null;
+        }
+        if (result == null || !result.ok() || !result.hasHistory()) {
+            return null;
+        }
+        List<RollingPercentile.Point> points = result.points();
+        List<BigDecimal> peHistory = new ArrayList<>(points.size());
+        for (RollingPercentile.Point point : points) {
+            if (point.value() != null) {
+                peHistory.add(point.value());
+            }
+        }
+        if (peHistory.isEmpty()) {
+            return null;
+        }
+        RollingPercentile.Point last = points.get(points.size() - 1);
+        BigDecimal percentile = result.currentPercentile();
+        if (percentile == null) {
+            percentile = RollingPercentile.latest(points).orElse(null);
+        }
+        BigDecimal pe = result.currentPe() != null ? result.currentPe() : last.value();
+        LocalDate asOf = result.currentDate() != null ? result.currentDate() : last.date();
+        FactsSnapshot.IndexValuation view = new FactsSnapshot.IndexValuation(
+                result.source(), sourceLabel(fund), fund.percentileMethod(),
+                pe, percentile,
+                Quantiles.quantile(peHistory, 0.25),
+                Quantiles.quantile(peHistory, 0.40),
+                Quantiles.quantile(peHistory, 0.50),
+                null,
+                asOf,
+                points.size(),
+                points.get(0).date(), asOf);
+        DataStatus status = pe != null && percentile != null ? DataStatus.OK : DataStatus.PARTIAL;
+        String note = "本地估值库还没有 " + fund.indexCode() + " 的分位历史，"
+                + "本次直接取" + sourceLabel(fund) + "历史现算";
+        return FactsSnapshot.Domain.of(view, status, note,
+                asOf == null ? null : asOf.toString());
     }
 
     private FactsSnapshot.Domain<WarehouseRows.IndexProfile> indexProfile(

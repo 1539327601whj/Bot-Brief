@@ -1,7 +1,11 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.entity.EtfPriceHistory;
 import com.ai.daily.entity.MarketValuationHistory;
+import com.ai.daily.screener.EtfPriceSeriesSelector;
 import com.ai.daily.screener.IndexFundPool;
+import com.ai.daily.screener.PricePositionCalculator;
+import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.ai.daily.warehouse.InstrumentCode;
 import com.ai.daily.warehouse.InstrumentResolver;
@@ -47,6 +51,7 @@ public class SeriesService {
     private final InstrumentResolver resolver;
     private final WarehouseRepository repository;
     private final MarketValuationHistoryService valuationHistoryService;
+    private final EtfPriceHistoryService etfPriceHistoryService;
     private final IndexFundPool indexFundPool;
     private final WarehouseSchemaGuard schemaGuard;
     private final WarehouseProperties properties;
@@ -85,6 +90,15 @@ public class SeriesService {
                                                     LocalDate today) {
         List<WarehouseRows.PriceBar> rows = repository.pricesBetween(
                 instrument.key(), OnDemandSyncService.ADJ_QFQ, from, today);
+        String sourceNote = null;
+        if (rows.isEmpty() && instrument.isEtf()) {
+            // 与 InstrumentFactsService 同样的兜底：指数池 ETF 的日线每天 16:30 已经
+            // 预取进 etf_price_history，东财按需同步失败时图表不该是空白。
+            rows = prefetchedEtfPrices(instrument, from);
+            if (!rows.isEmpty()) {
+                sourceNote = "日线取自本地 ETF 预取库（前复权）";
+            }
+        }
         List<CodeLookupV2DTO.PricePoint> points = new ArrayList<>(rows.size());
         for (WarehouseRows.PriceBar row : rows) {
             points.add(new CodeLookupV2DTO.PricePoint(
@@ -97,11 +111,55 @@ public class SeriesService {
         if ("1w".equals(actual)) {
             points = weeklyPrices(points);
         }
-        String note = rows.isEmpty()
+        String note = sourceNote != null ? sourceNote
+                : rows.isEmpty()
                 ? "本地还没有这只标的的日线（首次查询会同步，或由 warehouse 盘后回填）"
                 : null;
         return new CodeLookupV2DTO.SeriesView(instrument.key(), "price", range, actual,
                 points, List.of(), List.of(), note);
+    }
+
+    /**
+     * 从 {@code etf_price_history} 读预取的 ETF 前复权日线（同一套同源判定）。
+     * 返回值升序、只含 {@link EtfPriceSeriesSelector} 选中的那一组来源。
+     */
+    private List<WarehouseRows.PriceBar> prefetchedEtfPrices(InstrumentCode instrument,
+                                                             LocalDate from) {
+        try {
+            List<EtfPriceHistory> history = etfPriceHistoryService.latestBatch(
+                    List.of(instrument.rawCode()), from, EtfPriceHistoryService.QFQ);
+            if (history.isEmpty()) {
+                return List.of();
+            }
+            List<EtfPriceSeriesSelector.Point> points = new ArrayList<>(history.size());
+            for (EtfPriceHistory row : history) {
+                points.add(new EtfPriceSeriesSelector.Point(row.getTradeDate(), row.getClose(),
+                        row.getSource(), row.getAdjustmentType()));
+            }
+            List<EtfPriceSeriesSelector.Point> chosen =
+                    EtfPriceSeriesSelector.selectPoints(points, 3000);
+            if (chosen.isEmpty()) {
+                return List.of();
+            }
+            Map<LocalDate, EtfPriceHistory> byDate = new LinkedHashMap<>();
+            String source = chosen.get(0).source();
+            for (EtfPriceHistory row : history) {
+                if (row.getSource() != null && source.equals(row.getSource().trim())) {
+                    byDate.put(row.getTradeDate(), row);
+                }
+            }
+            List<WarehouseRows.PriceBar> out = new ArrayList<>(chosen.size());
+            for (EtfPriceSeriesSelector.Point point : chosen) {
+                EtfPriceHistory row = byDate.get(point.date());
+                if (row == null) continue;
+                out.add(new WarehouseRows.PriceBar(instrument.key(), row.getTradeDate(),
+                        EtfPriceHistoryService.QFQ, row.getOpen(), row.getHigh(), row.getLow(),
+                        row.getClose(), null, null, null, null, row.getSource(), row.getFetchedAt()));
+            }
+            return out;
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     /** 周线：按 ISO 周（周一起）聚合。输入必须是按日期升序的日线。 */

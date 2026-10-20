@@ -4,12 +4,14 @@ import com.ai.daily.dto.Result;
 import com.ai.daily.screener.AltQuoteSource;
 import com.ai.daily.screener.IndexFundPool;
 import com.ai.daily.screener.MarketDataClient;
+import com.ai.daily.screener.OffPoolIndexClient;
 import com.ai.daily.screener.ScreenerCache;
 import com.ai.daily.screener.StockRow;
 import com.ai.daily.screener.StockValuationClient;
 import com.ai.daily.screener.v2.analysis.InvestmentAnalysisService;
 import com.ai.daily.screener.v2.ai.BriefV2Service;
 import com.ai.daily.security.UserPrincipal;
+import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.ai.daily.warehouse.InstrumentCode;
 import com.ai.daily.warehouse.InstrumentResolver;
@@ -126,7 +128,8 @@ class RateLimitSimulationTest {
         syncService = new OnDemandSyncService(marketDataClient, altQuoteSource,
                 stockValuationClient, repository, cache, properties, indexFundPool);
         InstrumentFactsService factsService = new InstrumentFactsService(resolver, syncService,
-                repository, valuationHistoryService, indexFundPool);
+                repository, valuationHistoryService, indexFundPool,
+                mock(EtfPriceHistoryService.class), mock(OffPoolIndexClient.class));
         service = new CodeLookupV2Service(factsService, new InvestmentAnalysisService(),
                 repository, schemaGuard, properties);
         controller = new CodeLookupV2Controller(service, mock(SeriesService.class),

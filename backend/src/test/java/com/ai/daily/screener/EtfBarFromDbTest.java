@@ -207,6 +207,24 @@ class EtfBarFromDbTest {
     }
 
     @Test
+    void selectPointsKeepsTheSourceForChartsThatNeedOhlc() {
+        // 图表要开高低收，只能拿原始 Point；但同源判定必须和 select() 完全一致，
+        // 否则「价格分位取自腾讯、曲线画的是东财」这种不一致又会静默发生。
+        List<EtfPriceSeriesSelector.Point> rows = List.of(
+                em(D1, 10.1), em(D2, 10.2), em(D3, 10.3),
+                tx(D3, 20.3), tx(D4, 20.4), tx(D5, 20.5), tx(D7, 20.7));
+
+        List<EtfPriceSeriesSelector.Point> points = EtfPriceSeriesSelector.selectPoints(rows, 250);
+
+        assertThat(points).extracting(EtfPriceSeriesSelector.Point::date)
+                .containsExactly(D3, D4, D5, D7);
+        assertThat(points).allMatch(p -> TX.equals(p.source()));
+        assertThat(points).extracting(EtfPriceSeriesSelector.Point::close)
+                .containsExactly(BigDecimal.valueOf(20.3), BigDecimal.valueOf(20.4),
+                        BigDecimal.valueOf(20.5), BigDecimal.valueOf(20.7));
+    }
+
+    @Test
     void theLimitIsClampedSoAnEmptySeriesIsNeverProduced() {
         // limit=0 或负数：绝不能变成「切片长度为 0」然后返回空——那会把「有 3 根日线」
         // 说成「没有日线」，页面上就是一片空白
