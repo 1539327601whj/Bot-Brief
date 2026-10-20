@@ -27,7 +27,13 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 echo "Building frontend $image_tag"
-npm ci --prefix "$ROOT/frontend" --registry "$NPM_REGISTRY"
+free -m 2>/dev/null || true
+df -h "$ROOT" 2>/dev/null || true
+# 云主机内存不大，构建时给 Node 一个上限：真不够就干净地报错，
+# 不要让整台机器进入 swap 后把 runner 一起拖到失联。
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=1024}"
+npm ci --prefix "$ROOT/frontend" --registry "$NPM_REGISTRY" \
+  --no-audit --no-fund --prefer-offline --fetch-retries=2 --fetch-timeout=60000
 npm run build --prefix "$ROOT/frontend"
 
 stage="$(mktemp -d)"

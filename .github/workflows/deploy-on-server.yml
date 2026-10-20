@@ -72,10 +72,12 @@ jobs:
         id: targets
         env:
           DEPLOY_TARGET: ${{ inputs.target }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - <<'PY'
           import json
           import os
+          import urllib.request
 
           event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
           name = os.environ.get("GITHUB_EVENT_NAME")
@@ -92,6 +94,30 @@ jobs:
               head = event.get("head_commit") or {}
               for key in ("added", "modified", "removed"):
                   files.update(head.get(key) or [])
+
+              # 这个 self-hosted runner 上拿到的 push payload 偶尔没有文件清单，
+              # 以前直接退化成「前后端都部署」——后端改动也会跑一遍前端构建，
+              # 白白把机器压到没响应。清单为空时直接问 API 这次提交改了什么。
+              if not files:
+                  try:
+                      request = urllib.request.Request(
+                          f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/"
+                          f"{os.environ['GITHUB_SHA']}",
+                          headers={
+                              "Accept": "application/vnd.github+json",
+                              "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                              "User-Agent": "bot-brief-deploy",
+                          },
+                      )
+                      with urllib.request.urlopen(request, timeout=20) as response:
+                          payload = json.load(response)
+                      files.update(
+                          item["filename"] for item in payload.get("files") or [] if item.get("filename")
+                      )
+                  except Exception as exc:  # 网络不通就保持原来的保守做法：两边都部署
+                      print(f"Could not list commit files via API: {exc}")
+
+              print(f"Changed files: {len(files)}")
 
               def hit(*prefixes):
                   for path in files:
@@ -119,6 +145,7 @@ jobs:
 
       - name: Release frontend on this machine
         if: steps.targets.outputs.frontend == 'true'
+        timeout-minutes: 20
         env:
           DEPLOY_DIR: /opt/Bot-Brief
         run: |
@@ -128,6 +155,7 @@ jobs:
 
       - name: Release backend on this machine
         if: ${{ !cancelled() && steps.targets.outputs.backend == 'true' }}
+        timeout-minutes: 45
         env:
           DEPLOY_DIR: /opt/Bot-Brief
         run: |
