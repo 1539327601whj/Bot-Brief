@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -532,15 +533,27 @@ public class MarketDataClient {
         }
 
         public static KlineRowsOutcome ok(List<KlineRow> rows) {
-            return new KlineRowsOutcome(rows, null, false, PROVIDER_EASTMONEY);
+            return ok(rows, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineRowsOutcome ok(List<KlineRow> rows, String provider) {
+            return new KlineRowsOutcome(rows, null, false, provider);
         }
 
         public static KlineRowsOutcome failed(String reason) {
-            return new KlineRowsOutcome(List.of(), reason, false, PROVIDER_EASTMONEY);
+            return failed(reason, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineRowsOutcome failed(String reason, String provider) {
+            return new KlineRowsOutcome(List.of(), reason, false, provider);
         }
 
         public static KlineRowsOutcome throttled(String reason) {
-            return new KlineRowsOutcome(List.of(), reason, true, PROVIDER_EASTMONEY);
+            return throttled(reason, PROVIDER_EASTMONEY);
+        }
+
+        public static KlineRowsOutcome throttled(String reason, String provider) {
+            return new KlineRowsOutcome(List.of(), reason, true, provider);
         }
     }
 
@@ -644,6 +657,14 @@ public class MarketDataClient {
     /** 失败是否说明「服务端在拒绝我们」而不是「这一条请求有问题」。 */
     static boolean isThrottled(Throwable t) {
         Throwable root = rootCause(t);
+        // HTTP 429 是服务端在明说「你在限额内」，与连接被掐断同属一类。
+        // 必须在这里认出来：日线的「主域名 → proxy」换域只放行传输/HTTP 解析类失败，
+        // 漏掉 429 就会把同一封禁面的备用域名再撞一次，等于限流重试。
+        // 503 不算：腾讯/东财的 5xx 常常只代表这一台机器临时不可用，换域是合理的。
+        if (root instanceof HttpStatusCodeException http
+                && http.getStatusCode().value() == 429) {
+            return true;
+        }
         if (root instanceof java.net.SocketException) {
             String m = root.getMessage() == null ? "" : root.getMessage().toLowerCase();
             return m.contains("reset") || m.contains("abort") || m.contains("closed")

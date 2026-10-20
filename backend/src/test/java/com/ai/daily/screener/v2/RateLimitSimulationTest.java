@@ -129,7 +129,8 @@ class RateLimitSimulationTest {
                 stockValuationClient, repository, cache, properties, indexFundPool);
         InstrumentFactsService factsService = new InstrumentFactsService(resolver, syncService,
                 repository, valuationHistoryService, indexFundPool,
-                mock(EtfPriceHistoryService.class), mock(OffPoolIndexClient.class));
+                mock(EtfPriceHistoryService.class), mock(OffPoolIndexClient.class),
+                mock(EtfLiveKlineService.class), mock(FundProfileClient.class), cache, properties);
         service = new CodeLookupV2Service(factsService, new InvestmentAnalysisService(),
                 repository, schemaGuard, properties);
         controller = new CodeLookupV2Controller(service, mock(SeriesService.class),

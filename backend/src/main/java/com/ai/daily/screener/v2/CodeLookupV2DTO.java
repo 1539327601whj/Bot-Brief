@@ -77,6 +77,8 @@ public final class CodeLookupV2DTO {
             Section<List<FinancialView>> financials,
             Section<List<MoneyFlowView>> moneyflow,
             Section<IndexProfileView> indexProfile,
+            /** ETF 专有：基金净资产、费率、跟踪误差。个股/指数为 {@code data=null}。 */
+            Section<FundProfileView> fundProfile,
             Section<List<IndustryView>> industry,
             Section<List<EventView>> events,
             /** P4：三张条件推演卡；结论 withheld 时为空列表。 */
@@ -342,6 +344,33 @@ public final class CodeLookupV2DTO {
             BigDecimal peTtm,
             BigDecimal dividendYield,
             BigDecimal totalMarketCap,
+            String source
+    ) {
+    }
+
+    /**
+     * 基金档案。{@code aum} 单位是**元**（与 {@link QuoteView#marketCap()} 一致），
+     * 前端再换算成亿元显示；{@code aumAsOf} 是季报披露截止日，不是请求日。
+     */
+    public record FundProfileView(
+            String code,
+            String name,
+            String fullName,
+            String fundType,
+            String company,
+            String custodian,
+            String manager,
+            String inceptionDate,
+            String inceptionScale,
+            BigDecimal aum,
+            String aumAsOf,
+            BigDecimal managementFeePct,
+            BigDecimal custodyFeePct,
+            String benchmark,
+            String trackingTarget,
+            BigDecimal trackingErrorPct,
+            BigDecimal peerTrackingErrorPct,
+            String trackingErrorAsOf,
             String source
     ) {
     }

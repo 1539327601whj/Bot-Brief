@@ -288,7 +288,7 @@ const STOCK_CORE = {
     events: { status: 'OK', note: null, asOf: '2026-10-16' },
   },
   notes: ['财务数据按公告日 available_from 过滤，未使用未来数据。'],
-  rulesVersion: 'code-lookup-v2-p4',
+  rulesVersion: 'code-lookup-v2-p5',
   disclaimer: DISCLAIMER,
 }
 
@@ -319,9 +319,10 @@ const ETF_DIMENSIONS = [
     reasons: ['成交额充足，换手处于常态区间。'],
   },
   {
-    key: 'scale', label: '规模', weight: 12, score: 85, coverage: 1, status: 'OK',
-    metrics: [metric('aum', '基金规模', 3.4e11, '3400 亿', 85, 100, 'ev:etf:aum', '基金页')],
-    reasons: ['规模在同类型中靠前。'],
+    key: 'size', label: '规模', weight: 12, score: 88, coverage: 1, status: 'OK',
+    metrics: [metric('etf_aum', '基金规模（亿）', 194.68, '194.68 亿', 88, 100,
+      'ev:fund:aum', '基金净资产（截止 2026-06-30），越大越不容易被清盘')],
+    reasons: ['基金净资产 194.68 亿，规模在同类型中靠前。'],
   },
   {
     key: 'structure', label: '结构', weight: 10, score: 66, coverage: 1, status: 'OK',
@@ -332,12 +333,15 @@ const ETF_DIMENSIONS = [
     reasons: ['权重分散，单一行业集中度不高。'],
   },
   {
-    key: 'tracking', label: '跟踪质量', weight: 8, score: null, coverage: 0, status: 'EMPTY',
+    key: 'tracking', label: '跟踪质量', weight: 8, score: 74, coverage: 0.6, status: 'PARTIAL',
     metrics: [
-      metric('tracking_error', '跟踪误差', null, null, null, 60, null, null),
-      metric('premium', '折溢价绝对值', null, null, null, 40, null, null),
+      metric('etf_tracking_error', '年化跟踪误差', 1.02, '1.02%', 74, 60, 'ev:fund:tracking',
+        '年化跟踪误差，越小越好；同类平均 2.21%（截止 2026-10-19）'),
+      // 折溢价是**带权重的不可用**：保留 40 的权重，覆盖率因此如实为 0.6，而不是把缺项当满分。
+      metric('etf_premium', '折溢价', null, null, null, 40, 'ev:etf:premium',
+        '折溢价率没有稳定的免费时间序列，该子项不计分'),
     ],
-    reasons: ['免费源没有可靠的跟踪误差与折溢价，不评分。'],
+    reasons: ['跟踪误差 1.02%，优于同类平均 2.21%；折溢价缺数据，覆盖率按 60% 计。'],
   },
 ]
 
@@ -408,9 +412,9 @@ const ETF_CORE = {
   },
   verdict: {
     ...STOCK_CORE.verdict, label: '观察等待', labelKey: 'WAIT', score: 57,
-    scoreLow: 49, scoreHigh: 68, coverage: 0.72, confidence: 0.69,
+    scoreLow: 49, scoreHigh: 68, coverage: 0.78, confidence: 0.72,
     reasons: [{ text: '跟踪指数 PE 分位 46%，处于中位。', evidenceIds: ['ev:val:pe_pct'] }],
-    risks: [{ text: '跟踪误差与折溢价缺少可靠免费源，不参与评分。', evidenceIds: [] }],
+    risks: [{ text: '折溢价缺少可靠免费源，跟踪质量只按跟踪误差评分。', evidenceIds: [] }],
   },
   dimensions: ETF_DIMENSIONS,
   buyZone: {
@@ -589,12 +593,29 @@ function detailFor(kind) {
         top10Weight: 22.4, peTtm: 13.2, dividendYield: 2.6, totalMarketCap: 6.4e13, source: 'csindex' }
     : null
 
+  // 基金档案只在 ETF 上有；个股是指标为空而不是字段缺席（前端据此不渲染卡片）。
+  const fundProfile = kind === 'etf'
+    ? {
+        code: '510300', name: '沪深300ETF',
+        fullName: '华泰柏瑞沪深300交易型开放式指数证券投资基金',
+        fundType: '指数型-股票', company: '华泰柏瑞基金', custodian: '中国银行',
+        manager: '柳军', inceptionDate: '2012-05-04', inceptionScale: '329.69亿份',
+        aum: 19468000000, aumAsOf: '2026-06-30', managementFeePct: 0.5, custodyFeePct: 0.1,
+        benchmark: '沪深300指数收益率', trackingTarget: '沪深300指数',
+        trackingErrorPct: 1.02, peerTrackingErrorPct: 2.21,
+        trackingErrorAsOf: '2026-10-19', source: '天天基金（基金档案）',
+      }
+    : null
+  const fundSection = section(fundProfile, fundProfile ? 'OK' : 'NOT_APPLICABLE',
+    fundProfile ? null : '个股没有基金档案', fundProfile ? '2026-06-30' : null)
+
   if (kind === 'partial') {
     return {
       code: '300274', snapshotId: PARTIAL_CORE.snapshotId, snapshotChanged: false,
       financials: section([], 'EMPTY', '后台同步中，通常 10–30 秒', null),
       moneyflow: section([], 'FAILED', '资金流源不可达', null),
       indexProfile: section(null, 'NOT_APPLICABLE', '个股没有指数概况', null),
+      fundProfile: fundSection,
       industry: section([], 'EMPTY', '行业映射缺失', null),
       events: section(events.slice(0, 1), 'PARTIAL', '只有公告', '2026-10-15'),
       scenarios: [], notes: ['后台任务 STOCK_DETAIL 尚未完成。'],
@@ -612,6 +633,7 @@ function detailFor(kind) {
       ? section([], 'NOT_APPLICABLE', '指数没有主力资金口径', null)
       : section(moneyflow, kind === 'etf' ? 'EMPTY' : 'OK', kind === 'etf' ? 'ETF 资金流免费源不稳定' : null),
     indexProfile: section(profile, profile ? 'OK' : 'NOT_APPLICABLE', profile ? null : '个股没有指数概况', profile ? '2026-10-16' : null),
+    fundProfile: fundSection,
     industry: section(industry, 'OK'),
     events: section(events, 'OK'),
     scenarios,
@@ -642,7 +664,7 @@ function briefFor(kind) {
     sections: base.sections,
     reason: base.reason,
     note: '模型只改写已算好的事实，不参与判定。',
-    rulesVersion: 'code-lookup-v2-p4',
+    rulesVersion: 'code-lookup-v2-p5',
     promptVersion: 'code-lookup-v2-prompt-1',
     generatedAt: '2026-10-16T15:20:00',
     disclaimer: DISCLAIMER,
@@ -1100,6 +1122,22 @@ async function runCase(port, item) {
       return true;
     })()`)
     if (canvasBlank) throw new Error('价格图 canvas 是空白的')
+
+    // 基金档案：ETF 概览必须有这张卡，字段带单位与截止日；个股不该出现。
+    if (item.name === 'etf') {
+      await cdp.waitFor('!!document.querySelector(".cl-fund-profile")', '基金档案卡')
+      const profileText = await cdp.eval('document.querySelector(".cl-fund-profile").innerText')
+      for (const expected of ['基金档案', '194.68 亿', '1.02%', '2.21%', '2026-06-30']) {
+        if (!profileText.includes(expected)) throw new Error(`基金档案卡缺少「${expected}」`)
+      }
+      await shoot(cdp, 'code-lookup-v2-etf-overview', 1440, 2700, false)
+      // 窄屏下这张卡要塌成一列，不能横向溢出。
+      await cdp.eval(MOBILE_SHELL)
+      await assertNoOverflow(cdp, 390, 900, false, '基金档案 390')
+      await shoot(cdp, 'code-lookup-v2-etf-overview-mobile', 390, 3200, false)
+    } else if (await cdp.eval('!!document.querySelector(".cl-fund-profile")')) {
+      throw new Error(`${item.label}不应该渲染基金档案卡`)
+    }
 
     // 切到估值页：序列按需加载，图要出来。
     if (!await cdp.eval(CLICK_TAB('估值'))) throw new Error('没找到「估值」标签页')

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -86,6 +87,16 @@ public class AltQuoteSource {
     static final String TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
     static final String TENCENT_REFERER = "https://gu.qq.com/";
     static final String TENCENT_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get";
+    /**
+     * 主域名的备用入口。实测：{@code web.ifzq.gtimg.cn} 对机房 IP 有时回 WAF 的 HTML 页，
+     * 而同一个 {@code param} 打到 {@code proxy.finance.qq.com} 能正常返回 JSON。
+     * Python 侧的日报脚本早就这么做了（{@code automation/scripts/etf_report.py}）。
+     *
+     * <p>只有**传输/解析异常**才换到这里；JSON 有效但没有日线、或者被限流，都不换——
+     * 那两种情况下换域名只会多打一次同一个封禁面。
+     */
+    static final String TENCENT_KLINE_PROXY_URL =
+            "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get";
     static final String TENCENT_KLINE_REFERER = "https://gu.qq.com/";
     static final String SINA_QUOTE_URL = "https://hq.sinajs.cn/list=";
     static final String SINA_REFERER = "https://finance.sina.com.cn/";
@@ -131,9 +142,22 @@ public class AltQuoteSource {
     static final BigDecimal YI = BigDecimal.valueOf(100_000_000L);
 
     private final RestTemplate restTemplate;
+    /**
+     * 日线补数用短超时模板（连接 2s / 读 4s）。报价仍走 {@link #restTemplate}：
+     * 那是首屏必等的一跳，但只有一次；日线补数可能翻好几页，必须单独压上界。
+     */
+    private final RestTemplate klineRestTemplate;
 
-    public AltQuoteSource(@Qualifier("marketRestTemplate") RestTemplate restTemplate) {
+    @Autowired
+    public AltQuoteSource(@Qualifier("marketRestTemplate") RestTemplate restTemplate,
+                          @Qualifier("lookupFallbackRestTemplate") RestTemplate klineRestTemplate) {
         this.restTemplate = restTemplate;
+        this.klineRestTemplate = klineRestTemplate;
+    }
+
+    /** 测试与旧调用点保留的单参构造：两个用途共用同一个模板。 */
+    public AltQuoteSource(RestTemplate restTemplate) {
+        this(restTemplate, restTemplate);
     }
 
     // ==================================================================
@@ -223,35 +247,105 @@ public class AltQuoteSource {
     }
 
     /**
+     * 腾讯日线，**保留完整 OHLC**。给「点击时补齐 ETF 日线」用：
+     * 收盘价那版（{@link #fetchTencentKline}）只够算价格位置，落库后图表与 ATR 都没了。
+     *
+     * <p>失败语义与 {@link MarketDataClient#fetchKlineRows} 一致：不抛异常，
+     * `throttled` 直接告诉调用方进冷却。
+     */
+    public MarketDataClient.KlineRowsOutcome fetchTencentKlineRows(String code, LocalDate end,
+                                                                   int limit) {
+        String symbol = tencentSymbol(code);
+        if (symbol == null) {
+            return MarketDataClient.KlineRowsOutcome.failed(
+                    "腾讯日线不认这个代码的市场前缀", PROVIDER_TENCENT);
+        }
+        return tencentKlineRowsOutcome(symbol, end, limit);
+    }
+
+    /**
      * 一次腾讯日线请求的**唯一**出口：URL 拼装、解析、失败映射都只写这一份。
      *
      * <p>限流那条 catch 尤其不能复制——它一旦出现第二份，「被限流翻译成 throttled」这件事
      * 就有两个可能不一致的版本，而两边都只体现在文案上，没人看得出。
      */
     private MarketDataClient.KlineOutcome tencentKlineOutcome(String symbol, LocalDate end, int limit) {
-        String url = UriComponentsBuilder.fromHttpUrl(TENCENT_KLINE_URL)
-                // param=sh510300,day,,,250,qfq —— 逗号与空档位都是格式的一部分，必须原样保留。
-                // end 落在第 4 个档位：param,day,start,end,count,qfq
-                .queryParam("param", symbol + ",day,," + (end == null ? "" : end)
-                        + "," + Math.max(1, limit) + ",qfq")
-                .build(true).toUriString();
+        MarketDataClient.KlineRowsOutcome rows = tencentKlineRowsOutcome(symbol, end, limit);
+        if (!rows.ok()) {
+            return rows.throttled()
+                    ? MarketDataClient.KlineOutcome.throttled(
+                    "兜底行情源限流，价格位置未能更新", PROVIDER_TENCENT)
+                    : MarketDataClient.KlineOutcome.failed(rows.failureReason(), PROVIDER_TENCENT);
+        }
+        // 收盘价路径从同一份 KlineRow 里取 close：两边的「有效行」判据必须一致，
+        // 否则会出现「落库有 800 根、价格位置却只认 790 根」。
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>(rows.rows().size());
+        for (MarketDataClient.KlineRow row : rows.rows()) {
+            bars.add(new PricePositionCalculator.Bar(row.tradeDate(), row.closePrice()));
+        }
+        if (bars.isEmpty()) {
+            return MarketDataClient.KlineOutcome.failed(
+                    "腾讯日线无有效收盘价，价格位置未确认", PROVIDER_TENCENT);
+        }
+        return MarketDataClient.KlineOutcome.ok(bars, PROVIDER_TENCENT);
+    }
+
+    private MarketDataClient.KlineRowsOutcome tencentKlineRowsOutcome(String symbol, LocalDate end,
+                                                                      int limit) {
         try {
-            String body = getDecoded(URI.create(url), TENCENT_KLINE_REFERER, gbk());
-            List<PricePositionCalculator.Bar> bars =
-                    MarketDataClient.parseDelimitedBars(tencentKlineRows(body, symbol));
-            if (bars.isEmpty()) {
-                return MarketDataClient.KlineOutcome.failed(
+            List<?> raw = requestTencentKlineRows(symbol, end, limit);
+            List<MarketDataClient.KlineRow> rows = MarketDataClient.parseKlineRows(raw);
+            if (rows.isEmpty()) {
+                return MarketDataClient.KlineRowsOutcome.failed(
                         "腾讯日线无有效收盘价，价格位置未确认", PROVIDER_TENCENT);
             }
-            return MarketDataClient.KlineOutcome.ok(bars, PROVIDER_TENCENT);
+            return MarketDataClient.KlineRowsOutcome.ok(rows, PROVIDER_TENCENT);
         } catch (MarketDataException.MarketDataRateLimitedException e) {
-            return MarketDataClient.KlineOutcome.throttled(
+            return MarketDataClient.KlineRowsOutcome.throttled(
                     "兜底行情源限流，价格位置未能更新", PROVIDER_TENCENT);
         } catch (RuntimeException e) {
-            return MarketDataClient.KlineOutcome.failed(
+            return MarketDataClient.KlineRowsOutcome.failed(
                     "腾讯日线不可达（" + MarketDataClient.shortReason(e) + "），价格位置未确认",
                     PROVIDER_TENCENT);
         }
+    }
+
+    /**
+     * 主域名 → 备用域名的唯一换点。
+     *
+     * <p>换的条件只有「传输 / HTTP / 解析异常」：JSON 有效但没有日线（这只没有数据）、
+     * 或者被限流，都是**确定性的回答**，换域名只会多打一次同一个封禁面。
+     */
+    private List<?> requestTencentKlineRows(String symbol, LocalDate end, int limit) {
+        // param=sh510300,day,,,250,qfq —— 逗号与空档位都是格式的一部分，必须原样保留。
+        // end 落在第 4 个档位：param,day,start,end,count,qfq
+        // 800 是腾讯的单页硬上限：请求 900/1500/2000 会被悄悄截成 640，2600 直接 param error。
+        int count = Math.min(800, Math.max(1, limit));
+        String param = symbol + ",day,," + (end == null ? "" : end) + "," + count + ",qfq";
+        try {
+            return requestTencentKlineRows(TENCENT_KLINE_URL, param, symbol);
+        } catch (MarketDataException.MarketDataRateLimitedException e) {
+            throw e;
+        } catch (RuntimeException primary) {
+            log.warn("腾讯日线主域名失败，改走备用域名 symbol={}：{}",
+                    symbol, MarketDataClient.shortReason(primary));
+            try {
+                return requestTencentKlineRows(TENCENT_KLINE_PROXY_URL, param, symbol);
+            } catch (MarketDataException.MarketDataRateLimitedException e) {
+                throw e;
+            } catch (RuntimeException secondary) {
+                secondary.addSuppressed(primary);
+                throw secondary;
+            }
+        }
+    }
+
+    private List<?> requestTencentKlineRows(String baseUrl, String param, String symbol) {
+        String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .queryParam("param", param)
+                .build(true).toUriString();
+        String body = getDecoded(URI.create(url), TENCENT_KLINE_REFERER, gbk(), klineRestTemplate);
+        return tencentKlineRows(body, symbol);
     }
 
     /**
@@ -414,11 +508,15 @@ public class AltQuoteSource {
      * <p>仍然先读 {@code byte[]}：所有解码这一步都得我们自己说了算。
      */
     private String getDecoded(URI uri, String referer, Charset charset) {
+        return getDecoded(uri, referer, charset, restTemplate);
+    }
+
+    private String getDecoded(URI uri, String referer, Charset charset, RestTemplate template) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("Referer", referer);
             headers.set("User-Agent", UA);
-            ResponseEntity<byte[]> resp = restTemplate.exchange(uri, HttpMethod.GET,
+            ResponseEntity<byte[]> resp = template.exchange(uri, HttpMethod.GET,
                     new HttpEntity<>(headers), byte[].class);
             byte[] raw = resp.getBody();
             return raw == null ? null : new String(raw, charset);

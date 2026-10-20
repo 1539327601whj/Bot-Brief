@@ -61,6 +61,7 @@ export function domainLabel(key: string): string {
     financials: '财务',
     moneyflow: '资金流',
     indexProfile: '指数画像',
+    fundProfile: '基金档案',
     industry: '行业权重',
     events: '新闻公告',
   }

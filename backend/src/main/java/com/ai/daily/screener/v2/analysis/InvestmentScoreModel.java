@@ -29,7 +29,7 @@ import java.util.Locale;
  */
 public final class InvestmentScoreModel {
 
-    public static final String RULES_VERSION = "code-lookup-v2-p4";
+    public static final String RULES_VERSION = "code-lookup-v2-p5";
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final BigDecimal YI = BigDecimal.valueOf(100_000_000L);
@@ -319,12 +319,76 @@ public final class InvestmentScoreModel {
                 30, 70, 30, 0, 0));
         dimensions.add(trendDimension(ctx, "趋势", 22));
         dimensions.add(liquidityDimension(ctx, 18));
-        dimensions.add(ScoreResultFree.na("size", "规模", 12,
-                "免费源未提供可靠的 ETF 规模（AUM）时间序列", "ev:etf:aum"));
+        dimensions.add(etfSizeDimension(ctx));
         dimensions.add(structureDimension(ctx, "结构", 10));
-        dimensions.add(ScoreResultFree.na("tracking", "跟踪质量", 8,
-                "跟踪误差与折溢价没有可靠免费源，该维不计分", "ev:etf:tracking"));
+        dimensions.add(etfTrackingDimension(ctx));
         return dimensions;
+    }
+
+    /**
+     * 规模：优先基金净资产（季报披露），退回「最新价 × 份额」估算的总市值。
+     *
+     * <p>两者都可以衡量规模，但**不是同一个数**：AUM 是基金公司的季报口径，
+     * 估算总市值会随溢价和份额申赎漂移。所以 basis 必须写清来源，页面上的
+     * 「规模 90 亿」到底指哪个才读得懂。
+     */
+    private static DimensionScore etfSizeDimension(Context ctx) {
+        FactsSnapshot.FundProfile profile = ctx.fundProfile;
+        BigDecimal aumYi = profile == null || profile.aum() == null ? null
+                : profile.aum().divide(YI, 4, RoundingMode.HALF_UP);
+        FactsSnapshot.Quote quote = ctx.facts.quote().data();
+        BigDecimal capYi = quote == null || quote.totalMarketCap() == null ? null
+                : quote.totalMarketCap().divide(YI, 4, RoundingMode.HALF_UP);
+        BigDecimal scaleYi = aumYi != null ? aumYi : capYi;
+        String basis;
+        if (aumYi != null) {
+            basis = "基金净资产（截止 " + iso(profile.aumAsOf()) + "），越大越不容易被清盘";
+        } else if (capYi != null) {
+            basis = "按最新价与份额估算的总市值，不是基金净资产；越大越不容易被清盘";
+        } else {
+            basis = "没有基金净资产，也取不到可估算的总市值";
+        }
+        List<ScoreMetric> metrics = List.of(ScoreMetric.of("etf_aum", "基金规模（亿）",
+                scaleYi, fmt(scaleYi, "亿"),
+                ScoreAnchors.higherBetter(scaleYi, 2, 20, 200), 100, basis, "ev:fund:aum"));
+        List<String> reasons = new ArrayList<>();
+        if (scaleYi == null) {
+            reasons.add(basis);
+        }
+        return DimensionScore.of("size", "规模", 12, metrics, reasons);
+    }
+
+    /**
+     * 跟踪质量 = 年化跟踪误差（60%）+ 折溢价绝对值（40%）。
+     *
+     * <p>折溢价目前没有稳定的免费时间序列。它作为**带权重的不可用子指标**留着，
+     * 是为了让该维覆盖率如实停在 0.6，页面显示 PARTIAL——而不是把缺项悄悄剔除、
+     * 用一个只有跟踪误差的分数冒充完整结论。注意 {@code ScoreMetric.unavailable(...)}
+     * 会把权重写成 0，表达不了这个语义，这里必须用规范构造。
+     */
+    private static DimensionScore etfTrackingDimension(Context ctx) {
+        FactsSnapshot.FundProfile profile = ctx.fundProfile;
+        BigDecimal te = profile == null ? null : profile.trackingErrorPct();
+        String teBasis = profile == null || te == null
+                ? "免费源未取到年化跟踪误差"
+                : "年化跟踪误差，越小越好"
+                        + (profile.peerTrackingErrorPct() == null ? ""
+                        : "；同类平均 " + fmt(profile.peerTrackingErrorPct(), "%"))
+                        + (profile.trackingErrorAsOf() == null ? ""
+                        : "（截止 " + iso(profile.trackingErrorAsOf()) + "）");
+        List<ScoreMetric> metrics = List.of(
+                ScoreMetric.of("etf_tracking_error", "年化跟踪误差", te, fmt(te, "%"),
+                        ScoreAnchors.lowerBetter(te, 3, 1.5, 0.5), 60, teBasis,
+                        "ev:fund:tracking"),
+                new ScoreMetric("etf_premium", "折溢价", null, null, null, 40,
+                        "折溢价率没有稳定的免费时间序列，该子项不计分", "ev:etf:premium"));
+        DimensionScore dimension = DimensionScore.of("tracking", "跟踪质量", 8, metrics, List.of());
+        if (!dimension.available()) {
+            return new DimensionScore(dimension.key(), dimension.label(), dimension.weight(),
+                    null, BigDecimal.ZERO, dimension.metrics(),
+                    List.of("免费源未取到年化跟踪误差，该维不计分"));
+        }
+        return dimension;
     }
 
     private static List<DimensionScore> indexDimensions(Context ctx) {
@@ -595,6 +659,8 @@ public final class InvestmentScoreModel {
         final WarehouseRows.FinancialReport latestFinancial;
         final List<WarehouseRows.FinancialReport> annualReports;
         final FactsSnapshot.IndexValuation indexValuation;
+        /** ETF 的基金档案；个股/指数为 null。规模与跟踪质量从这里取数。 */
+        final FactsSnapshot.FundProfile fundProfile;
         final WarehouseRows.IndexProfile indexProfile;
         final List<WarehouseRows.IndustryWeight> industryWeights;
         final BigDecimal avgAmount20;
@@ -641,6 +707,7 @@ public final class InvestmentScoreModel {
             this.annualReports = List.copyOf(annual);
 
             this.indexValuation = facts.indexValuation().data();
+            this.fundProfile = facts.fundProfile() == null ? null : facts.fundProfile().data();
             this.indexProfile = facts.indexProfile().data();
             List<WarehouseRows.IndustryWeight> weights = facts.industry().data();
             this.industryWeights = weights == null ? List.of() : weights;

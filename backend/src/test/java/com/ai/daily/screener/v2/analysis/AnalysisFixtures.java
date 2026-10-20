@@ -71,7 +71,7 @@ public final class AnalysisFixtures {
     static FactsSnapshot noValuationStock() {
         FactsSnapshot base = lossStock();
         return new FactsSnapshot(base.inputCode(), base.instrument(), base.identity(),
-                base.quote(), base.prices(),
+                base.quote(), base.fundProfile(), base.prices(),
                 FactsSnapshot.Domain.empty("本地没有估值历史"),
                 base.indexValuation(), base.financials(), base.moneyflow(),
                 base.indexProfile(), base.industry(), base.events(),
@@ -83,6 +83,7 @@ public final class AnalysisFixtures {
                 new FactsSnapshot.Identity("600009", "STOCK", "SH", null, null, null,
                         null, null, "ACTIVE", null),
                 FactsSnapshot.Domain.empty("没有行情"),
+                FactsSnapshot.Domain.notApplicable("个股没有基金档案"),
                 FactsSnapshot.Domain.empty("没有日线"),
                 FactsSnapshot.Domain.empty("没有估值"),
                 FactsSnapshot.Domain.notApplicable("个股没有指数估值"),
@@ -110,6 +111,7 @@ public final class AnalysisFixtures {
                 name, industry, null, null, listDate, "ACTIVE", sectorProfile);
         return new FactsSnapshot(code, instrument, identity,
                 FactsSnapshot.Domain.ok(quote, quoteAsOf.toString()),
+                FactsSnapshot.Domain.notApplicable("个股没有基金档案"),
                 FactsSnapshot.Domain.ok(prices, PRICE_AS_OF.toString()),
                 FactsSnapshot.Domain.ok(valuations, PRICE_AS_OF.toString()),
                 FactsSnapshot.Domain.notApplicable("个股没有指数估值"),
@@ -155,6 +157,10 @@ public final class AnalysisFixtures {
                 weight(indexCode, "食品饮料", bd("15")));
         return new FactsSnapshot(code, instrument, identity,
                 FactsSnapshot.Domain.ok(quote, PRICE_AS_OF.toString()),
+                assetType.equals("ETF")
+                        ? FactsSnapshot.Domain.empty(
+                        "基金档案未注入（测试固定快照不发起外呼）")
+                        : FactsSnapshot.Domain.notApplicable("指数没有基金档案"),
                 FactsSnapshot.Domain.ok(prices, PRICE_AS_OF.toString()),
                 FactsSnapshot.Domain.notApplicable("指数/ETF 估值在指数估值域"),
                 FactsSnapshot.Domain.ok(valuation, PRICE_AS_OF.toString()),
@@ -164,6 +170,40 @@ public final class AnalysisFixtures {
                 FactsSnapshot.Domain.ok(industry, "2026-09-30"),
                 FactsSnapshot.Domain.ok(List.of(), null),
                 false, 0, true, assetType + "-" + code, "2026-10-18T10:00:00");
+    }
+
+    /** 带基金档案的 ETF：规模 194.68 亿、年化跟踪误差 1.02%（同类 2.21%）。 */
+    public static FactsSnapshot etfWithFundProfile() {
+        FactsSnapshot base = etf();
+        FactsSnapshot.FundProfile profile = new FactsSnapshot.FundProfile(
+                "510300", "沪深300ETF", "华泰柏瑞沪深300交易型开放式指数证券投资基金",
+                "指数型-股票", "华泰柏瑞基金", "中国银行", "柳军",
+                LocalDate.of(2012, 5, 4), "329.69亿份",
+                new BigDecimal("19468000000"), LocalDate.of(2026, 6, 30),
+                bd("0.50"), bd("0.10"), "沪深300指数收益率",
+                "沪深300指数", bd("1.02"), bd("2.21"), LocalDate.of(2026, 10, 19),
+                "天天基金（基金档案）");
+        return new FactsSnapshot(base.inputCode(), base.instrument(), base.identity(),
+                base.quote(), FactsSnapshot.Domain.ok(profile, "2026-06-30"),
+                base.prices(), base.valuations(), base.indexValuation(), base.financials(),
+                base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
+                base.syncPending(), base.retryAfterMs(), base.fromCache(),
+                base.snapshotId(), base.snapshotAt());
+    }
+
+    /** ETF 没有基金档案，只有行情源给的总市值（100 亿）：规模回退到估算口径。 */
+    public static FactsSnapshot etfWithEstimatedMarketCap() {
+        FactsSnapshot base = etf();
+        FactsSnapshot.Quote q = base.quote().data();
+        FactsSnapshot.Quote withCap = new FactsSnapshot.Quote(q.provider(), q.providerLabel(),
+                q.price(), q.pctChange(), q.amount(), q.turnoverRate(),
+                bd("100").multiply(YI), q.peTtm(), q.pb(), q.dividendYield(), q.asOf());
+        return new FactsSnapshot(base.inputCode(), base.instrument(), base.identity(),
+                FactsSnapshot.Domain.ok(withCap, q.asOf().toString()), base.fundProfile(),
+                base.prices(), base.valuations(), base.indexValuation(), base.financials(),
+                base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
+                base.syncPending(), base.retryAfterMs(), base.fromCache(),
+                base.snapshotId(), base.snapshotAt());
     }
 
     private static WarehouseRows.IndustryWeight weight(String indexCode, String name,
@@ -291,7 +331,8 @@ public final class AnalysisFixtures {
                 base.events().data() == null ? List.of() : base.events().data());
         events.add(event);
         return new FactsSnapshot(base.inputCode(), base.instrument(), base.identity(),
-                base.quote(), base.prices(), base.valuations(), base.indexValuation(),
+                base.quote(), base.fundProfile(), base.prices(), base.valuations(),
+                base.indexValuation(),
                 base.financials(), base.moneyflow(), base.indexProfile(), base.industry(),
                 new FactsSnapshot.Domain<>(List.copyOf(events), DataStatus.OK, null,
                         published.toString()),

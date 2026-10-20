@@ -46,6 +46,26 @@ public class MarketHttpClientConfig {
     }
 
     /**
+     * 「点击时补齐 ETF 日线」专用：连接 2s / 读 4s，同样挂限速闸门。
+     *
+     * <p>为什么不能复用上面那个 5s/10s 的模板：一次冷启动可能要翻 4 页、每页还可能换一个
+     * 腾讯域名，最坏就是 4 × 2 × 10s = 80s——用户点一下会以为页面卡死。这里给整条补数路径
+     * 一个与「页数 × 域名数」无关的单次上界，翻不动就保留已拿到的页，下一次再补。
+     *
+     * <p>限速拦截器仍共用同一个 bean：短超时只改「等多久」，不改「多久发一次」。
+     */
+    @Bean("lookupFallbackRestTemplate")
+    public RestTemplate lookupFallbackRestTemplate(
+            @Value("${screener.fallback-http.connect-timeout:2s}") Duration connectTimeout,
+            @Value("${screener.fallback-http.read-timeout:4s}") Duration readTimeout,
+            MarketRateLimitInterceptor rateLimitInterceptor) {
+        RestTemplate restTemplate = marketRestTemplate(connectTimeout, readTimeout);
+        restTemplate.setInterceptors(List.of(rateLimitInterceptor));
+        log.debug("点击补数 HTTP 客户端超时配置 connect={} read={}", connectTimeout, readTimeout);
+        return restTemplate;
+    }
+
+    /**
      * 不带限速闸门的工厂。**测试专用**（生产请用上面那个 {@code @Bean}）：
      * 单元测试不该被生产限速参数影响，也不该因为真睡 150ms 而变慢。
      */

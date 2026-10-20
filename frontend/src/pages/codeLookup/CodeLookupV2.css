@@ -853,6 +853,43 @@ button.cl-chip {
   margin-top: 10px;
 }
 
+/* ---------------- 基金档案 ---------------- */
+
+.cl-fund-profile dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 10px 0 0;
+}
+
+.cl-fund-profile dl > div {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(var(--surface-1-rgb), 0.5);
+}
+
+.cl-fund-profile dt {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cl-fund-profile dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .cl-fund-profile dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .cl-section-status {
   margin: 0 0 8px;
   color: var(--text-subtle);

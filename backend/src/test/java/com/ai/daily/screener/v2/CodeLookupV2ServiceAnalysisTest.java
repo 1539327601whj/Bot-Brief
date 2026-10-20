@@ -131,7 +131,7 @@ class CodeLookupV2ServiceAnalysisTest {
 
     @Test
     void etfCoreUsesIndexValuationAndStillHasThreeScenarios() {
-        when(factsService.snapshot("510300")).thenReturn(AnalysisFixtures.etf());
+        when(factsService.snapshot("510300")).thenReturn(AnalysisFixtures.etfWithFundProfile());
 
         CodeLookupV2DTO.CoreView core = service.core("510300");
         CodeLookupV2DTO.DetailView detail = service.detail("510300", core.snapshotId());
@@ -141,5 +141,22 @@ class CodeLookupV2ServiceAnalysisTest {
                 .containsExactly("valuation", "trend", "liquidity", "size", "structure", "tracking");
         assertThat(detail.scenarios()).hasSize(3);
         assertThat(detail.indexProfile().data()).isNotNull();
+        // 基金档案随详情返回：规模/跟踪质量的打分靠它，页面也要能展示。
+        assertThat(detail.fundProfile().status()).isEqualTo("OK");
+        assertThat(detail.fundProfile().data()).isNotNull();
+        assertThat(detail.fundProfile().data().aum()).isEqualByComparingTo("19468000000");
+        assertThat(detail.fundProfile().data().trackingErrorPct()).isEqualByComparingTo("1.02");
+    }
+
+    @Test
+    void stocksCarryAnEmptyFundProfileSection() {
+        when(factsService.snapshot("600519")).thenReturn(AnalysisFixtures.healthyStock());
+
+        CodeLookupV2DTO.CoreView core = service.core("600519");
+        CodeLookupV2DTO.DetailView detail = service.detail("600519", core.snapshotId());
+
+        // 字段在、值为空：前端据此不渲染「基金档案」卡，而不是显示一张空表。
+        assertThat(detail.fundProfile().data()).isNull();
+        assertThat(detail.fundProfile().status()).isEqualTo("NOT_APPLICABLE");
     }
 }

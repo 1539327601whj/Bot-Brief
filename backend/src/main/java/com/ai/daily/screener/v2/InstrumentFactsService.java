@@ -6,12 +6,13 @@ import com.ai.daily.screener.EtfPriceSeriesSelector;
 import com.ai.daily.screener.IndexFundPool;
 import com.ai.daily.screener.OffPoolIndexClient;
 import com.ai.daily.screener.OffPoolIndexResolver;
-import com.ai.daily.screener.PricePositionCalculator;
 import com.ai.daily.screener.RollingPercentile;
+import com.ai.daily.screener.ScreenerCache;
 import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.ai.daily.warehouse.InstrumentCode;
 import com.ai.daily.warehouse.InstrumentResolver;
+import com.ai.daily.warehouse.WarehouseProperties;
 import com.ai.daily.warehouse.WarehouseRepository;
 import com.ai.daily.warehouse.WarehouseRows;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,6 +69,10 @@ public class InstrumentFactsService {
     private final IndexFundPool indexFundPool;
     private final EtfPriceHistoryService etfPriceHistoryService;
     private final OffPoolIndexClient offPoolIndexClient;
+    private final EtfLiveKlineService etfLiveKlineService;
+    private final FundProfileClient fundProfileClient;
+    private final ScreenerCache screenerCache;
+    private final WarehouseProperties properties;
 
     /**
      * 本地估值库为空时现取中证/蛋卷历史的短期缓存。
@@ -99,13 +105,39 @@ public class InstrumentFactsService {
             // 日线每天 16:30 已经由 poller 预取进 etf_price_history（同一口径 QFQ）。
             // 东财被限流时 md_price_daily 是空的，而预取库里有几百根——不读它，
             // 页面就会在一个"本地明明有数据"的标的上显示「数据不足」。
-            List<WarehouseRows.PriceBar> prefetched = etfPrefetchedPrices(instrument, PRICE_BARS, today);
-            if (prefetched.size() > prices.size()) {
+            List<WarehouseRows.PriceBar> prefetched =
+                    etfPrefetchedPrices(instrument, PRICE_BARS, today);
+            List<WarehouseRows.PriceBar> best =
+                    preferOver(prefetched, prices) ? prefetched : prices;
+            int staleGap = best.isEmpty() ? Integer.MAX_VALUE
+                    : OnDemandSyncService.tradingDaysBetween(lastDate(best), today);
+
+            // 池外 ETF 没有预取，东财又被限流时两路都空。这里现取腾讯日线并写回
+            // etf_price_history。**只在历史不足或已陈旧时补**：否则每个用户点一下，
+            // 都会为了「今天多了一根」重翻四页。
+            boolean fullHistory = best.size() < 500;   // 池内预取只有 260 根 → 翻满十年
+            boolean liveFetched = false;
+            if (fullHistory || staleGap > 5) {
+                List<WarehouseRows.PriceBar> live =
+                        etfLiveKlineService.fetchAndStore(instrument, report.name(), fullHistory);
+                if (!live.isEmpty()) {
+                    liveFetched = true;
+                    // 落库后再读一次：让选源器在「新取的一页 + 旧的长序列」之间按同源规则挑，
+                    // 而不是拿 800 根新数据盖掉本地已有的 2600 根历史。
+                    List<WarehouseRows.PriceBar> reread =
+                            etfPrefetchedPrices(instrument, PRICE_BARS, today);
+                    prefetched = reread.isEmpty() ? live : reread;
+                }
+            }
+
+            if (preferOver(prefetched, prices)) {
                 prices = prefetched;
                 priceStatus = prices.size() >= 250 ? DataStatus.OK : DataStatus.PARTIAL;
-                priceNote = "日线取自本地 ETF 预取库（前复权，"
-                        + prices.size() + " 根，截止 "
-                        + prices.get(prices.size() - 1).tradeDate() + "）";
+                priceNote = liveFetched
+                        ? "日线由腾讯现取并已入库（前复权，" + prices.size() + " 根，截止 "
+                        + lastDate(prices) + "）"
+                        : "日线取自本地 ETF 预取库（前复权，" + prices.size() + " 根，截止 "
+                        + lastDate(prices) + "）";
             }
         }
         if (prices.isEmpty()) {
@@ -193,16 +225,25 @@ public class InstrumentFactsService {
                 : FactsSnapshot.Domain.ok(events, events.get(0).publishedAt() == null
                 ? null : events.get(0).publishedAt().toLocalDate().toString());
 
+        FactsSnapshot.Domain<FactsSnapshot.FundProfile> fundProfile = fundProfile(instrument);
         String snapshotId = snapshotId(instrument, priceAsOf, valuationDomain.asOf(),
-                financials.asOf(), indexValuation.asOf());
+                financials.asOf(), indexValuation.asOf(), fundProfile.asOf());
         String snapshotAt = LocalDateTime.now(SHANGHAI).toString();
+
+        boolean syncPending = report.syncPending();
+        if (instrument.isEtf() && indexCode == null && !prices.isEmpty()) {
+            // 池外 ETF 的价格已经可用时，不要让「东财日线没取到」那条分支一直把
+            // syncPending 留在 true——前端会据此每 45 秒再打一轮，而腾讯日线其实已经补上了。
+            syncPending = false;
+        }
 
         return new FactsSnapshot(rawCode.trim().toUpperCase(java.util.Locale.ROOT), instrument,
                 identity.identity(),
                 quoteDomain(report),
+                fundProfile,
                 priceDomain, valuationDomain, indexValuation, financials, moneyflow,
                 profile, industry, eventDomain,
-                report.syncPending(), report.retryAfterMs(), !report.fetchedFromSource(),
+                syncPending, report.retryAfterMs(), !report.fetchedFromSource(),
                 snapshotId, snapshotAt);
     }
 
@@ -315,18 +356,46 @@ public class InstrumentFactsService {
                         row.getTradeDate(), row.getClose(), row.getSource(),
                         row.getAdjustmentType()));
             }
-            List<PricePositionCalculator.Bar> bars = EtfPriceSeriesSelector.select(points, limit);
-            List<WarehouseRows.PriceBar> out = new ArrayList<>(bars.size());
-            for (PricePositionCalculator.Bar bar : bars) {
-                out.add(new WarehouseRows.PriceBar(instrument.key(), bar.date(),
-                        EtfPriceHistoryService.QFQ, null, null, null, bar.close(),
-                        null, null, null, null, "etf_price_history", null));
+            // 用 selectPoints 而不是 select：后者只剩收盘价，会把 open/high/low 全部丢掉。
+            // 技术指标与买区里涉及高低价的计算会因此退化成只看收盘价，而页面上看不出。
+            List<EtfPriceSeriesSelector.Point> chosen =
+                    EtfPriceSeriesSelector.selectPoints(points, limit);
+            if (chosen.isEmpty()) {
+                return List.of();
+            }
+            String source = chosen.get(0).source();
+            Map<LocalDate, EtfPriceHistory> byDate = new LinkedHashMap<>();
+            for (EtfPriceHistory row : rows) {
+                if (row.getSource() != null && source.equals(row.getSource().trim())) {
+                    byDate.put(row.getTradeDate(), row);
+                }
+            }
+            List<WarehouseRows.PriceBar> out = new ArrayList<>(chosen.size());
+            for (EtfPriceSeriesSelector.Point point : chosen) {
+                EtfPriceHistory row = byDate.get(point.date());
+                if (row == null) {
+                    continue;
+                }
+                out.add(new WarehouseRows.PriceBar(instrument.key(), row.getTradeDate(),
+                        EtfPriceHistoryService.QFQ, row.getOpen(), row.getHigh(), row.getLow(),
+                        row.getClose(), null, null, null, null, row.getSource(), row.getFetchedAt()));
             }
             return out;
         } catch (RuntimeException e) {
             log.warn("读 ETF 预取日线失败 code={}：{}", instrument.rawCode(), e.toString());
             return List.of();
         }
+    }
+
+    private static LocalDate lastDate(List<WarehouseRows.PriceBar> bars) {
+        return bars == null || bars.isEmpty() ? null : bars.get(bars.size() - 1).tradeDate();
+    }
+
+    /** 「哪条本地序列更好」的唯一判据在 {@link EtfPriceSeriesSelector#preferCandidate}。 */
+    private static boolean preferOver(List<WarehouseRows.PriceBar> candidate,
+                                      List<WarehouseRows.PriceBar> current) {
+        return EtfPriceSeriesSelector.preferCandidate(lastDate(candidate), candidate.size(),
+                lastDate(current), current.size());
     }
 
     private static FactsSnapshot.Domain<FactsSnapshot.Quote> quoteDomain(
@@ -518,6 +587,37 @@ public class InstrumentFactsService {
                 report.syncPending() ? "行业权重同步中" : "本地没有行业权重", null);
     }
 
+    /**
+     * 基金档案。个股/指数是 NOT_APPLICABLE 且**不发任何外呼**——这一点很重要：
+     * 每次查个股都去东财基金页碰一次，只会白白消耗限额并拖慢首屏。
+     */
+    private FactsSnapshot.Domain<FactsSnapshot.FundProfile> fundProfile(InstrumentCode instrument) {
+        if (!instrument.isEtf()) {
+            return FactsSnapshot.Domain.notApplicable("个股/指数没有基金档案");
+        }
+        if (!properties.isOnDemandEnabled()) {
+            return FactsSnapshot.Domain.empty("按需取数已关闭，未获取基金档案");
+        }
+        try {
+            FundProfileClient.Result result = fundProfileClient.fetch(instrument.rawCode());
+            if (result.profile() == null) {
+                return result.failed()
+                        ? FactsSnapshot.Domain.failed(result.note())
+                        : FactsSnapshot.Domain.empty(result.note());
+            }
+            String asOf = result.profile().aumAsOf() != null
+                    ? result.profile().aumAsOf().toString()
+                    : result.profile().trackingErrorAsOf() == null
+                    ? null : result.profile().trackingErrorAsOf().toString();
+            DataStatus status = result.note() == null ? DataStatus.OK : DataStatus.PARTIAL;
+            return FactsSnapshot.Domain.of(result.profile(), status, result.note(), asOf);
+        } catch (RuntimeException e) {
+            log.warn("取基金档案失败 code={}：{}", instrument.rawCode(), e.toString());
+            return FactsSnapshot.Domain.failed(
+                    "基金档案暂不可用（" + e.getClass().getSimpleName() + "）");
+        }
+    }
+
     private static String sourceLabel(IndexFundPool.Fund fund) {
         if (IndexFundPool.SOURCE_CSINDEX.equals(fund.valuationSource())) {
             return "中证官网（中证口径）";
@@ -533,17 +633,20 @@ public class InstrumentFactsService {
     // ------------------------------------------------------------------
 
     /**
-     * 价格 / 估值 / 财务 / 指数估值四个数据日 + 规则版本的哈希。
+     * 价格 / 估值 / 财务 / 指数估值 / 基金档案五个数据日 + 规则版本的哈希。
      *
      * <p>core 与 detail 共用它来发现「两份响应不是同一份事实」：
      * 中间价格更新了，detail 就带 {@code snapshotChanged=true}，前端重拉 core，
-     * 而不是把旧分数和新财务拼在一页。
+     * 而不是把旧分数和新财务拼在一页。基金档案也进 ID：档案首次取到后规模/跟踪质量
+     * 才开始计分，不进 ID 的话首屏那份 core 不会重算。
      */
     static String snapshotId(InstrumentCode instrument, String priceAsOf, String valuationAsOf,
-                             String financialAsOf, String indexValuationAsOf) {
+                             String financialAsOf, String indexValuationAsOf,
+                             String fundProfileAsOf) {
         String raw = String.join("|", instrument.key(),
                 nullToEmpty(priceAsOf), nullToEmpty(valuationAsOf),
-                nullToEmpty(financialAsOf), nullToEmpty(indexValuationAsOf), RULES_VERSION);
+                nullToEmpty(financialAsOf), nullToEmpty(indexValuationAsOf),
+                nullToEmpty(fundProfileAsOf), RULES_VERSION);
         return sha256(raw).substring(0, 16);
     }
 

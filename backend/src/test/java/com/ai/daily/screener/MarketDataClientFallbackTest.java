@@ -106,6 +106,68 @@ class MarketDataClientFallbackTest {
     }
 
     // ------------------------------------------------------------------
+    // 腾讯日线：主域名 → proxy 的换域规则
+    // ------------------------------------------------------------------
+
+    private static final MediaType JSON_UTF8 = MediaType.APPLICATION_JSON;
+
+    /** 实测行序：[日期, 开, 收, 高, 低, 成交量]，与东财解析器的列位置一致。 */
+    private static String klineJson(String symbol, String... row) {
+        return "{\"data\":{\"" + symbol + "\":{\"qfqday\":[[" + String.join(",", row) + "]]}}}";
+    }
+
+    @Test
+    void tencentKlineFallsBackToProxyWhenTheMainDomainIsNotJson() {
+        // 机房 IP 打 web.ifzq.gtimg.cn 会拿到 WAF 的 HTML 页，不是 JSON。
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("web.ifzq.gtimg.cn")))
+                .andRespond(withSuccess("<html>blocked</html>", MediaType.TEXT_HTML));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("proxy.finance.qq.com")))
+                .andRespond(withSuccess(klineJson("sh513180",
+                        "\"2026-10-19\"", "\"0.800\"", "\"0.810\"", "\"0.820\"",
+                        "\"0.790\"", "\"1000\""), JSON_UTF8));
+
+        MarketDataClient.KlineRowsOutcome outcome = alt.fetchTencentKlineRows("513180", null, 800);
+
+        assertThat(outcome.ok()).isTrue();
+        assertThat(outcome.provider()).isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
+        assertThat(outcome.rows()).hasSize(1);
+        MarketDataClient.KlineRow row = outcome.rows().get(0);
+        assertThat(row.openPrice()).isEqualByComparingTo("0.800");
+        assertThat(row.closePrice()).isEqualByComparingTo("0.810");
+        assertThat(row.highPrice()).isEqualByComparingTo("0.820");
+        assertThat(row.lowPrice()).isEqualByComparingTo("0.790");
+        assertThat(row.volume()).isEqualByComparingTo("1000");
+        server.verify();
+    }
+
+    @Test
+    void tencentKlineDoesNotFallBackWhenTheAnswerIsAValidEmptyJson() {
+        // 有效 JSON、没有这只标的：这是确定性的「没有」，换域名只会多打一次。
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("web.ifzq.gtimg.cn")))
+                .andRespond(withSuccess("{\"data\":{}}", JSON_UTF8));
+
+        MarketDataClient.KlineRowsOutcome outcome = alt.fetchTencentKlineRows("513180", null, 800);
+
+        assertThat(outcome.ok()).isFalse();
+        assertThat(outcome.throttled()).isFalse();
+        // 只配置了一条期望；若真打了 proxy，MockRestServiceServer 会报未匹配请求。
+        server.verify();
+    }
+
+    @Test
+    void tencentKlineThrottleIsNotRetriedOnTheProxyDomain() {
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("web.ifzq.gtimg.cn")))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+
+        MarketDataClient.KlineRowsOutcome outcome = alt.fetchTencentKlineRows("513180", null, 800);
+
+        assertThat(outcome.throttled()).isTrue();
+        assertThat(outcome.provider()).isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
+        server.verify();
+    }
+
+    // ------------------------------------------------------------------
     // 字符集：错了不报错，只静默出乱码
     // ------------------------------------------------------------------
 

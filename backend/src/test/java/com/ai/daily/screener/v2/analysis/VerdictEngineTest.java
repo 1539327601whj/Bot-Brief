@@ -70,6 +70,7 @@ class VerdictEngineTest {
                         q.price(), q.pctChange(), AnalysisFixtures.bd("20000000"),
                         q.turnoverRate(), q.totalMarketCap(), null, null, null, q.asOf()),
                         q.asOf().toString()),
+                base.fundProfile(),
                 base.prices(), base.valuations(), base.indexValuation(), base.financials(),
                 base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
                 false, 0, true, base.snapshotId(), base.snapshotAt());

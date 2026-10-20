@@ -91,11 +91,14 @@ public class SeriesService {
         List<WarehouseRows.PriceBar> rows = repository.pricesBetween(
                 instrument.key(), OnDemandSyncService.ADJ_QFQ, from, today);
         String sourceNote = null;
-        if (rows.isEmpty() && instrument.isEtf()) {
-            // 与 InstrumentFactsService 同样的兜底：指数池 ETF 的日线每天 16:30 已经
-            // 预取进 etf_price_history，东财按需同步失败时图表不该是空白。
-            rows = prefetchedEtfPrices(instrument, from);
-            if (!rows.isEmpty()) {
+        if (instrument.isEtf()) {
+            // 与 InstrumentFactsService 用**同一条**判据：指数池 ETF 的日线每天 16:30
+            // 已经预取进 etf_price_history，池外 ETF 也可能由点击补数写进去。
+            // 只在 md_price_daily 为空时才读它的话，会出现「分数用 2600 根腾讯、
+            // 图只画了 20 根东财」——两处都正常显示，但说的不是同一条曲线。
+            List<WarehouseRows.PriceBar> prefetched = prefetchedEtfPrices(instrument, from);
+            if (preferOver(prefetched, rows)) {
+                rows = prefetched;
                 sourceNote = "日线取自本地 ETF 预取库（前复权）";
             }
         }
@@ -160,6 +163,15 @@ public class SeriesService {
         } catch (RuntimeException e) {
             return List.of();
         }
+    }
+
+    private static boolean preferOver(List<WarehouseRows.PriceBar> candidate,
+                                      List<WarehouseRows.PriceBar> current) {
+        return EtfPriceSeriesSelector.preferCandidate(
+                candidate.isEmpty() ? null : candidate.get(candidate.size() - 1).tradeDate(),
+                candidate.size(),
+                current.isEmpty() ? null : current.get(current.size() - 1).tradeDate(),
+                current.size());
     }
 
     /** 周线：按 ISO 周（周一起）聚合。输入必须是按日期升序的日线。 */

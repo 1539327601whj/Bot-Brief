@@ -146,6 +146,11 @@ screener:
   http:
     connect-timeout: ${SCREENER_HTTP_CONNECT_TIMEOUT:5s}
     read-timeout: ${SCREENER_HTTP_READ_TIMEOUT:10s}
+  # 「点击时补齐 ETF 日线」的短超时。一次点击可能翻几页、还可能换腾讯备用域名，
+  # 用上面那组 5s/10s 时最坏会挂几十秒；这里把它压成单次 2s/4s。
+  fallback-http:
+    connect-timeout: ${SCREENER_FALLBACK_HTTP_CONNECT_TIMEOUT:2s}
+    read-timeout: ${SCREENER_FALLBACK_HTTP_READ_TIMEOUT:4s}
   # 并发抓日线的线程数，首屏时间 ≈ 请求数 / 线程数 × 单次耗时
   fetch-threads: ${SCREENER_FETCH_THREADS:5}
   # 日线取多少根（250 ≈ 一年，价格分位与 MA250 都基于它）

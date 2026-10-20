@@ -82,6 +82,7 @@ export function domainStatusText(status: string | null | undefined): string {
 export const DIMENSION_STATUS: Record<string, string> = {
   OK: '完整',
   PARTIAL: '部分指标缺失',
+  NA: '不适用',
   'N/A': '不适用',
 }
 

@@ -40,7 +40,7 @@ class CodeLookupV2JsonContractTest {
 
         assertThat(json.path("code").asText()).isEqualTo("600519");
         assertThat(json.path("assetType").asText()).isEqualTo("STOCK");
-        assertThat(json.path("rulesVersion").asText()).isEqualTo("code-lookup-v2-p4");
+        assertThat(json.path("rulesVersion").asText()).isEqualTo("code-lookup-v2-p5");
         assertThat(json.path("disclaimer").asText()).isEqualTo(CodeLookupV2DTO.DISCLAIMER);
         assertThat(json.path("snapshotId").asText()).isNotBlank();
 
@@ -86,6 +86,12 @@ class CodeLookupV2JsonContractTest {
         assertThat(json.path("snapshotChanged").asBoolean()).isFalse();
         assertThat(json.path("financials").path("status").asText()).isEqualTo("OK");
         assertThat(json.path("financials").path("data").size()).isPositive();
+
+        // 基金档案：个股也带这个段，只是 data 为空。字段整个消失会让前端
+        // 分不清「这版后端不支持」和「这只票没有档案」。
+        assertThat(json.has("fundProfile")).isTrue();
+        assertThat(json.path("fundProfile").path("status").asText()).isEqualTo("NOT_APPLICABLE");
+        assertThat(json.path("fundProfile").path("data").isNull()).isTrue();
 
         JsonNode scenarios = json.path("scenarios");
         assertThat(scenarios.size()).isEqualTo(3);

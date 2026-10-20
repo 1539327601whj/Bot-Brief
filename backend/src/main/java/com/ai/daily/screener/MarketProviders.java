@@ -47,7 +47,10 @@ final class MarketProviders {
             case "np-anotice-stock.eastmoney.com" -> StockNoticeClient.ORIGIN;
             case "search-api-web.eastmoney.com" -> EastMoneyNewsClient.ORIGIN;
             case "news.google.com" -> PolicyNewsClient.ORIGIN;
-            case "qt.gtimg.cn", "web.ifzq.gtimg.cn" -> AltQuoteSource.PROVIDER_TENCENT;
+            // 主域名与 proxy 是同一家公司、同一份封禁面：主域名对机房 IP 回 WAF 页时，
+            // proxy 往往还能用，但两边共用额度，冷却必须落在同一个桶里。
+            case "qt.gtimg.cn", "web.ifzq.gtimg.cn", "proxy.finance.qq.com" ->
+                    AltQuoteSource.PROVIDER_TENCENT;
             case "hq.sinajs.cn" -> AltQuoteSource.PROVIDER_SINA;
             case "www.csindex.com.cn", "csindex.com.cn" -> IndexFundPool.SOURCE_CSINDEX;
             case "danjuanfunds.com", "www.danjuanfunds.com" -> IndexFundPool.SOURCE_DANJUAN;

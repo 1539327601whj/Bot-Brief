@@ -15,6 +15,7 @@ import { PriceChart, ScoreRadar } from './components/Charts'
 import {
   EventsTab,
   FinancialTab,
+  FundProfileCard,
   KeyNumbers,
   PeersTab,
   ProvenanceTab,
@@ -325,6 +326,8 @@ function OverviewTab({ core, detail, detailLoading, detailFailure, series, serie
       </div>
 
       <KeyNumbers core={core} />
+
+      {detail?.fundProfile?.data && <FundProfileCard section={detail.fundProfile} />}
 
       <LookbackTables core={core} />
 

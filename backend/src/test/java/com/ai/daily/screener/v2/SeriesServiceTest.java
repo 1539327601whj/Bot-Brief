@@ -1,9 +1,27 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.entity.EtfPriceHistory;
+import com.ai.daily.screener.IndexFundPool;
+import com.ai.daily.service.EtfPriceHistoryService;
+import com.ai.daily.service.MarketValuationHistoryService;
+import com.ai.daily.warehouse.InstrumentCode;
+import com.ai.daily.warehouse.InstrumentResolver;
+import com.ai.daily.warehouse.WarehouseProperties;
+import com.ai.daily.warehouse.WarehouseRepository;
+import com.ai.daily.warehouse.WarehouseRows;
+import com.ai.daily.warehouse.WarehouseSchemaGuard;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -105,5 +123,70 @@ class SeriesServiceTest {
     void emptySeriesIsNotAnError() {
         assertThat(SeriesService.weeklyPrices(List.of())).isEmpty();
         assertThat(SeriesService.weeklyFlows(List.of())).isEmpty();
+    }
+
+    @Test
+    void etfChartUsesTheSamePreferredSeriesAsTheScore() {
+        // md_price_daily 只有一小段旧东财日线，etf_price_history 里有更长、更新的一批。
+        // 图表必须选后一条：否则会出现「分数用 2600 根腾讯、图上只画了 20 根东财」。
+        InstrumentResolver resolver = mock(InstrumentResolver.class);
+        WarehouseRepository repository = mock(WarehouseRepository.class);
+        EtfPriceHistoryService etfHistory = mock(EtfPriceHistoryService.class);
+        WarehouseSchemaGuard guard = mock(WarehouseSchemaGuard.class);
+        WarehouseProperties properties = mock(WarehouseProperties.class);
+        when(properties.isEnabled()).thenReturn(true);
+        when(guard.isReady()).thenReturn(true);
+        InstrumentCode etf = new InstrumentCode("ETF", "510300", "SH");
+        when(resolver.resolve(anyString())).thenReturn(etf);
+        when(repository.pricesBetween(any(), anyString(), any(), any()))
+                .thenReturn(eastmoneyBars(20, LocalDate.now().minusDays(6)));
+        when(etfHistory.latestBatch(any(), any(), anyString()))
+                .thenReturn(prefetchedBars(60, LocalDate.now().minusDays(1)));
+        SeriesService service = new SeriesService(resolver, repository,
+                mock(MarketValuationHistoryService.class), etfHistory,
+                mock(IndexFundPool.class), guard, properties);
+
+        CodeLookupV2DTO.SeriesView view = service.series("510300", "price", "1y", null);
+
+        assertThat(view.price()).hasSize(60);
+        assertThat(view.price().get(59).date()).isEqualTo(LocalDate.now().minusDays(1).toString());
+        assertThat(view.note()).contains("预取库");
+        // 预取库那条带完整 OHLC，不能在图里退化成只有收盘价。
+        assertThat(view.price().get(59).open()).isNotNull();
+        assertThat(view.price().get(59).high()).isNotNull();
+        assertThat(view.price().get(59).low()).isNotNull();
+    }
+
+    private static List<WarehouseRows.PriceBar> eastmoneyBars(int count, LocalDate last) {
+        List<WarehouseRows.PriceBar> bars = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            bars.add(new WarehouseRows.PriceBar("sh510300", last.minusDays(count - 1L - i),
+                    "QFQ", bd("4"), bd("4.1"), bd("3.9"), bd("4.05"), bd("1000"), null,
+                    null, null, "eastmoney-kline", LocalDateTime.now()));
+        }
+        return bars;
+    }
+
+    private static List<EtfPriceHistory> prefetchedBars(int count, LocalDate last) {
+        List<EtfPriceHistory> rows = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            EtfPriceHistory row = new EtfPriceHistory();
+            row.setFundCode("510300");
+            row.setFundName("沪深300ETF");
+            row.setTradeDate(last.minusDays(count - 1L - i));
+            row.setOpen(bd("4"));
+            row.setHigh(bd("4.1"));
+            row.setLow(bd("3.9"));
+            row.setClose(bd("4.05"));
+            row.setAdjustmentType("QFQ");
+            row.setSource("腾讯前复权日线");
+            row.setFetchedAt(LocalDateTime.now());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private static BigDecimal bd(String value) {
+        return new BigDecimal(value);
     }
 }

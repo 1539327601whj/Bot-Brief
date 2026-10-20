@@ -193,6 +193,11 @@ public final class EvidencePackBuilder {
             FactsSnapshot.IndexValuation valuation = facts.indexValuation().data();
             return valuation == null ? null : valuation.sourceLabel();
         }
+        if (id.startsWith("ev:fund:")) {
+            FactsSnapshot.FundProfile profile = facts.fundProfile() == null
+                    ? null : facts.fundProfile().data();
+            return profile == null ? null : profile.source();
+        }
         if (id.startsWith("ev:val:") || id.startsWith("ev:peer:")) {
             return stockValuationSource(facts);
         }
@@ -219,6 +224,21 @@ public final class EvidencePackBuilder {
         }
         if (id.startsWith("ev:index:")) {
             return facts.indexValuation().asOf();
+        }
+        if (id.startsWith("ev:fund:")) {
+            FactsSnapshot.FundProfile profile = facts.fundProfile() == null
+                    ? null : facts.fundProfile().data();
+            if (profile == null) {
+                return null;
+            }
+            // 规模与跟踪误差是两张页面、两个数据日，不能共用一个 asOf。
+            String suffix = id.substring("ev:fund:".length());
+            return switch (suffix) {
+                case "aum" -> profile.aumAsOf() == null ? null : profile.aumAsOf().toString();
+                case "tracking" -> profile.trackingErrorAsOf() == null
+                        ? null : profile.trackingErrorAsOf().toString();
+                default -> facts.fundProfile().asOf();
+            };
         }
         if (id.startsWith("ev:val:") || id.startsWith("ev:peer:")) {
             return facts.instrument().isStock()

@@ -32,6 +32,10 @@ class MarketProvidersTest {
                 .isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
         assertThat(MarketProviders.of(URI.create("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get")))
                 .isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
+        // 腾讯日线的备用入口是同一家公司的另一台机器，封禁面一致：限流/冷却必须共用一个桶。
+        assertThat(MarketProviders.of(URI.create(
+                "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get")))
+                .isEqualTo(AltQuoteSource.PROVIDER_TENCENT);
         assertThat(MarketProviders.of(URI.create("https://hq.sinajs.cn/list=sh510300")))
                 .isEqualTo(AltQuoteSource.PROVIDER_SINA);
     }
@@ -63,6 +67,9 @@ class MarketProvidersTest {
                 .isNotEqualTo(MarketDataClient.PROVIDER_EASTMONEY);
         assertThat(MarketProviders.of(URI.create("https://news.google.com/rss/search")))
                 .isEqualTo(PolicyNewsClient.ORIGIN)
+                .isNotEqualTo(MarketDataClient.PROVIDER_EASTMONEY);
+        // 基金档案页也是另一个封禁面：它被限流时不能顺带停掉行情主链。
+        assertThat(MarketProviders.of(URI.create("https://fundf10.eastmoney.com/jbgk_513100.html")))
                 .isNotEqualTo(MarketDataClient.PROVIDER_EASTMONEY);
     }
 

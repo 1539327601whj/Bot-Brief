@@ -106,6 +106,25 @@ public final class EtfPriceSeriesSelector {
         return new ArrayList<>(chosen.subList(from, chosen.size()));
     }
 
+    /**
+     * 两条**已经选好源**的序列之间，该不该用 candidate 替换 current。
+     *
+     * <p>{@link #selectPoints} 解决的是「混源里挑一组」；这里解决的是「两路本地数据里挑一路」
+     * （{@code md_price_daily} 的东财按需日线 vs {@code etf_price_history} 的预取/现取日线）。
+     * 两处都调用它，是为了让「哪条更好」只有一份实现——分开写的话，图表与打分会在
+     * 某天开始用不同的序列，而两边都画得出来，没人会发现。
+     *
+     * <p>规则：最新交易日更晚者胜；同日则根数多者胜；candidate 为空或完全打平 → 不替换。
+     */
+    public static boolean preferCandidate(LocalDate candidateLast, int candidateSize,
+                                          LocalDate currentLast, int currentSize) {
+        if (candidateLast == null || candidateSize <= 0) return false;
+        if (currentLast == null || currentSize <= 0) return true;
+        int byDate = candidateLast.compareTo(currentLast);
+        if (byDate != 0) return byDate > 0;
+        return candidateSize > currentSize;
+    }
+
     /** 坏行不是「便宜」，是坏行。留着会把价格分位压到 0 并伪造一个巨大回撤。 */
     private static boolean isUsable(Point p) {
         if (p == null || p.date() == null || p.close() == null || p.close().signum() <= 0) return false;

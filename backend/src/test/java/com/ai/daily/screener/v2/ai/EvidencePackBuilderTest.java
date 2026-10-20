@@ -70,6 +70,23 @@ class EvidencePackBuilderTest {
     }
 
     @Test
+    void fundProfileEvidenceCarriesItsOwnSourceAndAsOf() {
+        FactsSnapshot facts = AnalysisFixtures.etfWithFundProfile();
+        AnalysisResult analysis = InvestmentAnalysisService.analyze(
+                facts, AnalysisFixtures.TODAY);
+        EvidencePack pack = EvidencePackBuilder.build(facts, analysis);
+
+        Evidence aum = pack.find("ev:fund:aum").orElseThrow();
+        assertThat(aum.source()).isEqualTo("天天基金（基金档案）");
+        assertThat(aum.asOf()).isEqualTo("2026-06-30");
+
+        // 规模与跟踪误差是两张页面、两个数据日，不能共用。
+        Evidence tracking = pack.find("ev:fund:tracking").orElseThrow();
+        assertThat(tracking.source()).isEqualTo("天天基金（基金档案）");
+        assertThat(tracking.asOf()).isEqualTo("2026-10-19");
+    }
+
+    @Test
     void materialListsEveryEvidenceOnItsOwnLine() {
         FactsSnapshot facts = AnalysisFixtures.healthyStock();
         AnalysisResult analysis = InvestmentAnalysisService.analyze(

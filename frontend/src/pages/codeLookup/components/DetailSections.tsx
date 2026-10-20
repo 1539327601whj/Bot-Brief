@@ -2,6 +2,7 @@ import type {
   CoreView,
   DetailView,
   DimensionView,
+  FundProfileView,
   IndexProfileView,
   IndustryView,
   MoneyFlowPoint,
@@ -342,6 +343,68 @@ function IndexProfileCard({ profile, status, note }: {
         <NumberCell label="总市值" value={yi(profile.totalMarketCap)} />
         <NumberCell label="来源" value={profile.source || '未标'} />
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------
+// 基金档案（ETF）
+// ---------------------------------------------------------------------
+
+/**
+ * ETF 的基金层面事实。所有行都是「有值才渲染」：档案页缺哪一项就不显示哪一行，
+ * 不放一排「—」占位——那会让「源没有」看起来像「这一项是空的」。
+ */
+export function FundProfileCard({ section }: {
+  section: { data: FundProfileView | null; status: string; note: string | null; asOf: string | null }
+}) {
+  const p = section.data
+  if (!p) return null
+
+  const rows: Array<[string, string | null]> = [
+    ['基金全称', p.fullName],
+    ['基金类型', p.fundType],
+    ['管理人', p.company],
+    ['托管人', p.custodian],
+    ['基金经理', p.manager],
+    ['成立日期', p.inceptionDate ? dateOnly(p.inceptionDate) : null],
+    ['成立规模', p.inceptionScale],
+    ['最新规模', p.aum === null ? null
+      : `${yi(p.aum)}${p.aumAsOf ? `（截止 ${dateOnly(p.aumAsOf)}）` : ''}`],
+    ['管理费率', p.managementFeePct === null ? null : `${num(p.managementFeePct, 2)}%`],
+    ['托管费率', p.custodyFeePct === null ? null : `${num(p.custodyFeePct, 2)}%`],
+    ['跟踪标的', p.trackingTarget],
+    ['业绩比较基准', p.benchmark],
+    ['年化跟踪误差', p.trackingErrorPct === null ? null
+      : `${num(p.trackingErrorPct, 2)}%`
+      + (p.peerTrackingErrorPct === null ? '' : `（同类平均 ${num(p.peerTrackingErrorPct, 2)}%）`)
+      + (p.trackingErrorAsOf ? `，截止 ${dateOnly(p.trackingErrorAsOf)}` : '')],
+  ]
+  const visible = rows.filter(([, value]) => value !== null && value !== '')
+
+  return (
+    <div className="cl-subcard cl-fund-profile">
+      <header>
+        <h4>基金档案 · {p.name || p.code}</h4>
+        <span>{p.source || '天天基金'}</span>
+      </header>
+      <SectionStatus status={section.status} note={section.note} />
+      {visible.length === 0 ? (
+        <p className="cl-empty">{sectionNote(section.note, section.status)}</p>
+      ) : (
+        <dl>
+          {visible.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="cl-note">
+        「最新规模」是基金<b>净资产</b>（季报口径），与行情页按价格估算的总市值不是同一个数。
+        跟踪误差越小，基金越贴近它跟踪的指数。
+      </p>
     </div>
   )
 }

@@ -25,6 +25,8 @@ public record FactsSnapshot(
         InstrumentCode instrument,
         Identity identity,
         Domain<Quote> quote,
+        /** ETF 专有：规模、费率、跟踪误差。个股/指数是 NOT_APPLICABLE，不发外呼。 */
+        Domain<FundProfile> fundProfile,
         Domain<List<WarehouseRows.PriceBar>> prices,
         Domain<List<WarehouseRows.ValuationPoint>> valuations,
         /** 指数/ETF 的估值来自 {@code market_valuation_history}，与个股的估值序列是两条路。 */
@@ -78,6 +80,42 @@ public record FactsSnapshot(
             BigDecimal pb,
             BigDecimal dividendYield,
             LocalDate asOf
+    ) {
+    }
+
+    /**
+     * 基金档案（天天基金「基本概况」+「跟踪误差」两页）。
+     *
+     * <p>这些是**基金层面**的事实，不是行情：{@code aum} 是最近一期披露的基金净资产
+     * （单位元，与 {@link Quote#totalMarketCap()} 同单位），不是「现价 × 份额」的估算市值。
+     * 两者都可以用来衡量规模，但 basis 必须写清是哪一个，不能混标。
+     *
+     * <p>缺失一律 null。跟踪误差为 null 时，跟踪质量维度整维不计分，不补 0。
+     */
+    public record FundProfile(
+            String code,
+            /** 基金简称（行情源给的名字）。 */
+            String name,
+            /** 基金全称。 */
+            String fullName,
+            String fundType,
+            String company,
+            String custodian,
+            String manager,
+            LocalDate inceptionDate,
+            String inceptionScale,
+            /** 最新净资产规模，单位：元。 */
+            BigDecimal aum,
+            LocalDate aumAsOf,
+            BigDecimal managementFeePct,
+            BigDecimal custodyFeePct,
+            String benchmark,
+            String trackingTarget,
+            /** 年化跟踪误差，单位：%。 */
+            BigDecimal trackingErrorPct,
+            BigDecimal peerTrackingErrorPct,
+            LocalDate trackingErrorAsOf,
+            String source
     ) {
     }
 

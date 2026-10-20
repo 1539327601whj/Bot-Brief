@@ -199,6 +199,29 @@ export interface IndexProfileView {
   source: string | null
 }
 
+export interface FundProfileView {
+  code: string
+  name: string | null
+  fullName: string | null
+  fundType: string | null
+  company: string | null
+  custodian: string | null
+  manager: string | null
+  inceptionDate: string | null
+  inceptionScale: string | null
+  /** 基金净资产，单位：元。显示前除以 1e8 换成亿元。 */
+  aum: number | null
+  aumAsOf: string | null
+  managementFeePct: number | null
+  custodyFeePct: number | null
+  benchmark: string | null
+  trackingTarget: string | null
+  trackingErrorPct: number | null
+  peerTrackingErrorPct: number | null
+  trackingErrorAsOf: string | null
+  source: string | null
+}
+
 export interface IndustryView {
   industryCode: string | null
   industryName: string
@@ -243,6 +266,7 @@ export interface DetailView {
   financials: Section<FinancialView[]>
   moneyflow: Section<MoneyFlowView[]>
   indexProfile: Section<IndexProfileView | null>
+  fundProfile: Section<FundProfileView | null>
   industry: Section<IndustryView[]>
   events: Section<EventView[]>
   scenarios: ScenarioView[]

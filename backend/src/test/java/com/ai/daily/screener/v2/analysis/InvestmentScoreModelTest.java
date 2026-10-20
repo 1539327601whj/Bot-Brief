@@ -128,6 +128,39 @@ class InvestmentScoreModelTest {
     }
 
     @Test
+    void etfSizeAndTrackingUseFundProfile() {
+        ScoreResult score = InvestmentScoreModel.evaluate(
+                AnalysisFixtures.etfWithFundProfile(), AnalysisFixtures.TODAY);
+
+        DimensionScore size = score.dimension("size");
+        assertThat(size.status()).isEqualTo("OK");
+        assertThat(size.score()).isEqualByComparingTo("98.52");
+        assertThat(size.metrics().get(0).basis()).contains("基金净资产");
+
+        DimensionScore tracking = score.dimension("tracking");
+        // 折溢价子项带权重但不可用：覆盖率如实是 0.6，而不是把缺项当满分。
+        assertThat(tracking.status()).isEqualTo("PARTIAL");
+        assertThat(tracking.coverage()).isEqualByComparingTo("0.6");
+        assertThat(tracking.score()).isEqualByComparingTo("74.00");
+        assertThat(tracking.metrics())
+                .extracting(com.ai.daily.screener.v2.analysis.ScoreMetric::key)
+                .containsExactly("etf_tracking_error", "etf_premium");
+    }
+
+    @Test
+    void etfSizeFallsBackToEstimatedMarketCapWithExplicitBasis() {
+        ScoreResult score = InvestmentScoreModel.evaluate(
+                AnalysisFixtures.etfWithEstimatedMarketCap(), AnalysisFixtures.TODAY);
+
+        DimensionScore size = score.dimension("size");
+        assertThat(size.available()).isTrue();
+        assertThat(size.metrics().get(0).value()).isEqualByComparingTo("100");
+        assertThat(size.metrics().get(0).basis()).contains("不是基金净资产");
+        // 没有档案就没有跟踪误差；折溢价不能单独撑起这一维。
+        assertThat(score.dimension("tracking").status()).isEqualTo("NA");
+    }
+
+    @Test
     void indexUsesSixIndexDimensionsIncludingScale() {
         ScoreResult score = InvestmentScoreModel.evaluate(AnalysisFixtures.index(),
                 AnalysisFixtures.TODAY);

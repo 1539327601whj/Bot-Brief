@@ -267,6 +267,8 @@ public class CodeLookupV2Service {
                 section(snapshot.moneyflow(), CodeLookupV2Service::moneyFlowViews);
         CodeLookupV2DTO.Section<CodeLookupV2DTO.IndexProfileView> profile =
                 profileSection(snapshot.indexProfile());
+        CodeLookupV2DTO.Section<CodeLookupV2DTO.FundProfileView> fundProfile =
+                fundProfileSection(snapshot.fundProfile());
         CodeLookupV2DTO.Section<List<CodeLookupV2DTO.IndustryView>> industry =
                 industrySection(snapshot.industry());
         CodeLookupV2DTO.Section<List<CodeLookupV2DTO.EventView>> events =
@@ -280,8 +282,8 @@ public class CodeLookupV2Service {
         notes.addAll(notes(snapshot));
 
         return new CodeLookupV2DTO.DetailView(snapshot.instrument().rawCode(),
-                snapshot.snapshotId(), changed, financials, moneyflow, profile, industry,
-                events, scenarioViews(analysis.scenarios()), List.copyOf(notes));
+                snapshot.snapshotId(), changed, financials, moneyflow, profile, fundProfile,
+                industry, events, scenarioViews(analysis.scenarios()), List.copyOf(notes));
     }
 
     private static <T, R> CodeLookupV2DTO.Section<List<R>> section(
@@ -326,6 +328,19 @@ public class CodeLookupV2Service {
                 : new CodeLookupV2DTO.IndexProfileView(p.indexCode(), p.name(), iso(p.asOf()),
                 p.constituentCount(), p.top10Weight(), p.peTtm(), p.dividendYield(),
                 p.totalMarketCap(), p.source());
+        return new CodeLookupV2DTO.Section<>(view, status(domain.status()), domain.note(),
+                domain.asOf());
+    }
+
+    private static CodeLookupV2DTO.Section<CodeLookupV2DTO.FundProfileView> fundProfileSection(
+            FactsSnapshot.Domain<FactsSnapshot.FundProfile> domain) {
+        FactsSnapshot.FundProfile p = domain.data();
+        CodeLookupV2DTO.FundProfileView view = p == null ? null
+                : new CodeLookupV2DTO.FundProfileView(p.code(), p.name(), p.fullName(),
+                p.fundType(), p.company(), p.custodian(), p.manager(), iso(p.inceptionDate()),
+                p.inceptionScale(), p.aum(), iso(p.aumAsOf()), p.managementFeePct(),
+                p.custodyFeePct(), p.benchmark(), p.trackingTarget(), p.trackingErrorPct(),
+                p.peerTrackingErrorPct(), iso(p.trackingErrorAsOf()), p.source());
         return new CodeLookupV2DTO.Section<>(view, status(domain.status()), domain.note(),
                 domain.asOf());
     }
@@ -567,6 +582,7 @@ public class CodeLookupV2Service {
         data.put("financials", domainView(snapshot.financials()));
         data.put("moneyflow", domainView(snapshot.moneyflow()));
         data.put("indexProfile", domainView(snapshot.indexProfile()));
+        data.put("fundProfile", domainView(snapshot.fundProfile()));
         data.put("industry", domainView(snapshot.industry()));
         data.put("events", domainView(snapshot.events()));
         return data;
@@ -591,6 +607,7 @@ public class CodeLookupV2Service {
         addNote(notes, snapshot.financials());
         addNote(notes, snapshot.moneyflow());
         addNote(notes, snapshot.indexProfile());
+        addNote(notes, snapshot.fundProfile());
         addNote(notes, snapshot.industry());
         addNote(notes, snapshot.events());
         return List.copyOf(notes);

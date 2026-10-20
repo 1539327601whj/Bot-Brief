@@ -44,7 +44,7 @@ class AnalysisAcceptanceTest {
                     facts, AnalysisFixtures.TODAY);
             String where = facts.instrument().key();
 
-            assertThat(result.rulesVersion()).isEqualTo("code-lookup-v2-p4");
+            assertThat(result.rulesVersion()).isEqualTo("code-lookup-v2-p5");
             assertThat(result.score()).as(where).isNotNull();
             assertThat(result.verdict()).as(where).isNotNull();
             assertThat(result.buyZone()).as(where).isNotNull();
