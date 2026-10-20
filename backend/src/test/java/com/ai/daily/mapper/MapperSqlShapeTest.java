@@ -78,6 +78,12 @@ class MapperSqlShapeTest {
 
         String flat = normalize(sql);
         assertThat(flat).contains("FROM etf_price_history");
+        // 实体字段叫 close，列名却是 close_price；手写 @Select 不走 MP 结果映射，
+        // 少一个别名这一列就被静默丢掉，选源器把整条序列判成坏行。
+        assertThat(flat).contains("open_price AS open");
+        assertThat(flat).contains("high_price AS high");
+        assertThat(flat).contains("low_price AS low");
+        assertThat(flat).contains("close_price AS close");
         // `>` 在 XML 里不转义也能过，但一旦有人写成 `&lt;`，比较方向会静默反过来：
         // 「取近一年」变成「取一年以前那些」
         assertThat(flat).contains("trade_date >= ?");

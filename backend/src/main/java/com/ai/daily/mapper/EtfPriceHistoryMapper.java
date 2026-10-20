@@ -47,10 +47,20 @@ public interface EtfPriceHistoryMapper extends BaseMapper<EtfPriceHistory> {
      * {@code idx_etf_price_latest (fund_code, adjustment_type, trade_date DESC)} 的前缀，
      * 而**不是**写窗口函数。返回的是**混源**的多行（唯一键含 source，同一天可能两家都有），
      * 调用方必须用 {@link com.ai.daily.screener.EtfPriceSeriesSelector} 先选出一条同源序列再用。
+     *
+     * <p><b>{@code open_price AS open} 这几个别名不能省，也别改回 {@code SELECT *}。</b>
+     * 实体字段叫 {@code close}，列名却叫 {@code close_price}；手写的 {@code @Select}
+     * 不走 MyBatis-Plus 的结果映射，自动映射按下划线转驼峰去找 {@code closePrice}，
+     * 找不到不是报错，而是**这一列被静默丢掉**——每根日线的 close 都成了 null，
+     * 选源器把它们全判成坏行剔掉，页面就显示「本地还没有日线」。
+     * {@code @TableField} 只对 MP 自己拼的 SQL 生效，管不到这条注解里的 SQL。
      */
     @Select("""
             <script>
-            SELECT * FROM etf_price_history
+            SELECT id, fund_code, fund_name, trade_date,
+                   open_price AS open, high_price AS high, low_price AS low, close_price AS close,
+                   adjustment_type, source, fetched_at, created_at, updated_at
+            FROM etf_price_history
             WHERE adjustment_type = #{adjustmentType}
               AND trade_date &gt;= #{from}
               AND fund_code IN
