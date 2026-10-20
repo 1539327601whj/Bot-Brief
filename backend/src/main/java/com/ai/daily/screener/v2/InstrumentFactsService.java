@@ -221,10 +221,15 @@ public class InstrumentFactsService {
         String name = firstNonBlank(row == null ? null : row.name(), report.name());
         String industry = firstNonBlank(row == null ? null : row.industry(), report.industry());
         String industryCode = row == null ? null : row.industryCode();
-        String trackingIndex = row == null ? null : row.trackingIndexCode();
-        if (trackingIndex == null && instrument.isEtf()) {
+        String trackingIndex = row == null ? null : normalizeTrackingIndex(row.trackingIndexCode());
+        if (instrument.isEtf()
+                && (trackingIndex == null || indexFundPool.byIndexCode(trackingIndex) == null)) {
+            // 库里存的跟踪指数可能不是池子的 indexCode 形态（如旧写入的 INDEX:SH000300），
+            // 撇不进池子时再按 ETF 代码回查一次；否则估值、股息率、行业权重会一起查空。
             IndexFundPool.Fund fund = indexFundPool.byEtfCode(instrument.rawCode());
-            trackingIndex = fund == null ? null : fund.indexCode();
+            if (fund != null) {
+                trackingIndex = fund.indexCode();
+            }
         }
         LocalDate listDate = row != null && row.listDate() != null ? row.listDate() : report.listDate();
         String status = row == null || row.status() == null ? "ACTIVE" : row.status();
@@ -242,6 +247,26 @@ public class InstrumentFactsService {
                 instrument.rawCode(), instrument.assetType(), instrument.market(), name,
                 industry, industryCode, trackingIndex, listDate, status, sectorProfile(industry));
         return new WareHousIdentity(identity, indexCode);
+    }
+
+    /**
+     * 把 md_instrument.tracking_index_code 收敛成指数池的 indexCode 形态。
+     *
+     * <p>盘后同步（{@code automation/warehouse/sync/instruments.py}）写的是
+     * {@code INDEX:SH000300} 这种带资产类型的库键，而指数池、估值历史、指数画像都用
+     * 裸的 {@code SH000300}。不剥掉前缀，按池子查找会全部落空：估值维直接丢分，
+     * 股息率和行业权重也一起查不到。只剥 {@code INDEX:}，未知形态交给调用方按 ETF 回查。
+     */
+    static String normalizeTrackingIndex(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return null;
+        }
+        String value = stored.strip().toUpperCase(java.util.Locale.ROOT);
+        String prefix = InstrumentCode.INDEX + ":";
+        if (value.startsWith(prefix)) {
+            value = value.substring(prefix.length()).strip();
+        }
+        return value.isEmpty() ? null : value;
     }
 
     /**

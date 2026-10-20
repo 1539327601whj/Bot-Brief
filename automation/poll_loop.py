@@ -48,10 +48,14 @@ def load_index_pool_sync():
     return index_pool_sync
 
 
-def should_sync_index_pool(now, latest_trade_date):
-    """今天该不该同步指数池。**纯函数**，时间与库里的值都由调用方给。
+def should_sync_index_pool(now, latest_trade_date, prices_settled=True):
+    """今天该不该同步指数池。**纯函数**，时间、库里的值与日线段状态都由调用方给。
 
-    幂等门用的是库里最新一条 `tradeDate`：它已经是今天就说明今天跑过了。
+    幂等门用的是库里最新一条 `tradeDate`：它已经是今天就说明估值段跑过了。
+    但「估值跑过」不等于「日线也进库了」——预取失败时估值可能成功、日线全空。
+    那种情况下估值日期会把门关死一整天，低估精选的价格位置就整片没有数据。
+    所以 `prices_settled` 为 False 时也要开门，让 sync_index_pool 只补日线段。
+
     周末直接跳过（休市，重跑只会拿到同一批数据，还白打几十次中证官网）；
     节假日识别不了，会白跑一轮并原地覆写同一行——代价是流量，不是数据正确性。
     """
@@ -59,7 +63,9 @@ def should_sync_index_pool(now, latest_trade_date):
         return False
     if (now.hour, now.minute) < (INDEX_POOL_SYNC_HOUR, INDEX_POOL_SYNC_MINUTE):
         return False
-    return latest_trade_date != now.date().isoformat()
+    if latest_trade_date != now.date().isoformat():
+        return True
+    return not prices_settled
 
 
 def sync_index_pool_once(index_pool_sync=None, now=None):
@@ -69,7 +75,8 @@ def sync_index_pool_once(index_pool_sync=None, now=None):
         module = index_pool_sync if index_pool_sync is not None else load_index_pool_sync()
         current = now if now is not None else now_beijing()
         latest = module.latest_valuation_trade_date(module.PROBE_INDEX_CODE)
-        if not should_sync_index_pool(current, latest):
+        prices_settled = bool(module.prices_synced_today())
+        if not should_sync_index_pool(current, latest, prices_settled):
             return False
         return bool(module.sync_index_pool())
     except Exception:

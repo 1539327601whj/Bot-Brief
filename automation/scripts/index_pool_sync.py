@@ -30,6 +30,7 @@ import random
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import timedelta
 from typing import Any, Optional
 
 import requests
@@ -64,6 +65,13 @@ MARKER_PATH = os.path.join(os.path.dirname(_SCRIPTS_DIR), SYNC_MARKER_NAME)
 # 轮询门上每分每秒都开），日线段不会跟着每分每秒重跑 42 次。
 PRICES_MARKER_NAME = ".index_pool_prices_marker"
 PRICES_MARKER_PATH = os.path.join(os.path.dirname(_SCRIPTS_DIR), PRICES_MARKER_NAME)
+# 日线段失败后的重试冷却。**失败不能直接等到明天**：一次 WAF 或网络抖动就会让
+# 低估精选整片价格位置空一天（2026-10-20 就是这样）。但也不能每分钟重试——
+# 42 只 ETF × 每分钟只会把 IP 打得更深。冷却期内按「今天暂时不用再跑」处理，
+# 到期后允许再补一次；成功才落 PRICES_MARKER_PATH。
+PRICES_RETRY_NAME = ".index_pool_prices_retry"
+PRICES_RETRY_PATH = os.path.join(os.path.dirname(_SCRIPTS_DIR), PRICES_RETRY_NAME)
+PRICES_RETRY_SECONDS = 30 * 60
 # 幂等门探针：池子里第一个有估值来源的指数（现为沪深300）。
 PROBE_INDEX_CODE = "SH000300"
 
@@ -154,15 +162,45 @@ def mark_synced(today: Optional[Any] = None) -> None:
     _write_marker(MARKER_PATH, today)
 
 
-def prices_synced_today(today: Optional[Any] = None) -> bool:
-    """日线段今天跑过了没有。与估值段的哨兵分开，理由见 `PRICES_MARKER_PATH` 上面那段。"""
-    return _marker_written_today(PRICES_MARKER_PATH, today)
+def prices_synced_today(today: Optional[Any] = None, now: Optional[Any] = None) -> bool:
+    """日线段今天是否已经「settled」。
+
+    两种 settled：成功写进了库（日期哨兵），或刚失败不久、还在重试冷却里。
+    后者返回 True 只为挡住「下一分钟马上再打 42 次」，冷却一过就会重新返回 False，
+    让轮询把失败的那批补上。与估值段的哨兵分开，理由见 `PRICES_MARKER_PATH` 上面那段。
+    """
+    if _marker_written_today(PRICES_MARKER_PATH, today):
+        return True
+    try:
+        with open(PRICES_RETRY_PATH, encoding="utf-8") as handle:
+            retry_at = float(handle.read().strip())
+    except (OSError, ValueError):
+        return False
+    current = (now or report.now_beijing()).timestamp()
+    return current < retry_at
 
 
 def mark_prices_synced(today: Optional[Any] = None) -> None:
-    """落日线段的哨兵。**个别 ETF 失败也照落**——与估值段同一个理由：
-    一次失败不该让下一分钟的轮询把 42 次外呼再打一遍。失败清单由返回值说出去。"""
+    """落日线段的成功哨兵。**只有全部 ETF 都回填成功才调**。"""
     _write_marker(PRICES_MARKER_PATH, today)
+    try:
+        os.remove(PRICES_RETRY_PATH)
+    except OSError:
+        pass
+
+
+def mark_prices_retry(now: Optional[Any] = None) -> None:
+    """日线段失败：记一个冷却到期时间，不当成今天的成功。
+
+    冷却期内 `prices_synced_today()` 返回 True（不重跑），到期后返回 False（允许补跑）。
+    """
+    current = now or report.now_beijing()
+    retry_at = current + timedelta(seconds=PRICES_RETRY_SECONDS)
+    try:
+        with open(PRICES_RETRY_PATH, "w", encoding="utf-8") as handle:
+            handle.write(str(int(retry_at.timestamp())))
+    except OSError as e:
+        logger.warning("⚠️ 无法写入日线重试哨兵 %s: %s", PRICES_RETRY_PATH, e)
 
 
 def csindex_latest_payload(fund: dict[str, Any], history: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
@@ -394,10 +432,12 @@ def sync_index_pool(force: bool = False) -> bool:
     price_ok = True
     if force or not prices_synced_today():
         price_failures = sync_pool_prices(indices)
-        mark_prices_synced()
         if price_failures:
             logger.error("❌ %s 只 ETF 的日线未回填: %s", len(price_failures), ", ".join(price_failures))
             price_ok = False
+            mark_prices_retry()
+        else:
+            mark_prices_synced()
 
     # 估值段：**任何一段中止就整段不写**（章程 §5 的既有口径，见本模块开头）。
     # 中证段中止时蛋卷段也不再打——反正写不进去，少一次外呼。

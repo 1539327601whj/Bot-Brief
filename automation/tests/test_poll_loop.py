@@ -25,6 +25,7 @@ def idle_pool_sync(latest_trade_date=None, sync_result=True):
     module = Mock()
     module.PROBE_INDEX_CODE = "SH000300"
     module.latest_valuation_trade_date.return_value = latest_trade_date
+    module.prices_synced_today.return_value = True
     module.sync_index_pool.return_value = sync_result
     return module
 
@@ -64,6 +65,15 @@ class IndexPoolGateTests(unittest.TestCase):
 
     def test_does_not_sync_twice_in_one_day(self):
         self.assertFalse(poll_loop.should_sync_index_pool(MONDAY_AFTERNOON, "2026-08-31"))
+
+    def test_retries_today_when_the_price_segment_did_not_settle(self):
+        """估值写成了、日线全失败：不能因为估值日期是今天就把门关到明天。"""
+        self.assertTrue(poll_loop.should_sync_index_pool(
+            MONDAY_AFTERNOON, "2026-08-31", prices_settled=False))
+
+    def test_a_settled_price_segment_keeps_the_gate_closed_today(self):
+        self.assertFalse(poll_loop.should_sync_index_pool(
+            MONDAY_AFTERNOON, "2026-08-31", prices_settled=True))
 
     def test_does_not_sync_on_weekends(self):
         self.assertFalse(poll_loop.should_sync_index_pool(SATURDAY, "2026-08-28"))

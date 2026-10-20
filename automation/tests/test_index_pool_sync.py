@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -191,7 +192,7 @@ class DanjuanSegmentTests(unittest.TestCase):
 class SentinelTests(unittest.TestCase):
     def setUp(self):
         self.paths = {}
-        for name in ("MARKER_PATH", "PRICES_MARKER_PATH"):
+        for name in ("MARKER_PATH", "PRICES_MARKER_PATH", "PRICES_RETRY_PATH"):
             handle, path = tempfile.mkstemp()
             os.close(handle)
             os.unlink(path)
@@ -218,6 +219,23 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(sync.already_synced_today())
         self.assertFalse(sync.prices_synced_today())
 
+    def test_a_failed_price_segment_cools_down_then_becomes_due_again(self):
+        """失败后不能直接等到明天：冷却期内不重跑，冷却一过要允许补跑。"""
+        now = datetime(2026, 10, 20, 21, 0, tzinfo=timezone(timedelta(hours=8)))
+        sync.mark_prices_retry(now=now)
+
+        self.assertTrue(sync.prices_synced_today(now=now))
+        later = now + timedelta(seconds=sync.PRICES_RETRY_SECONDS + 1)
+        self.assertFalse(sync.prices_synced_today(now=later))
+
+    def test_a_successful_price_sync_clears_the_retry_marker(self):
+        now = datetime(2026, 10, 20, 21, 0, tzinfo=timezone(timedelta(hours=8)))
+        sync.mark_prices_retry(now=now)
+        sync.mark_prices_synced()
+
+        self.assertTrue(sync.prices_synced_today(now=now))
+        self.assertFalse(os.path.exists(self.paths["PRICES_RETRY_PATH"]))
+
     def test_a_read_only_marker_does_not_break_the_run(self):
         with patch("builtins.open", side_effect=OSError("read-only")):
             sync.mark_synced()
@@ -241,6 +259,7 @@ class SyncIndexPoolTests(unittest.TestCase):
             "mark_synced": Mock(),
             "prices_synced_today": Mock(return_value=extra.get("prices_done", False)),
             "mark_prices_synced": Mock(),
+            "mark_prices_retry": Mock(),
         }
         mocks = {}
         for name, mock in patches.items():
@@ -309,15 +328,17 @@ class SyncIndexPoolTests(unittest.TestCase):
         self.assertEqual(len(codes), len(set(codes)))
         mocks["mark_synced"].assert_called_once()
 
-    def test_a_price_backfill_failure_still_leaves_the_marker_but_reports_failure(self):
-        # 中证那 64MB 才是会被封的部分：日线没成不该让下一分钟再去跑一遍中证段
+    def test_a_price_backfill_failure_enters_retry_instead_of_marking_done(self):
+        # 日线失败不能落「今天完成」：否则一次 WAF 就让低估精选空一整天。
+        # 但也不能每分钟重打：交给冷却哨兵，到期后再补。
         result, mocks = self.run_sync([csindex_fund("000300", etf="510300")],
                                       csindex_rows=[{"indexCode": "SH000300"}],
                                       price_failures=["510300"])
 
         self.assertFalse(result)
         mocks["mark_synced"].assert_called_once()
-        mocks["mark_prices_synced"].assert_called_once()
+        mocks["mark_prices_synced"].assert_not_called()
+        mocks["mark_prices_retry"].assert_called_once()
 
     def test_a_retry_after_a_failed_valuation_segment_skips_the_backfill(self):
         """估值段失败后的重试轮：日线段已经被自己的哨兵挡住。
