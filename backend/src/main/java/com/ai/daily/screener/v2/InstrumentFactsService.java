@@ -436,22 +436,34 @@ public class InstrumentFactsService {
         }
         List<MarketValuationHistory> history = valuationHistoryService.historyBetween(
                 indexCode, fund.percentileMethod(), today.minusYears(11), today);
-        if (history.isEmpty()) {
-            // 本地库为空时不能只报「没有」：估值维占 30 分，缺了它覆盖率就过不了 50%，
-            // 整页会退回「数据不足」。池子的口径已经钉死，这里按同一个口径现取一次历史，
-            // 与旧版代码查询/ETF 日报走同一条源；取不到再如实报空。
+        // 本地历史不足 3 年时，不能只沿用「从项目上线那天开始一天一行」的短序列：
+        // 中证接口本身会返回全量日频历史，直接取一次就能把 3/5 年分位补上。
+        // 蛋卷只给当前值，现取也不会更长，比较条数后保留本地序列并如实说明。
+        boolean thin = history.isEmpty() || thinIndexHistory(history);
+        if (thin) {
             FactsSnapshot.Domain<FactsSnapshot.IndexValuation> live =
                     liveIndexValuation(instrument, fund);
-            if (live != null) {
+            if (history.isEmpty()) {
+                if (live != null) {
+                    return live;
+                }
+                return FactsSnapshot.Domain.of(null, DataStatus.EMPTY,
+                        "估值库里还没有 " + indexCode + " 的分位历史", null);
+            }
+            if (live != null && live.data() != null && live.data().historyLength() != null
+                    && live.data().historyLength() > history.size()) {
                 return live;
             }
-            return FactsSnapshot.Domain.of(null, DataStatus.EMPTY,
-                    "估值库里还没有 " + indexCode + " 的分位历史", null);
         }
         MarketValuationHistory latest = history.get(history.size() - 1);
         DataStatus status = latest.getPeTtm() != null && latest.getPePercentile() != null
                 ? DataStatus.OK : DataStatus.PARTIAL;
         String note = status == DataStatus.OK ? null : "这一行缺 PE 或分位，无法给出完整估值判断";
+        if (thin && note == null) {
+            LocalDate first = history.get(0).getTradeDate();
+            note = "本地估值历史" + (first == null ? "" : "自 " + first + " 起") + "共 "
+                    + history.size() + " 条，不足 3 年；3/5 年分位不可用";
+        }
         List<BigDecimal> peHistory = new java.util.ArrayList<>(history.size());
         List<com.ai.daily.screener.RollingPercentile.Point> pbHistory =
                 new java.util.ArrayList<>(history.size());
@@ -478,6 +490,21 @@ public class InstrumentFactsService {
                 history.get(0).getTradeDate(), latest.getTradeDate());
         return FactsSnapshot.Domain.of(view, status, note,
                 latest.getTradeDate() == null ? null : latest.getTradeDate().toString());
+    }
+
+    /**
+     * 本地指数估值历史是否薄到无法支撑 3 年分位。
+     *
+     * <p>「薄」有两个来源：条数不够（每天一行、上线不足 500 天）或日历跨度不够
+     * （中间断更过）。两者都只看**实际落库的区间**，不拿「应该有多少天」猜。
+     */
+    static boolean thinIndexHistory(List<MarketValuationHistory> history) {
+        if (history == null || history.size() < MIN_VALUATION_POINTS) {
+            return true;
+        }
+        LocalDate from = history.get(0).getTradeDate();
+        LocalDate to = history.get(history.size() - 1).getTradeDate();
+        return from == null || to == null || from.isAfter(to.minusYears(3));
     }
 
     /** 带短期缓存的现取入口；同一只标的连点时只打一次源。 */
@@ -551,8 +578,7 @@ public class InstrumentFactsService {
                 points.size(),
                 points.get(0).date(), asOf);
         DataStatus status = pe != null && percentile != null ? DataStatus.OK : DataStatus.PARTIAL;
-        String note = "本地估值库还没有 " + fund.indexCode() + " 的分位历史，"
-                + "本次直接取" + sourceLabel(fund) + "历史现算";
+        String note = "本地估值历史不足 3 年，本次直接取" + sourceLabel(fund) + "历史现算";
         return FactsSnapshot.Domain.of(view, status, note,
                 asOf == null ? null : asOf.toString());
     }

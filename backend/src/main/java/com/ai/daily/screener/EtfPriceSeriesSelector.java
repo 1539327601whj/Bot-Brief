@@ -40,6 +40,15 @@ public final class EtfPriceSeriesSelector {
     /** 尾部连续段的相邻两根最多允许隔这么多自然日（覆盖周末 + 单日假期）。 */
     private static final int MAX_GAP_DAYS = 4;
 
+    /** 当前序列短于这个根数时，才考虑用「稍旧但长得多」的另一条序列。 */
+    private static final int SHORT_SERIES_BARS = 500;
+
+    /** 被视为「长历史」的最低根数（≈4 年）。 */
+    private static final int LONG_SERIES_BARS = 1000;
+
+    /** 长序列允许比短序列旧几天：一年分位可以容忍一根旧收盘，不能容忍只有 1.3 年。 */
+    private static final int MAX_STALENESS_DAYS = 7;
+
     private EtfPriceSeriesSelector() {}
 
     /**
@@ -115,13 +124,26 @@ public final class EtfPriceSeriesSelector {
      * 某天开始用不同的序列，而两边都画得出来，没人会发现。
      *
      * <p>规则：最新交易日更晚者胜；同日则根数多者胜；candidate 为空或完全打平 → 不替换。
+     *
+     * <p><b>例外：本地序列短到算不出长期指标时，允许用「旧几天但长得多」的序列。</b>
+     * 典型场景是 {@code md_price_daily} 只有一年多的东财日线、而 ETF 预取库有 2600 根
+     * 腾讯日线且最新一根只差一两天。按旧规则会保留短序列，页面就会在明明有 5 年历史的
+     * 标的上显示「3/5 年数据不足」。例外只对「当前短于 500 根 + 候选至少 1000 根 +
+     * 落后不超过 7 天」生效，不会拿一条长期断更的序列盖掉最新数据。
      */
     public static boolean preferCandidate(LocalDate candidateLast, int candidateSize,
                                           LocalDate currentLast, int currentSize) {
         if (candidateLast == null || candidateSize <= 0) return false;
         if (currentLast == null || currentSize <= 0) return true;
         int byDate = candidateLast.compareTo(currentLast);
-        if (byDate != 0) return byDate > 0;
+        if (byDate != 0) {
+            if (byDate > 0) return true;
+            long staleDays = ChronoUnit.DAYS.between(candidateLast, currentLast);
+            return currentSize < SHORT_SERIES_BARS
+                    && candidateSize >= LONG_SERIES_BARS
+                    && candidateSize >= currentSize * 2L
+                    && staleDays <= MAX_STALENESS_DAYS;
+        }
         return candidateSize > currentSize;
     }
 

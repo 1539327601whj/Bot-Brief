@@ -1061,8 +1061,24 @@ const CLICK_TAB = (text) => `(() => {
   return true;
 })()`
 
-/** 页面内的横向溢出检查：只看 `.cl-page` 自己，不把浏览器/侧栏的问题算进来。 */
+/**
+ * 横向溢出检查：先看整页（外壳 + 内容），再单独定位 `.cl-page` 里的越界元素。
+ * 表格自己的 `.cl-table-wrap` 允许横向滚动，不算整页溢出。
+ */
 const NO_PAGE_OVERFLOW = `(() => {
+  const doc = document.documentElement;
+  if (doc.scrollWidth > doc.clientWidth + 1) {
+    const right = doc.clientWidth + 1;
+    const offenders = [...document.querySelectorAll('body *')]
+      .filter(el => !el.closest('.cl-table-wrap, .md-table-wrap, .shop-table-wrap'))
+      .filter(el => el.getBoundingClientRect().right > right)
+      .slice(0, 6)
+      .map(el => el.tagName.toLowerCase() + '.' + [...el.classList].join('.'));
+    return '整页横向溢出：scrollWidth=' + doc.scrollWidth
+      + ' clientWidth=' + doc.clientWidth
+      + (offenders.length ? '；越界元素：' + offenders.join(', ') : '');
+  }
+
   const page = document.querySelector('.cl-page');
   if (!page) return '找不到 .cl-page';
   if (page.scrollWidth <= page.clientWidth + 1) return true;
@@ -1076,24 +1092,34 @@ const NO_PAGE_OVERFLOW = `(() => {
     + (offenders.length ? '；越界元素：' + offenders.join(', ') : '');
 })()`
 
-/**
- * App 外壳（侧栏 240px + 桌面内边距）没有做移动端适配，直接在 390px 视口下截图
- * 会把页面挤成一条。这里只**在截图进程里**临时收起侧栏，让 `.cl-page` 拿到
- * 手机宽度的内容区；页面自身的响应式规则仍然是真实生效的那一套。
- */
-const MOBILE_SHELL = `(() => {
-  if (document.getElementById('__mobile_shell')) return true;
-  const style = document.createElement('style');
-  style.id = '__mobile_shell';
-  style.textContent = '@media (max-width: 760px) {'
-    + '.sidebar { display: none !important; }'
-    + '.main-wrapper { margin-left: 0 !important; }'
-    + '.main-content { padding: 12px !important; }'
-    + '.header-bar { padding: 0 12px !important; }'
-    + '}';
-  document.head.appendChild(style);
+/** 手机/平板外壳：汉堡按钮可见，抽屉默认藏在视口外。 */
+const DRAWER_CLOSED_INITIAL = `(() => {
+  const toggle = document.querySelector('.nav-toggle');
+  const sidebar = document.querySelector('.sidebar');
+  if (!toggle || !sidebar) return '找不到汉堡按钮或侧栏';
+  if (getComputedStyle(toggle).display === 'none') return '窄屏下汉堡按钮没有显示';
+  const rect = sidebar.getBoundingClientRect();
+  if (rect.right > 1) return '抽屉初始应该藏在视口外，实际 right=' + Math.round(rect.right);
+  toggle.click();
   return true;
 })()`
+
+const DRAWER_OPEN = `(() => {
+  const sidebar = document.querySelector('.sidebar');
+  const scrim = document.querySelector('.sidebar-scrim');
+  if (!sidebar.classList.contains('is-open')) return '点汉堡后侧栏没有打开';
+  if (!scrim || !scrim.classList.contains('is-open')) return '遮罩没有出现';
+  if (document.body.style.overflow !== 'hidden') return '抽屉打开时没有锁住页面滚动';
+  return true;
+})()`
+
+const DRAWER_CLOSED_AFTER_ESC = `(() => {
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar.classList.contains('is-open')) return 'Esc 后侧栏没有关闭';
+  if (document.activeElement?.id !== 'nav-toggle') return '关闭后焦点没有回到汉堡按钮';
+  return true;
+})()`
+
 
 // ---------------------------------------------------------------------
 // 场景
@@ -1181,7 +1207,6 @@ async function runCase(port, item) {
       }
       await shoot(cdp, 'code-lookup-v2-etf-overview', 1440, 2700, false)
       // 窄屏下这张卡要塌成一列，不能横向溢出。
-      await cdp.eval(MOBILE_SHELL)
       await assertNoOverflow(cdp, 390, 900, false, '基金档案 390')
       await shoot(cdp, 'code-lookup-v2-etf-overview-mobile', 390, 3200, false)
     } else if (await cdp.eval('!!document.querySelector(".cl-fund-profile")')) {
@@ -1202,10 +1227,32 @@ async function runCase(port, item) {
     }
 
     const desktop = await shoot(cdp, `code-lookup-v2-${item.name}-desktop`, 1440, 3200, false)
-    await cdp.eval(MOBILE_SHELL)
+    // 平板和手机都走真实外壳：汉堡按钮 + 抽屉，不再临时隐藏侧栏。
+    await assertNoOverflow(cdp, 768, 1024, false, '平板 768')
     // `mobile: true` 会让 Edge 先按 980px 布局再整体缩放，媒体查询不会按 390 触发。
-    // 这里要验的是页面自己的响应式，所以用 mobile: false + 390 视口。
-    await assertNoOverflow(cdp, 390, 900, false, '移动端 390')
+    // 这里要验的是真实外壳的响应式，所以用 mobile: false + 390 视口。
+    await assertNoOverflow(cdp, 390, 844, false, '移动端 390')
+
+    const drawerInitial = await cdp.eval(DRAWER_CLOSED_INITIAL)
+    if (drawerInitial !== true) throw new Error(`手机抽屉：${drawerInitial}`)
+    await sleep(300)
+    const drawerOpened = await cdp.eval(DRAWER_OPEN)
+    if (drawerOpened !== true) throw new Error(`手机抽屉：${drawerOpened}`)
+
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown', key: 'Escape', code: 'Escape',
+      windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27,
+    })
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key: 'Escape', code: 'Escape',
+      windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27,
+    })
+    await sleep(300)
+    const drawerClosed = await cdp.eval(DRAWER_CLOSED_AFTER_ESC)
+    if (drawerClosed !== true) throw new Error(`手机抽屉：${drawerClosed}`)
+    await assertNoOverflow(cdp, 390, 844, false, '抽屉关闭后 390')
+
+    const mobile = await shoot(cdp, `code-lookup-v2-${item.name}-mobile`, 390, 3200, false)
     if (process.env.DEBUG_LAYOUT) {
       console.log(await cdp.eval(`JSON.stringify({
         innerWidth: window.innerWidth,
@@ -1247,8 +1294,8 @@ async function runCase(port, item) {
         })(),
       })`))
     }
-    const mobile = await shoot(cdp, `code-lookup-v2-${item.name}-mobile`, 390, 2400, false)
-    const files = [desktop, mobile]
+    const tablet = await shoot(cdp, `code-lookup-v2-${item.name}-tablet`, 768, 3200, false)
+    const files = [desktop, mobile, tablet]
     console.log(`  ✓ ${item.label}（${files.length} 张）`)
     return files
   } finally {

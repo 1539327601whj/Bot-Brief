@@ -161,6 +161,22 @@ class InvestmentScoreModelTest {
     }
 
     @Test
+    void etfLiquidityFallsBackToQuoteAmountWhenBarsCarryNoAmount() {
+        // 腾讯日线没有成交额：20 日均值为空时，用当日行情成交额降级，
+        // 而不是让流动性整块 N/A、把六维覆盖率压到暂缓评级。
+        ScoreResult score = InvestmentScoreModel.evaluate(
+                AnalysisFixtures.etfWithoutBarAmounts(), AnalysisFixtures.TODAY);
+
+        DimensionScore liquidity = score.dimension("liquidity");
+        assertThat(liquidity.available()).isTrue();
+        ScoreMetric amount = liquidity.metrics().get(0);
+        assertThat(amount.key()).isEqualTo("avg_amount_20d");
+        assertThat(amount.value()).isEqualByComparingTo("5");
+        assertThat(amount.basis()).contains("当日成交额", "不代表常态活跃度");
+        assertThat(amount.label()).contains("当日");
+    }
+
+    @Test
     void indexUsesSixIndexDimensionsIncludingScale() {
         ScoreResult score = InvestmentScoreModel.evaluate(AnalysisFixtures.index(),
                 AnalysisFixtures.TODAY);

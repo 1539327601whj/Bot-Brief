@@ -113,6 +113,11 @@ export default function MarketMarkdown({ children }: MarketMarkdownProps) {
               {renderMarketChanges(content)}
             </a>
           ),
+          table: ({ children: content, ...props }) => (
+            <div className="md-table-wrap">
+              <table {...props}>{content}</table>
+            </div>
+          ),
         }}
       >
         {stripNonReportMeta(children)}

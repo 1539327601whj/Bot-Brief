@@ -96,7 +96,7 @@ public final class DecisionEngine {
 
         boolean withheld = verdict == null || verdict.withheld();
         Decision.Timing timing = timing(position, axes, verdict, withheld);
-        Decision.Action action = action(timing, buyZone, vsMa250, momentum60);
+        Decision.Action action = action(timing, buyZone, vsMa250, momentum60, withheld);
         Decision.Horizon horizon = horizon(facts, score, tech);
         Decision.LongTerm longTerm = longTerm(
                 facts.prices() == null ? null : facts.prices().data());
@@ -211,12 +211,9 @@ public final class DecisionEngine {
 
     private static Decision.Timing timing(Decision.Position position, List<Decision.Axis> axes,
                                           Verdict verdict, boolean withheld) {
-        if (withheld) {
-            String reason = verdict == null ? "没有规则结论"
-                    : verdict.withheldReason() == null ? "数据不足，暂不评级"
-                    : verdict.withheldReason();
+        if (verdict == null) {
             return new Decision.Timing("INSUFFICIENT", "数据不足",
-                    List.of(Reason.plain(reason)),
+                    List.of(Reason.plain("没有规则结论")),
                     List.of("先补齐关键数据，再判断时机"));
         }
         if (verdict.hardFlags() != null && verdict.hardFlags().stream().anyMatch(SEVERE_FLAGS::contains)) {
@@ -224,6 +221,14 @@ public final class DecisionEngine {
                     List.of(Reason.plain("命中硬约束：" + String.join("、",
                             verdict.hardFlags().stream().filter(SEVERE_FLAGS::contains).toList()))),
                     List.of("硬风险解除后重新评估"));
+        }
+        // 价格停牌/陈旧时，位置、趋势、分位全都建立在旧价格上，不能给时机。
+        // 但「六维覆盖率不足」是另一回事：估值、价格、趋势三个轴可能都拿得到，
+        // 不能因为一个全局评分凑不够 50% 就把四问一起打成数据不足。
+        if (verdict.hardFlags() != null && verdict.hardFlags().contains("PRICE_STALE")) {
+            return new Decision.Timing("INSUFFICIENT", "数据不足",
+                    List.of(Reason.plain("价格数据陈旧，位置与趋势建立在旧价格上")),
+                    List.of("价格恢复更新后重新判断时机"));
         }
         if ("INSUFFICIENT".equals(position.key())) {
             return new Decision.Timing("INSUFFICIENT", "数据不足",
@@ -287,6 +292,9 @@ public final class DecisionEngine {
             triggers.add("补齐 250 根以上日线后重新判断趋势");
         }
         triggers.add("出现新的重大负面公告");
+        if (withheld) {
+            triggers.add("六维评级数据补齐后重新评估仓位");
+        }
 
         List<Reason> reasons = new ArrayList<>(position.reasons());
         if (trendKnown) {
@@ -294,11 +302,18 @@ public final class DecisionEngine {
         } else {
             reasons.add(Reason.plain("趋势数据不足，时机判断只依赖估值与价格位置"));
         }
+        if (withheld) {
+            String why = verdict.withheldReason() == null || verdict.withheldReason().isBlank()
+                    ? "数据覆盖率不足" : verdict.withheldReason();
+            reasons.add(Reason.plain("六维评级暂缓：" + why
+                    + "；时机只基于位置与趋势，不代表可以加仓"));
+        }
         return new Decision.Timing(key, label, List.copyOf(reasons), List.copyOf(triggers));
     }
 
     private static Decision.Action action(Decision.Timing timing, BuyZone buyZone,
-                                          BigDecimal vsMa250, BigDecimal momentum60) {
+                                          BigDecimal vsMa250, BigDecimal momentum60,
+                                          boolean withheld) {
         String key;
         String label;
         switch (timing.key()) {
@@ -362,6 +377,9 @@ public final class DecisionEngine {
             default -> {
                 plan.add("先补齐关键数据，再做判断");
             }
+        }
+        if (withheld) {
+            plan.add("六维评级数据不足，以上只是位置与趋势层面的观察，不是加仓依据");
         }
 
         if (stop != null) {
@@ -497,6 +515,11 @@ public final class DecisionEngine {
         List<Reason> risks = new ArrayList<>();
         if (verdict != null && verdict.risks() != null) {
             risks.addAll(verdict.risks());
+        }
+        if (verdict != null && verdict.withheld()) {
+            String why = verdict.withheldReason() == null || verdict.withheldReason().isBlank()
+                    ? "数据覆盖率不足" : verdict.withheldReason();
+            risks.add(Reason.plain("六维评级暂缓：" + why));
         }
         if (valuationPct == null) {
             risks.add(Reason.plain("缺少估值历史分位，位置判断少一个轴"));

@@ -482,13 +482,19 @@ public final class InvestmentScoreModel {
     }
 
     private static DimensionScore liquidityDimension(Context ctx, int weight) {
-        BigDecimal amountYi = ctx.avgAmount20 == null ? null
-                : ctx.avgAmount20.divide(YI, 4, RoundingMode.HALF_UP);
+        // ETF 的腾讯预取日线不带成交额，20 日均值常常为空；但当日行情里是有成交额的。
+        // 完全留空会让「流动性」维度整块缺失、压低六维覆盖率，连位置与趋势的结论也一起被暂缓。
+        // 当日值只作降级参考：权重减半、文案写明不是均值，避免把单日放量误当成常态活跃。
+        boolean dailyOnly = ctx.avgAmount20 == null && ctx.currentAmount != null;
+        BigDecimal amount = ctx.avgAmount20 != null ? ctx.avgAmount20 : ctx.currentAmount;
+        BigDecimal amountYi = amount == null ? null
+                : amount.divide(YI, 4, RoundingMode.HALF_UP);
         List<ScoreMetric> metrics = List.of(
-                ScoreMetric.of("avg_amount_20d", "20 日均成交额（亿）", amountYi,
-                        fmt(amountYi, "亿"),
-                        ScoreAnchors.higherBetter(amountYi, 0.1, 1, 10), 50,
-                        "1000 万 / 1 亿 / 10 亿三档", "ev:etf:amount"),
+                ScoreMetric.of("avg_amount_20d", dailyOnly ? "当日成交额（亿）" : "20 日均成交额（亿）",
+                        amountYi, fmt(amountYi, "亿"),
+                        ScoreAnchors.higherBetter(amountYi, 0.1, 1, 10), dailyOnly ? 30 : 50,
+                        dailyOnly ? "20 日均值缺失，用当日成交额降级参考，不代表常态活跃度"
+                                : "1000 万 / 1 亿 / 10 亿三档", "ev:etf:amount"),
                 ScoreMetric.of("turnover", "换手率", ctx.turnover, fmt(ctx.turnover, "%"),
                         ScoreAnchors.band(ctx.turnover, 0, 1, 5, 10), 50,
                         "1%–5% 为活跃且不过热", "ev:etf:turnover"));

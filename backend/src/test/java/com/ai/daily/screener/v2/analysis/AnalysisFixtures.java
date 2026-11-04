@@ -206,6 +206,29 @@ public final class AnalysisFixtures {
                 base.snapshotId(), base.snapshotAt());
     }
 
+    /**
+     * 走腾讯预取日线的 ETF：每一根都**没有成交额**，只有当日行情里有。
+     *
+     * <p>真实数据就是这个形态（{@code etf_price_history} 只存 OHLC 与换手），
+     * 流动性维度必须用当日成交额降级，而不是整块 N/A 拉低六维覆盖率。
+     */
+    public static FactsSnapshot etfWithoutBarAmounts() {
+        FactsSnapshot base = etf();
+        List<WarehouseRows.PriceBar> original = base.prices().data();
+        List<WarehouseRows.PriceBar> prices = new ArrayList<>(original.size());
+        for (WarehouseRows.PriceBar b : original) {
+            prices.add(new WarehouseRows.PriceBar(b.instrumentCode(), b.tradeDate(),
+                    b.adjType(), b.openPrice(), b.highPrice(), b.lowPrice(), b.closePrice(),
+                    b.volume(), null, b.turnoverRate(), b.pctChange(), b.source(), b.fetchedAt()));
+        }
+        return new FactsSnapshot(base.inputCode(), base.instrument(), base.identity(),
+                base.quote(), base.fundProfile(), FactsSnapshot.Domain.ok(prices, PRICE_AS_OF.toString()),
+                base.valuations(), base.indexValuation(), base.financials(),
+                base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
+                base.syncPending(), base.retryAfterMs(), base.fromCache(),
+                base.snapshotId(), base.snapshotAt());
+    }
+
     private static WarehouseRows.IndustryWeight weight(String indexCode, String name,
                                                        BigDecimal value) {
         return new WarehouseRows.IndustryWeight(indexCode, LocalDate.of(2026, 9, 30),

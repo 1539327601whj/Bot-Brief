@@ -133,7 +133,10 @@ class OnDemandSyncServiceTest {
         assertThat(report.quote().provider()).isEqualTo("local");
         assertThat(report.quote().price()).isEqualByComparingTo("1510");
         assertThat(report.quoteStatus()).isEqualTo(DataStatus.PARTIAL);
-        assertThat(report.priceStatus()).isEqualTo(DataStatus.OK);
+        // 本地只有 300 根、上市日期未知：会尝试补一次长历史；源不可用时沿用本地日线，
+        // 日线状态如实是 PARTIAL，而不是把 300 根说成完整历史。
+        assertThat(report.priceStatus()).isEqualTo(DataStatus.PARTIAL);
+        verify(marketDataClient, times(1)).fetchKlineRows(anyString(), anyInt());
         assertThat(report.valuationStatus()).isEqualTo(DataStatus.OK);
         // 这一轮没有从源拿到任何新数据，页面据此显示「来自本地仓库」。
         assertThat(report.fetchedFromSource()).isFalse();
@@ -141,12 +144,37 @@ class OnDemandSyncServiceTest {
     }
 
     /**
-     * 东财冷却中、但本地日线新鲜：不碰日线/估值接口。
+     * 东财冷却中、但本地日线新鲜且足够长：不碰日线/估值接口。
      *
      * <p>这条是「蚂蚁搬家」的核心：第二次查询应当只读库。
+     * 600 根是长历史的门槛——300 根会触发一次补历史，见下方用例。
      */
     @Test
-    void freshLocalDataAvoidsPriceAndValuationCalls() {
+    void longFreshLocalDataAvoidsPriceAndValuationCalls() {
+        LocalDate today = LocalDate.now(SHANGHAI);
+        when(marketDataClient.fetchQuotes(anyList())).thenReturn(Map.of());
+        when(repository.latestPrice(anyString(), anyString())).thenReturn(Optional.of(
+                new WarehouseRows.PriceBar("STOCK:600519", today, "QFQ",
+                        new BigDecimal("1500"), new BigDecimal("1520"), new BigDecimal("1490"),
+                        new BigDecimal("1510"), new BigDecimal("1000"), new BigDecimal("1500000"),
+                        new BigDecimal("0.3"), new BigDecimal("0.8"), "eastmoney-kline", null)));
+        when(repository.latestPriceDate(anyString())).thenReturn(today.toString());
+        when(repository.countPrices(anyString())).thenReturn(600L);
+        when(repository.latestValuation(anyString(), anyString())).thenReturn(Optional.of(
+                new WarehouseRows.ValuationPoint("STOCK:600519", today,
+                        new BigDecimal("22"), new BigDecimal("8"), null,
+                        new BigDecimal("1.8"), new BigDecimal("1510"), null,
+                        OnDemandSyncService.VALUATION_SOURCE, LocalDateTime.now())));
+
+        service.sync(MAOTAI, null);
+
+        verify(marketDataClient, never()).fetchKlineRows(anyString(), anyInt());
+        verify(stockValuationClient, never()).fetchHistory(anyString());
+    }
+
+    /** 本地日线新鲜但只有 300 根：补一次长历史；同一进程内 6 小时内不重复补。 */
+    @Test
+    void shortFreshHistoryBackfillsOnceThenStops() {
         LocalDate today = LocalDate.now(SHANGHAI);
         when(marketDataClient.fetchQuotes(anyList())).thenReturn(Map.of());
         when(repository.latestPrice(anyString(), anyString())).thenReturn(Optional.of(
@@ -163,8 +191,8 @@ class OnDemandSyncServiceTest {
                         OnDemandSyncService.VALUATION_SOURCE, LocalDateTime.now())));
 
         service.sync(MAOTAI, null);
+        service.sync(MAOTAI, null);
 
-        verify(marketDataClient, never()).fetchKlineRows(anyString(), anyInt());
-        verify(stockValuationClient, never()).fetchHistory(anyString());
+        verify(marketDataClient, times(1)).fetchKlineRows(anyString(), anyInt());
     }
 }

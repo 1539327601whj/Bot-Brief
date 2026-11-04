@@ -400,3 +400,36 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* —— 手机 / 平板基础规则 ——
+ * 全部限定在媒体查询内，桌面端样式不变。
+ */
+@media (max-width: 1024px) {
+  /* iOS 在输入框字号小于 16px 时会自动放大页面。 */
+  input,
+  textarea,
+  select,
+  .ant-input,
+  .ant-input-number-input,
+  .ant-picker-input > input,
+  .ant-select-selection-search-input {
+    font-size: 16px;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* 触屏设备把可点区域放大到至少 44px。 */
+@media (pointer: coarse) {
+  button,
+  .ant-btn,
+  .nav-item,
+  .theme-toggle,
+  .header-back,
+  .nav-toggle,
+  .sidebar-close {
+    min-height: 44px;
+  }
+}

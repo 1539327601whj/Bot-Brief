@@ -1748,6 +1748,7 @@ button.cl-chip {
 
   .cl-tile {
     padding: 9px 10px;
+    min-width: 0;
   }
 
   .cl-tile-score {

@@ -88,6 +88,48 @@ class DecisionEngineTest {
         assertThat(decision.action().key()).isEqualTo("WAIT");
     }
 
+    @Test
+    void withheldVerdictStillAnswersTimingFromPriceAndPosition() {
+        // 六维覆盖率不足只影响「评级」，不影响「位置 + 趋势」这两个轴。
+        // 以前这里会把时机/行动一起打成数据不足，页面看上去像什么都不知道。
+        FactsSnapshot facts = lowValuationStabilizing();
+        AnalysisResult analysis = InvestmentAnalysisService.analyze(facts, AnalysisFixtures.TODAY);
+
+        Decision decision = DecisionEngine.evaluate(facts, analysis.score(),
+                withheldFrom(analysis.verdict(), List.of()), analysis.buyZone());
+
+        assertThat(decision.position().key()).isNotEqualTo("INSUFFICIENT");
+        assertThat(decision.timing().key()).isNotEqualTo("INSUFFICIENT");
+        assertThat(decision.action().key()).isNotEqualTo("INSUFFICIENT");
+        assertThat(decision.timing().reasons()).extracting(Reason::text)
+                .anyMatch(t -> t.contains("六维评级暂缓"));
+        assertThat(decision.action().tranchePlan())
+                .anyMatch(p -> p.contains("不是加仓依据"));
+        assertThat(decision.risks()).extracting(Reason::text)
+                .anyMatch(t -> t.contains("六维评级暂缓"));
+    }
+
+    @Test
+    void stalePriceStillBlocksTimingEvenWhenAxesAreAvailable() {
+        // 位置、趋势都是拿旧价格算的，这时给「可分批关注」等于用过期行情指挥仓位。
+        FactsSnapshot facts = lowValuationStabilizing();
+        AnalysisResult analysis = InvestmentAnalysisService.analyze(facts, AnalysisFixtures.TODAY);
+
+        Decision decision = DecisionEngine.evaluate(facts, analysis.score(),
+                withheldFrom(analysis.verdict(), List.of("PRICE_STALE")), analysis.buyZone());
+
+        assertThat(decision.timing().key()).isEqualTo("INSUFFICIENT");
+        assertThat(decision.action().key()).isEqualTo("INSUFFICIENT");
+        assertThat(decision.timing().reasons()).extracting(Reason::text)
+                .anyMatch(t -> t.contains("价格数据陈旧"));
+    }
+
+    private static Verdict withheldFrom(Verdict base, List<String> hardFlags) {
+        return new Verdict("数据不足，暂不评级", "INSUFFICIENT", null, null, null,
+                base.coverage(), base.confidence(), base.eventAdjustment(),
+                hardFlags, List.of(), base.risks(), "六维覆盖率不足 50%");
+    }
+
     // ------------------------------------------------------------------
     // 固定快照：只替换价格与估值，财务/身份沿用 healthyStock
     // ------------------------------------------------------------------

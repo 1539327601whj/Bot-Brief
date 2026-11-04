@@ -65,6 +65,18 @@ public class OnDemandSyncService {
     /** 行情缓存 60 秒：同一只票连点两下不该发两次请求，也不能拿昨天的价格当现价。 */
     private static final long QUOTE_CACHE_MS = 60_000L;
 
+    /**
+     * 少于这个根数就算「历史偏薄」。250 根只够一年分位，算不了 3/5 年年化；
+     * 600 根 ≈ 2.4 年，低于它的已上市标的值得补一次全量历史。
+     */
+    static final int MIN_PRICE_HISTORY_BARS = 600;
+
+    /** 补历史失败或源本身只有这么长时，6 小时内不再为同一只标的重复外呼。 */
+    private static final long HISTORY_BACKFILL_TTL_MS = 6 * 60 * 60_000L;
+
+    /** 上市不足这个年限的标的，历史短是正常的，不触发补历史。 */
+    private static final int ESTABLISHED_YEARS = 3;
+
     private static final String PROVIDER_LOCAL = "local";
 
     private final MarketDataClient marketDataClient;
@@ -79,6 +91,9 @@ public class OnDemandSyncService {
     private int klineLimit = 2600;
 
     private final Map<String, CachedQuote> quoteCache = new ConcurrentHashMap<>();
+
+    /** 标的 → 允许再次尝试补历史的时间点（epoch millis）。 */
+    private final Map<String, Long> historyBackfillUntil = new ConcurrentHashMap<>();
 
     /** 一次按需同步的报告。{@code quote} 可以为 null——那表示连本地缓存都没有。 */
     public record SyncReport(
@@ -231,8 +246,11 @@ public class OnDemandSyncService {
         long priceCount = repository.countPrices(priceKey);
         boolean fresh = isFresh(latestDate, properties.getPriceStaleTradingDays(), today);
         boolean priceFetched = false;
+        long nowMillis = System.currentTimeMillis();
+        boolean shortHistory = shouldBackfillHistory(priceKey, priceCount, listDate,
+                today, nowMillis);
 
-        if (priceCount > 0 && fresh) {
+        if (priceCount > 0 && fresh && !shortHistory) {
             priceStatus = priceCount >= 250 ? DataStatus.OK : DataStatus.PARTIAL;
             priceNote = priceCount >= 250 ? null : "本地只有 " + priceCount + " 根日线，趋势指标不完整";
         } else {
@@ -256,6 +274,10 @@ public class OnDemandSyncService {
                 priceNote = "本次查询预算已用完，日线留到下一次更新";
                 syncPending = true;
             } else {
+                if (shortHistory) {
+                    // 先记冷却再发请求：即便源只回了 320 根，也不能让每次点击都再补一次。
+                    historyBackfillUntil.put(priceKey, nowMillis + HISTORY_BACKFILL_TTL_MS);
+                }
                 MarketDataClient.KlineRowsOutcome outcome =
                         marketDataClient.fetchKlineRows(secid, klineLimit);
                 if (outcome.ok()) {
@@ -600,6 +622,28 @@ public class OnDemandSyncService {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /**
+     * 本地日线偏薄、且不是「刚上市所以当然短」时，是否值得主动补一次全量历史。
+     *
+     * <p>「最新一根是今天的」不等于「历史是完整的」：库里可能只有一年多的数据，
+     * 3/5 年年化、3 年回撤都算不出来，而按需同步会因为「够新」一直跳过。
+     * 这里只对已上市满 {@value #ESTABLISHED_YEARS} 年、且少于
+     * {@value #MIN_PRICE_HISTORY_BARS} 根的标的补一次，并用 6 小时冷却兜住
+     * 「源本身就只有这么长」的情况。
+     */
+    boolean shouldBackfillHistory(String priceKey, long priceCount, LocalDate listDate,
+                                  LocalDate today, long nowMillis) {
+        if (priceKey == null || priceCount <= 0 || priceCount >= MIN_PRICE_HISTORY_BARS) {
+            return false;
+        }
+        if (listDate != null && today != null
+                && listDate.isAfter(today.minusYears(ESTABLISHED_YEARS))) {
+            return false;
+        }
+        Long until = historyBackfillUntil.get(priceKey);
+        return until == null || until <= nowMillis;
     }
 
     /** 严格晚于 {@code from}、且不晚于 {@code to} 的工作日数。 */

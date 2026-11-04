@@ -233,4 +233,45 @@ class EtfBarFromDbTest {
         assertThat(EtfPriceSeriesSelector.select(rows, 0)).hasSize(1);
         assertThat(EtfPriceSeriesSelector.select(rows, -5)).hasSize(1);
     }
+
+    // ------------------------------------------------------------------
+    // 两路本地序列之间的取舍
+    // ------------------------------------------------------------------
+
+    @Test
+    void newerSeriesAlwaysWins() {
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D7, 320, D6, 2600)).isTrue();
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 320, D7, 2600)).isFalse();
+    }
+
+    @Test
+    void longButSlightlyOlderSeriesBeatsAShortFreshOne() {
+        // 真实事故：md_price_daily 只有 320 根按需日线，etf_price_history 有 2600 根
+        // 但最后一根早一天。旧规则选了短序列，页面就在有 5 年历史的 ETF 上显示「3/5 年数据不足」。
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 2600, D7, 320)).isTrue();
+        // 同一天则只比根数
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D7, 2600, D7, 320)).isTrue();
+    }
+
+    @Test
+    void aBadlyStaleSeriesNeverReplacesFreshData() {
+        LocalDate monthLater = D7.plusDays(30);
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D7, 2600, monthLater, 320)).isFalse();
+    }
+
+    @Test
+    void theExceptionNeedsBothALongCandidateAndAShortCurrent() {
+        // 候选不够长（600 根），或当前已经不算短（600 根），都不该为它放弃更新的数据
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 600, D7, 320)).isFalse();
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 2600, D7, 600)).isFalse();
+        // 候选必须是当前的至少两倍，否则「长」得有限，不值得退一天
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 1000, D7, 700)).isFalse();
+    }
+
+    @Test
+    void emptyCandidateNeverWinsAndEmptyCurrentAlwaysLoses() {
+        assertThat(EtfPriceSeriesSelector.preferCandidate(null, 2600, D7, 320)).isFalse();
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D6, 0, D7, 320)).isFalse();
+        assertThat(EtfPriceSeriesSelector.preferCandidate(D7, 320, null, 0)).isTrue();
+    }
 }

@@ -871,3 +871,17 @@
     grid-column: 2;
   }
 }
+
+@media (max-width: 480px) {
+  .stockpick-panel {
+    padding: 16px;
+  }
+
+  .stockpick-panel-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stockpick-numbers {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  }
+}

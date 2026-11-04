@@ -409,16 +409,30 @@
     border-radius: 0;
     height: 100vh;
   }
-  
+
   .message-content {
     max-width: 85%;
   }
-  
+
   .suggestions {
     flex-direction: column;
   }
-  
+
   .chat-header .back-btn {
     display: none;
+  }
+}
+
+/* 手机 / 平板：高度按顶栏和内容区内边距扣掉，别让输入框掉到屏幕外。 */
+@media (max-width: 1024px) {
+  .chat-container {
+    height: calc(100dvh - 56px - env(safe-area-inset-top) - 32px);
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-container {
+    height: calc(100dvh - 56px - env(safe-area-inset-top) - 24px);
   }
 }

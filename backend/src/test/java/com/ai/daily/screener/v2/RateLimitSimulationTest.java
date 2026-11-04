@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,6 +42,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -152,6 +154,14 @@ class RateLimitSimulationTest {
     @Test
     void rateLimitedButLocalWarehouseHasDataReturns200WithHonestDegradation() {
         stubFreshLocalWarehouse(TODAY);
+        // 让冷却状态像真实缓存一样有记忆：报价被 429 后进入冷却，
+        // 后续那次「只读库」的同步就不该再替短历史补抓日线。
+        AtomicBoolean cooling = new AtomicBoolean(false);
+        when(cache.inCooldown(anyString())).thenAnswer(invocation -> cooling.get());
+        doAnswer(invocation -> {
+            cooling.set(true);
+            return null;
+        }).when(cache).enterCooldown(anyString());
         when(marketDataClient.fetchQuotes(anyList())).thenThrow(
                 new com.ai.daily.screener.MarketDataException.MarketDataRateLimitedException("429"));
 

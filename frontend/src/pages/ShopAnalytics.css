@@ -734,4 +734,26 @@
     width: 100%;
     margin-left: 0;
   }
+
+  /* 补货表列数多，保留横向滚动，别把每列挤成一条。 */
+  .shop-table {
+    min-width: 640px;
+  }
+
+  /* AI 日报里的 Markdown 表格也走横向滚动。 */
+  .shop-report-content table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .shop-modal-backdrop {
+    padding: 12px;
+  }
+
+  .shop-modal {
+    padding: 16px;
+    max-height: 92dvh;
+  }
 }

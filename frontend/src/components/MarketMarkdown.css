@@ -83,3 +83,10 @@
 .overview-card .market-change-flat {
   color: var(--text-gh-muted);
 }
+
+/* Markdown 表格在窄屏下横向滚动，别撑破正文。 */
+.md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}

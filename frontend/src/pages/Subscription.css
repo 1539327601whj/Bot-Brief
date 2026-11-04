@@ -1330,4 +1330,9 @@ a.ghost-link {
     width: 100%;
     flex-basis: 44px;
   }
+
+  .channel-bind {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
 }

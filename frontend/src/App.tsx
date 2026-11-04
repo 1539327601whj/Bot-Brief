@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
@@ -28,11 +28,35 @@ import ViewScrollRestoration from './components/ViewScrollRestoration'
 import './Layout.css'
 
 // 侧边栏导航组件
-function Sidebar() {
+function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation()
   const { user } = useAuth()
   const nav = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  // 抽屉打开时锁住页面滚动，并支持 Esc 关闭。
+  useEffect(() => {
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    closeButtonRef.current?.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, onClose])
+
+  // 关闭后把焦点还给汉堡按钮，别留在已隐藏的抽屉里。
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !open) document.getElementById('nav-toggle')?.focus()
+    wasOpen.current = open
+  }, [open])
 
   const canSeePublicDigest = user?.accountType === 'DEMO' || user?.role === 'ADMIN'
   const menuItems = [
@@ -70,51 +94,68 @@ function Sidebar() {
   const initial = (user?.displayName || user?.email || '?').charAt(0).toUpperCase()
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-logo">
-        <BrandLogo className="logo-icon" />
-        <span className="logo-text">BriefMind</span>
-      </div>
-
-      <nav className="sidebar-nav">
-        {menuItems.map(item => (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            <span className="nav-label">{item.label}</span>
-            {'wip' in item && (item as { wip?: boolean }).wip && <span className="nav-badge-wip">即将</span>}
-          </Link>
-        ))}
-      </nav>
-
-      <UserMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
-
+    <>
       <div
-        className={`sidebar-user ${menuOpen ? 'active' : ''}`}
-        onClick={handleUserClick}
-        style={{ cursor: 'pointer' }}
-        title={user ? '点击查看账户菜单' : '点击去登录'}
-      >
-        <div className="user-avatar user-avatar-initial">
-          {user ? initial : '🔒'}
+        className={`sidebar-scrim ${open ? 'is-open' : ''}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <aside id="app-sidebar" className={`sidebar ${open ? 'is-open' : ''}`}>
+        <div className="sidebar-logo">
+          <BrandLogo className="logo-icon" />
+          <span className="logo-text">BriefMind</span>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="sidebar-close"
+            onClick={onClose}
+            aria-label="关闭导航菜单"
+          >
+            ✕
+          </button>
         </div>
-        <div className="user-info">
-          <span className="user-name">{user?.displayName || '未登录'}</span>
-          <span className="user-role">
-            {user ? (user.accountType === 'DEMO' ? '公开 Demo' : user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
-          </span>
+
+        <nav className="sidebar-nav">
+          {menuItems.map(item => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+              onClick={onClose}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-label">{item.label}</span>
+              {'wip' in item && (item as { wip?: boolean }).wip && <span className="nav-badge-wip">即将</span>}
+            </Link>
+          ))}
+        </nav>
+
+        <UserMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
+        <div
+          className={`sidebar-user ${menuOpen ? 'active' : ''}`}
+          onClick={handleUserClick}
+          style={{ cursor: 'pointer' }}
+          title={user ? '点击查看账户菜单' : '点击去登录'}
+        >
+          <div className="user-avatar user-avatar-initial">
+            {user ? initial : '🔒'}
+          </div>
+          <div className="user-info">
+            <span className="user-name">{user?.displayName || '未登录'}</span>
+            <span className="user-role">
+              {user ? (user.accountType === 'DEMO' ? '公开 Demo' : user.role === 'ADMIN' ? '管理员' : '用户') : '点击登录'}
+            </span>
+          </div>
+          {user && <span className="user-menu-caret">{menuOpen ? '▾' : '▸'}</span>}
         </div>
-        {user && <span className="user-menu-caret">{menuOpen ? '▾' : '▸'}</span>}
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 
 // 顶部栏组件
-function Header() {
+function Header({ navOpen, onToggleNav }: { navOpen: boolean; onToggleNav: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { theme, toggleTheme } = useTheme()
@@ -128,6 +169,17 @@ function Header() {
   return (
     <header className="header-bar">
       <div className="header-left">
+        <button
+          type="button"
+          id="nav-toggle"
+          className="nav-toggle"
+          onClick={onToggleNav}
+          aria-label={navOpen ? '关闭导航菜单' : '打开导航菜单'}
+          aria-expanded={navOpen}
+          aria-controls="app-sidebar"
+        >
+          {navOpen ? '✕' : '☰'}
+        </button>
         {showBack && (
           <button type="button" className="header-back" onClick={goBack} aria-label="返回上一页">
             ← 返回
@@ -153,13 +205,32 @@ function Header() {
 
 // 主布局（带侧边栏、顶栏），并要求登录
 function MainLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+  const [navOpen, setNavOpen] = useState(false)
+  const closeNav = useCallback(() => setNavOpen(false), [])
+
+  // 换页后自动收起抽屉，避免遮住新页面。
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
+
+  // 拉宽到桌面时关掉抽屉，防止状态残留。
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1025px)')
+    const handleChange = () => {
+      if (query.matches) setNavOpen(false)
+    }
+    query.addEventListener?.('change', handleChange)
+    return () => query.removeEventListener?.('change', handleChange)
+  }, [])
+
   return (
     <ProtectedRoute>
       <ViewScrollRestoration />
-      <div className="app-layout">
-        <Sidebar />
+      <div className={`app-layout${navOpen ? ' nav-open' : ''}`}>
+        <Sidebar open={navOpen} onClose={closeNav} />
         <div className="main-wrapper">
-          <Header />
+          <Header navOpen={navOpen} onToggleNav={() => setNavOpen(v => !v)} />
           <main className="main-content">{children}</main>
         </div>
       </div>

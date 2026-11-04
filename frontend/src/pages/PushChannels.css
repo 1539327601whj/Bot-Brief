@@ -311,3 +311,9 @@ a.btn-primary {
   color: var(--text-gh-muted);
   font-size: 16px;
 }
+
+@media (max-width: 480px) {
+  .channel-form label {
+    flex-basis: 100%;
+  }
+}

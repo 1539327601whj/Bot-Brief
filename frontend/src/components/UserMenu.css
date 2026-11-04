@@ -137,3 +137,13 @@
 .user-menu-item:hover .user-menu-item-text small {
   color: var(--text-gh-muted);
 }
+
+/* 手机抽屉较窄，菜单改成左右贴边，别超出侧栏。 */
+@media (max-width: 480px) {
+  .user-menu {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: 320px;
+  }
+}
