@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import unittest
 from datetime import date
 
@@ -6,8 +7,13 @@ import warehouse_fixtures
 
 warehouse_fixtures.ensure_path()
 
+from warehouse.config import Config  # noqa: E402
+from warehouse.sources.sina import SinaClient  # noqa: E402
+from warehouse.sources.sina import parse_etf_catalog_row  # noqa: E402
 from warehouse.sources.sina import parse_quote_text as parse_sina_text  # noqa: E402
 from warehouse.sources.tencent import parse_kline_rows, parse_quote_text  # noqa: E402
+
+FakeHttp = warehouse_fixtures.FakeHttp
 
 
 def tencent_quote_line(symbol="sh600519", code="600519", name="贵州茅台",
@@ -138,6 +144,67 @@ class SinaQuoteTest(unittest.TestCase):
 
     def test_short_payload_is_ignored(self):
         self.assertEqual(parse_sina_text('var hq_str_sh600519="贵州茅台,1,2";'), [])
+
+
+class SinaEtfCatalogTest(unittest.TestCase):
+    def test_row_carries_market_and_normalised_code(self):
+        row = parse_etf_catalog_row(
+            {"symbol": "sz159915", "code": "159915", "name": "创业板ETF"})
+        self.assertEqual(row, {"raw_code": "159915", "name": "创业板ETF", "market": "SZ"})
+
+    def test_rows_without_a_market_or_code_are_dropped(self):
+        self.assertIsNone(parse_etf_catalog_row({"symbol": "bj510300", "name": "x"}))
+        self.assertIsNone(parse_etf_catalog_row({"symbol": "shABC", "name": "x"}))
+        self.assertIsNone(parse_etf_catalog_row({"symbol": "sh510300", "name": ""}))
+        self.assertIsNone(parse_etf_catalog_row("not a row"))
+
+    def test_fetch_pages_until_a_short_page(self):
+        first_page = [
+            {"symbol": f"sh{510000 + i}", "code": str(510000 + i), "name": f"ETF{i}"}
+            for i in range(100)
+        ]
+        second_page = [
+            {"symbol": "sz159915", "code": "159915", "name": "创业板ETF"},
+            {"symbol": "sh588000", "code": "588000", "name": "科创50ETF"},
+        ]
+        pages = [first_page, second_page]
+
+        def next_page():
+            return json.dumps(pages.pop(0))
+
+        http = FakeHttp(text_by_url={"Market_Center.getHQNodeData": next_page})
+        client = SinaClient(http, Config.from_env())
+        rows = client.fetch_etf_catalog()
+
+        self.assertEqual(len(rows), 102)
+        self.assertEqual(len(http.calls), 2)
+        self.assertEqual(rows[-1]["raw_code"], "588000")
+        self.assertEqual(rows[-1]["market"], "SH")
+
+    def test_duplicate_codes_across_pages_are_kept_once(self):
+        first_page = [
+            {"symbol": f"sh{510000 + i}", "code": str(510000 + i), "name": f"ETF{i}"}
+            for i in range(100)
+        ]
+        pages = [
+            first_page,
+            [{"symbol": "sh510000", "code": "510000", "name": "重复ETF"}],
+        ]
+
+        def next_page():
+            return json.dumps(pages.pop(0))
+
+        http = FakeHttp(text_by_url={"Market_Center.getHQNodeData": next_page})
+        rows = SinaClient(http, Config.from_env()).fetch_etf_catalog()
+        self.assertEqual(len(rows), 100)
+        self.assertEqual(len(http.calls), 2)
+
+    def test_non_list_payload_is_a_contract_error(self):
+        http = FakeHttp(text_by_url={
+            "Market_Center.getHQNodeData": lambda: '{"datas":[],"pageIndex":"1"}',
+        })
+        with self.assertRaises(ValueError):
+            SinaClient(http, Config.from_env()).fetch_etf_catalog()
 
 
 if __name__ == "__main__":

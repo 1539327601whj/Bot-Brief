@@ -148,10 +148,22 @@ public class StockScreenerService {
      * @throws MarketDataException 行情源不可达——**必须让用户看到错误，不能返回空列表假装「今天没有候选」**
      */
     public ScreenerResultDTO scan(ScreenerParams rawParams) {
+        return scan(rawParams, Set.of());
+    }
+
+    /**
+     * 带「换一批」排除集跑一次筛选。
+     *
+     * <p>排除只作用于个股：池子里没有这些代码之后再走原来的排雷与打分，
+     * 所以被排掉的那几只不会出现在结果里，也不会把「扫描总数」改小——
+     * 它们在口径摘要里单独记一笔，读者能看出这次为什么和上次不同。
+     */
+    public ScreenerResultDTO scan(ScreenerParams rawParams, Set<String> excludedCodes) {
         ScreenerParams p = rawParams == null ? ScreenerParams.defaults() : rawParams.normalized();
         LocalDate today = LocalDate.now(SHANGHAI);
         List<String> degradations = new ArrayList<>();
         List<String> notes = new ArrayList<>();
+        Set<String> exclusions = excludedCodes == null ? Set.of() : excludedCodes;
 
         List<StockRow> universe = new ArrayList<>();
         MarketDataClient.UniverseSnapshot snapshot = null;
@@ -188,8 +200,13 @@ public class StockScreenerService {
         Map<String, Integer> vetoCounts = new LinkedHashMap<>();
         Map<String, String> vetoLabels = new LinkedHashMap<>();
         int afterVetoes = 0;
+        int rotatedOut = 0;
 
         for (StockRow row : universe) {
+            if (exclusions.contains(row.getCode())) {
+                rotatedOut++;
+                continue;
+            }
             boolean passSteady = false;
             boolean passGrowth = false;
             List<ScreeningRules.Veto> firstVeto = null;
@@ -224,6 +241,14 @@ public class StockScreenerService {
         long unknownIndustry = universe.stream().filter(StockRow::isIndustryUnknown).count();
         if (unknownIndustry > 0) {
             degradations.add(unknownIndustry + " 只标的行业字段缺失，已归入「行业不可确认」参与行业分散，且不参与金融地产排除判断");
+        }
+
+        if (rotatedOut > 0) {
+            notes.add("本次「换一批」排除了最近几次已推荐的 " + rotatedOut
+                    + " 只个股；它们仍在扫描池里，只是不重复出现在结果中。");
+        } else if (Boolean.TRUE.equals(p.getRotate()) && p.wantsStocks()) {
+            notes.add("「换一批」没有可排除的历史推荐（历史为空或这些标的不在本次池子里），"
+                    + "本次结果与常规筛选一致。");
         }
 
         // ---- 短名单 ----
@@ -304,10 +329,11 @@ public class StockScreenerService {
 
         int enteredScoring = afterVetoes;
         int counted = counts.stream().mapToInt(ScreeningRules.VetoCount::count).sum();
-        if (p.wantsStocks() && counted + enteredScoring != universe.size()) {
+        if (p.wantsStocks() && counted + enteredScoring + rotatedOut != universe.size()) {
             // 自洽性是硬要求，对不上就在页面上说出来，不要静默
-            degradations.add("口径摘要对不上：剔除 " + counted + " + 进入打分 " + enteredScoring
-                    + " ≠ 扫描 " + universe.size() + "，请以扫描总数为准并反馈");
+            degradations.add("口径摘要对不上：剔除 " + counted + " + 换成排除 " + rotatedOut
+                    + " + 进入打分 " + enteredScoring + " ≠ 扫描 " + universe.size()
+                    + "，请以扫描总数为准并反馈");
         }
 
         List<String> summaryNotes = new ArrayList<>(notes);

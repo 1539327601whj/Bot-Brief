@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -121,7 +122,7 @@ class ScreenerHistoryServiceTest {
         ScreenerParams back = json.readValue(capturedRow().getParamsJson(), ScreenerParams.class);
         // 存的是**解析默认值之后**的那一套：回填面板时要看到当时真正生效的条件
         assertThat(back.getMode()).isEqualTo("index_first");
-        assertThat(back.getPerBucket()).isEqualTo(3);
+        assertThat(back.getPerBucket()).isEqualTo(5);
         assertThat(back.getPePercentileMax()).isEqualByComparingTo("30");
     }
 
@@ -215,6 +216,31 @@ class ScreenerHistoryServiceTest {
 
         // 逐列挑：result_json 一行几十 KB，十行就是几百 KB，列表页读不起
         assertThat(selected).contains("scanned_at").doesNotContain("result_json");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void recentStockCodesReadsSelectionJsonAndSkipsBrokenRows() {
+        ScreenerScanHistory good = new ScreenerScanHistory();
+        good.setId(1L);
+        good.setSelectionJson("{\"indices\":[],"
+                + "\"steadyStocks\":[{\"code\":\"600519\",\"name\":\"贵州茅台\",\"qualified\":true}],"
+                + "\"growthStocks\":[{\"code\":\"000001\",\"name\":\"平安银行\",\"qualified\":true},"
+                + "{\"code\":\"600519\",\"name\":\"贵州茅台\",\"qualified\":true}]}");
+        ScreenerScanHistory broken = new ScreenerScanHistory();
+        broken.setId(2L);
+        broken.setSelectionJson("{not json");
+
+        when(mapper.selectPage(any(), any())).thenAnswer(inv -> {
+            Page<ScreenerScanHistory> page = inv.getArgument(0);
+            page.setRecords(List.of(good, broken));
+            return page;
+        });
+
+        Set<String> codes = service().recentStockCodes(3);
+
+        // 两档合并去重；坏掉的那条只跳过，不能让整次「换一批」失败
+        assertThat(codes).containsExactlyInAnyOrder("600519", "000001");
     }
 
     // ================= 详情 =================

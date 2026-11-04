@@ -1,8 +1,10 @@
 package com.ai.daily.screener.v2;
 
 import com.ai.daily.screener.LookbackCalculator;
+import com.ai.daily.screener.TencentInstrumentSearchClient;
 import com.ai.daily.screener.v2.analysis.AnalysisResult;
 import com.ai.daily.screener.v2.analysis.BuyZone;
+import com.ai.daily.screener.v2.analysis.Decision;
 import com.ai.daily.screener.v2.analysis.DimensionScore;
 import com.ai.daily.screener.v2.analysis.InvestmentAnalysisService;
 import com.ai.daily.screener.v2.analysis.Reason;
@@ -24,8 +26,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 代码查询 v2 的读模型装配。
@@ -55,6 +60,7 @@ public class CodeLookupV2Service {
     private final WarehouseRepository repository;
     private final WarehouseSchemaGuard schemaGuard;
     private final WarehouseProperties properties;
+    private final TencentInstrumentSearchClient instrumentSearchClient;
 
     // ------------------------------------------------------------------
     // core
@@ -69,6 +75,7 @@ public class CodeLookupV2Service {
         CodeLookupV2DTO.TechnicalView technical =
                 technicalView(TechnicalCalculator.compute(snapshot.prices().data()));
         AnalysisResult analysis = analysisService.analyze(snapshot);
+        Decision decision = analysis.decision();
 
         Map<String, CodeLookupV2DTO.DomainView> data = domainMap(snapshot);
         List<String> notes = notes(snapshot);
@@ -93,6 +100,7 @@ public class CodeLookupV2Service {
                 verdictView(analysis.verdict()),
                 dimensionViews(analysis.score().dimensions()),
                 buyZoneView(analysis.buyZone()),
+                decisionView(decision),
                 priceLookbacks(snapshot),
                 peLookbacks(snapshot),
                 data,
@@ -238,6 +246,62 @@ public class CodeLookupV2Service {
         return new CodeLookupV2DTO.BuyZoneView(zone.status(), zone.low(), zone.high(),
                 zone.stopLoss(), zone.distanceToZonePct(), zone.riskPct(),
                 reasonViews(zone.basis()), zone.notes());
+    }
+
+    private static CodeLookupV2DTO.DecisionView decisionView(Decision decision) {
+        List<CodeLookupV2DTO.DecisionAxisView> axes = new ArrayList<>();
+        for (Decision.Axis axis : decision.position().axes()) {
+            axes.add(new CodeLookupV2DTO.DecisionAxisView(axis.key(), axis.label(),
+                    axis.value(), axis.display(), axis.score(), axis.status(), axis.basis()));
+        }
+        return new CodeLookupV2DTO.DecisionView(
+                new CodeLookupV2DTO.DecisionPositionView(
+                        decision.position().key(), decision.position().label(),
+                        decision.position().availableAxes(), decision.position().score(),
+                        List.copyOf(axes), reasonViews(decision.position().reasons())),
+                new CodeLookupV2DTO.DecisionTimingView(
+                        decision.timing().key(), decision.timing().label(),
+                        reasonViews(decision.timing().reasons()), decision.timing().triggers()),
+                new CodeLookupV2DTO.DecisionActionView(
+                        decision.action().key(), decision.action().label(),
+                        decision.action().tranchePlan(), decision.action().invalidation()),
+                new CodeLookupV2DTO.DecisionHorizonView(
+                        decision.horizon().key(), decision.horizon().label(),
+                        decision.horizon().longScore(), decision.horizon().shortScore(),
+                        decision.horizon().gap(), decision.horizon().summary()),
+                longTermView(decision.longTerm()),
+                outlookView(decision.outlook()),
+                reasonViews(decision.reasons()), reasonViews(decision.risks()),
+                decision.watchItems(), decision.summary(), decision.disclaimer());
+    }
+
+    private static CodeLookupV2DTO.LongTermView longTermView(Decision.LongTerm longTerm) {
+        if (longTerm == null) {
+            return new CodeLookupV2DTO.LongTermView(
+                    "INSUFFICIENT", "长期数据不足", null, null, null, null,
+                    "长期趋势未计算");
+        }
+        return new CodeLookupV2DTO.LongTermView(longTerm.key(), longTerm.label(),
+                longTerm.threeYearCagrPct(), longTerm.fiveYearCagrPct(),
+                longTerm.threeYearMaxDrawdownPct(), longTerm.drawdownRecovered(),
+                longTerm.summary());
+    }
+
+    private static CodeLookupV2DTO.HistoricalOutlookView outlookView(
+            com.ai.daily.screener.v2.analysis.ConditionalReturnCalculator.Outlook outlook) {
+        if (outlook == null) {
+            return new CodeLookupV2DTO.HistoricalOutlookView(
+                    false, null, List.of(), "历史条件收益未计算", null);
+        }
+        List<CodeLookupV2DTO.HorizonStatsView> horizons = new ArrayList<>();
+        for (var h : outlook.horizons()) {
+            horizons.add(new CodeLookupV2DTO.HorizonStatsView(h.key(), h.label(),
+                    h.sampleCount(), h.medianReturnPct(), h.p25ReturnPct(),
+                    h.p75ReturnPct(), h.winRatePct()));
+        }
+        return new CodeLookupV2DTO.HistoricalOutlookView(
+                outlook.available(), outlook.currentPercentile(), List.copyOf(horizons),
+                outlook.status(), outlook.note());
     }
 
     private static List<CodeLookupV2DTO.ScenarioView> scenarioViews(List<Scenario> scenarios) {
@@ -415,11 +479,56 @@ public class CodeLookupV2Service {
             return List.of();
         }
         List<CodeLookupV2DTO.SearchHit> hits = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
         for (WarehouseRows.Instrument row : repository.searchInstruments(q, SEARCH_LIMIT)) {
-            hits.add(new CodeLookupV2DTO.SearchHit(row.instrumentCode(), row.rawCode(),
-                    row.name(), row.assetType(), row.market()));
+            if (seen.add(row.assetType() + ":" + row.rawCode())) {
+                hits.add(new CodeLookupV2DTO.SearchHit(row.instrumentCode(), row.rawCode(),
+                        row.name(), row.assetType(), row.market()));
+            }
+        }
+        // 本地库只覆盖指数池 + 一行情批次写进来的个股。名称/拼音在本地搜不到时，
+        // 再问一次腾讯 smartbox；失败或限流时它返回空列表，本地结果照样可用。
+        if (hits.size() < SEARCH_LIMIT && !looksLikeCode(q)) {
+            for (TencentInstrumentSearchClient.Hint hint
+                    : TencentInstrumentSearchClient.supported(
+                    instrumentSearchClient.search(q, SEARCH_LIMIT - hits.size()))) {
+                String code = TencentInstrumentSearchClient.submitCode(hint);
+                String assetType = assetTypeOf(hint.type());
+                if (assetType != null && seen.add(assetType + ":" + code)) {
+                    hits.add(new CodeLookupV2DTO.SearchHit(
+                            assetType + ":" + code.toUpperCase(Locale.ROOT), code,
+                            hint.name(), assetType, marketOf(hint.market())));
+                }
+            }
         }
         return hits;
+    }
+
+    /** 纯代码/带交易所前缀的代码不走外部搜索；名称、简称、拼音才需要。 */
+    static boolean looksLikeCode(String query) {
+        return query != null && query.matches("(?i)^(?:SH|SZ)?\\d{6}$");
+    }
+
+    private static String assetTypeOf(String smartboxType) {
+        if (smartboxType == null) {
+            return null;
+        }
+        if ("ZS".equals(smartboxType)) {
+            return InstrumentCode.INDEX;
+        }
+        if ("ETF".equals(smartboxType)) {
+            return InstrumentCode.ETF;
+        }
+        return smartboxType.startsWith("GP-A") ? InstrumentCode.STOCK : null;
+    }
+
+    private static String marketOf(String smartboxMarket) {
+        String value = smartboxMarket == null ? "" : smartboxMarket.strip().toUpperCase(Locale.ROOT);
+        return switch (value) {
+            case "SH" -> "SH";
+            case "SZ" -> "SZ";
+            default -> null;
+        };
     }
 
     // ------------------------------------------------------------------

@@ -124,6 +124,97 @@ export interface LookbackView {
   status: string | null
 }
 
+/**
+ * 决策层：位置 / 时机 / 行动 / 长期短期。后端由规则算出，AI 只能复述。
+ *
+ * 四块都可能返回 `INSUFFICIENT`。页面必须照实写「数据不足」，
+ * 不能把 key 映射成「中性」或把分数补成 0。
+ */
+export interface DecisionAxisView {
+  key: string
+  label: string
+  value: string | null
+  display: string
+  score: number
+  status: string
+  basis: string
+}
+
+export interface DecisionPositionView {
+  key: string
+  label: string
+  availableAxes: number
+  score: number
+  axes: DecisionAxisView[]
+  reasons: ReasonView[]
+}
+
+export interface DecisionTimingView {
+  key: string
+  label: string
+  reasons: ReasonView[]
+  triggers: string[]
+}
+
+export interface DecisionActionView {
+  key: string
+  label: string
+  tranchePlan: string[]
+  invalidation: string[]
+}
+
+export interface DecisionHorizonView {
+  key: string
+  label: string
+  longScore: number | null
+  shortScore: number | null
+  gap: number | null
+  summary: string
+}
+
+export interface LongTermView {
+  key: string
+  label: string
+  threeYearCagrPct: number | null
+  fiveYearCagrPct: number | null
+  threeYearMaxDrawdownPct: number | null
+  drawdownRecovered: boolean | null
+  summary: string
+}
+
+export interface HorizonStatsView {
+  key: string
+  label: string
+  sampleCount: number
+  medianReturnPct: number
+  p25ReturnPct: number
+  p75ReturnPct: number
+  winRatePct: number
+}
+
+export interface HistoricalOutlookView {
+  available: boolean
+  currentPercentile: number | null
+  horizons: HorizonStatsView[]
+  status: string | null
+  note: string | null
+}
+
+export interface DecisionView {
+  position: DecisionPositionView
+  timing: DecisionTimingView
+  action: DecisionActionView
+  horizon: DecisionHorizonView
+  longTerm: LongTermView
+  outlook: HistoricalOutlookView
+  reasons: ReasonView[]
+  risks: ReasonView[]
+  watchItems: string[]
+  summary: string
+  disclaimer: string
+}
+
+
 export interface CoreView {
   inputCode: string
   code: string
@@ -144,6 +235,7 @@ export interface CoreView {
   verdict: VerdictView
   dimensions: DimensionView[]
   buyZone: BuyZoneView | null
+  decision: DecisionView | null
   priceLookbacks: LookbackView[]
   peLookbacks: LookbackView[]
   data: Record<string, DomainView>

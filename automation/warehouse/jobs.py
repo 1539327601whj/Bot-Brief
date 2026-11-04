@@ -29,6 +29,8 @@ TASK_INDEX_DETAIL = "INDEX_DETAIL"
 TASK_DAILY_MARKET_SNAPSHOT = "DAILY_MARKET_SNAPSHOT"
 TASK_DAILY_INDEX_PROFILE = "DAILY_INDEX_PROFILE"
 TASK_DAILY_INDUSTRY = "DAILY_INDUSTRY"
+TASK_DAILY_ETF_CATALOG = "DAILY_ETF_CATALOG"
+TASK_DAILY_STOCK_CATALOG = "DAILY_STOCK_CATALOG"
 TASK_NEWS_REFRESH = "NEWS_REFRESH"
 
 PRIORITY_USER = 100
@@ -205,7 +207,8 @@ def ensure_scheduled_jobs(db: WarehouseDb, config: Config, now: datetime) -> lis
     day = now.date()
 
     if now.hour >= config.batch_start_hour:
-        for task in (TASK_DAILY_MARKET_SNAPSHOT, TASK_DAILY_INDEX_PROFILE):
+        for task in (TASK_DAILY_MARKET_SNAPSHOT, TASK_DAILY_INDEX_PROFILE,
+                     TASK_DAILY_ETF_CATALOG, TASK_DAILY_STOCK_CATALOG):
             key = _daily_key(task, day)
             enqueue(db, key, task, priority=PRIORITY_BATCH)
             created.append(key)
@@ -237,6 +240,8 @@ __all__ = [
     "STATUS_SKIPPED",
     "TASK_DAILY_INDEX_PROFILE",
     "TASK_DAILY_INDUSTRY",
+    "TASK_DAILY_ETF_CATALOG",
+    "TASK_DAILY_STOCK_CATALOG",
     "TASK_DAILY_MARKET_SNAPSHOT",
     "TASK_INDEX_DETAIL",
     "TASK_NEWS_REFRESH",

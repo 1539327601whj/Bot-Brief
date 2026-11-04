@@ -41,6 +41,7 @@ from warehouse.normalize import (  # noqa: E402
 from warehouse.rate_limit import RateLimited, SourceCooling  # noqa: E402
 from warehouse.schema import SchemaMismatch, check_schema  # noqa: E402
 from warehouse.sync import SyncOutcome, combine  # noqa: E402
+from warehouse.sync.etf_catalog import sync_etf_catalog  # noqa: E402
 from warehouse.sync.index_profile import sync_index_detail  # noqa: E402
 from warehouse.sync.industry import sync_industry_boards  # noqa: E402
 from warehouse.sync.instruments import (  # noqa: E402
@@ -51,6 +52,7 @@ from warehouse.sync.instruments import (  # noqa: E402
 from warehouse.sync.prices import sync_price_series  # noqa: E402
 from warehouse.sync.snapshot import sync_market_snapshot  # noqa: E402
 from warehouse.sync.stock import sync_stock_detail  # noqa: E402
+from warehouse.sync.stock_catalog import sync_stock_catalog  # noqa: E402
 from warehouse.sync.valuations import sync_stock_valuation  # noqa: E402
 
 logger = logging.getLogger("warehouse.cli")
@@ -155,7 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stock", action="append", default=[], metavar="CODE",
                         help="股票代码，可重复")
     parser.add_argument("--daily", action="store_true",
-                        help="跑每日批量：全市场快照 + 指数画像 + 行业板块")
+                        help="跑每日批量：全市场快照 + 指数画像 + 行业板块 + ETF 目录")
+    parser.add_argument("--etf-catalog", action="store_true",
+                        help="只补 ETF 目录（搜索用），不取行情不取估值")
+    parser.add_argument("--stock-catalog", action="store_true",
+                        help="只补 A 股目录（搜索用），不取行情不取估值")
     parser.add_argument("--check-schema", action="store_true", help="只做 schema 自检")
     parser.add_argument("--proxy", action="store_true", help="信任系统代理（默认 False）")
     parser.add_argument("--json", action="store_true", help="只输出 JSON 摘要")
@@ -186,7 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         _print(results)
         return 0
 
-    if not any([args.index is not None, args.etf is not None, args.stock, args.daily]):
+    if not any([args.index is not None, args.etf is not None, args.stock,
+                args.daily, args.etf_catalog, args.stock_catalog]):
         parser.print_help()
         return 1
 
@@ -220,6 +227,22 @@ def main(argv: list[str] | None = None) -> int:
         results["indexProfile"] = combine("DAILY_INDEX_PROFILE", daily_parts).as_dict()
         results["industry"] = _run(
             "行业板块", lambda: sync_industry_boards(clients.db, clients.eastmoney)
+        ).as_dict()
+        results["etfCatalog"] = _run(
+            "ETF 目录", lambda: sync_etf_catalog(clients.db, clients.sina)
+        ).as_dict()
+        results["stockCatalog"] = _run(
+            "A 股目录", lambda: sync_stock_catalog(clients.db, clients.eastmoney)
+        ).as_dict()
+
+    if args.etf_catalog and not args.daily:
+        results["etfCatalog"] = _run(
+            "ETF 目录", lambda: sync_etf_catalog(clients.db, clients.sina)
+        ).as_dict()
+
+    if args.stock_catalog and not args.daily:
+        results["stockCatalog"] = _run(
+            "A 股目录", lambda: sync_stock_catalog(clients.db, clients.eastmoney)
         ).as_dict()
 
     if args.index is not None:

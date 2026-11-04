@@ -16,6 +16,7 @@ from warehouse.sources.eastmoney import parse_quote_row  # noqa: E402
 from warehouse.sources.news import SOURCE_NEWS  # noqa: E402
 from warehouse.sync import SyncOutcome  # noqa: E402
 from warehouse.sync.events import sync_events  # noqa: E402
+from warehouse.sync.etf_catalog import etf_rows, sync_etf_catalog  # noqa: E402
 from warehouse.sync.index_profile import sync_csindex_detail  # noqa: E402
 from warehouse.sync.instruments import (  # noqa: E402
     _pool_items,
@@ -26,6 +27,7 @@ from warehouse.sync.instruments import (  # noqa: E402
 from warehouse.sync.prices import sync_price_series  # noqa: E402
 from warehouse.sync.snapshot import sync_market_snapshot  # noqa: E402
 from warehouse.sync.stock import sync_stock_detail  # noqa: E402
+from warehouse.sync.stock_catalog import sync_stock_catalog  # noqa: E402
 
 FakeDb = warehouse_fixtures.FakeDb
 load_json = warehouse_fixtures.load_json
@@ -377,6 +379,84 @@ class InstrumentsTest(unittest.TestCase):
             _pool_items(payload, "backend:/api/index-pool")
         self.assertIn("401", str(ctx.exception))
         self.assertIn("查询 token 无效", str(ctx.exception))
+
+
+class EtfCatalogTest(unittest.TestCase):
+    class FakeSina:
+        def __init__(self, items=None, error=None):
+            self.items = items or []
+            self.error = error
+
+        def fetch_etf_catalog(self):
+            if self.error is not None:
+                raise self.error
+            return list(self.items)
+
+    def test_etf_rows_keep_identity_only(self):
+        rows = etf_rows([
+            {"raw_code": "510300", "name": "沪深300ETF", "market": "SH"},
+            {"raw_code": "159915", "name": "创业板ETF", "market": "SZ"},
+        ], STAMP)
+        self.assertEqual([row["instrument_code"] for row in rows],
+                         ["ETF:510300", "ETF:159915"])
+        self.assertEqual(rows[0]["asset_type"], "ETF")
+        self.assertEqual(rows[0]["source"], "sina-etf-list")
+        self.assertIsNone(rows[0]["tracking_index_code"])
+        self.assertIsNone(rows[0]["aliases"])
+
+    def test_sync_only_adds_unknown_codes(self):
+        db = FakeDb(query_results=[[{"raw_code": "510300"}]])
+        sina = self.FakeSina([
+            {"raw_code": "510300", "name": "沪深300ETF", "market": "SH"},
+            {"raw_code": "588000", "name": "科创50ETF", "market": "SH"},
+        ])
+
+        outcome = sync_etf_catalog(db, sina, fetched_at=STAMP)
+
+        self.assertEqual(outcome.status, "OK")
+        self.assertEqual(outcome.rows, 1)
+        self.assertEqual(outcome.detail["fetched"], 2)
+        self.assertEqual(outcome.detail["known"], 1)
+        rows = db.fetch_upsert("md_instrument")[0]["rows"]
+        self.assertEqual([row["raw_code"] for row in rows], ["588000"])
+
+    def test_empty_catalog_is_not_reported_as_success(self):
+        outcome = sync_etf_catalog(FakeDb(), self.FakeSina([]), fetched_at=STAMP)
+        self.assertEqual(outcome.status, "EMPTY")
+        self.assertIn("为空", outcome.error)
+
+
+class StockCatalogTest(unittest.TestCase):
+    class FakeEast:
+        def __init__(self, items=None, error=None):
+            self.items = items or []
+            self.error = error
+
+        def fetch_stock_catalog(self):
+            if self.error is not None:
+                raise self.error
+            return list(self.items)
+
+    def test_sync_only_adds_unknown_codes(self):
+        db = FakeDb(query_results=[[{"raw_code": "600519"}]])
+        east = self.FakeEast([
+            {"raw_code": "600519", "name": "贵州茅台", "market": "SH"},
+            {"raw_code": "830799", "name": "艾融软件", "market": "BJ"},
+            {"raw_code": "002050", "name": "三花智控", "market": "SZ"},
+        ])
+
+        outcome = sync_stock_catalog(db, east, fetched_at=STAMP)
+
+        self.assertEqual(outcome.status, "OK")
+        self.assertEqual(outcome.rows, 1)
+        self.assertEqual(outcome.detail["new"], 1)
+        rows = db.fetch_upsert("md_instrument")[0]["rows"]
+        self.assertEqual([row["raw_code"] for row in rows], ["002050"])
+        self.assertEqual(rows[0]["instrument_code"], "STOCK:002050")
+
+    def test_empty_catalog_is_not_reported_as_success(self):
+        outcome = sync_stock_catalog(FakeDb(), self.FakeEast([]), fetched_at=STAMP)
+        self.assertEqual(outcome.status, "EMPTY")
 
 
 class IndexProfileRateLimitTest(unittest.TestCase):

@@ -29,7 +29,7 @@ import java.util.Optional;
  * 降级说明里，**不影响本次结果**。
  * {@link StockScreenerService} 自己依旧一行都不写，那边的「不写库」注释仍然成立，别去改它。
  *
- * <p>为什么触发要单独收窄：一次筛选要向东财发二十多次请求（清单 + 批量行情 + 日线），
+ * <p>为什么触发要单独收窄：一次筛选要向东财发几十次请求（清单 + 批量行情 + 日线），
  * 服务器出口 IP 会被按 IP 限流。Demo 能跑的话，等于多一个可以随时消耗配额的入口。
  * 前端把按钮置灰只是提示，**真正生效的是这里的服务端判定**——Demo 拿着自己的 token
  * 直接 POST 过来，不过这一关就跑不起来。
@@ -44,6 +44,9 @@ public class StockScreenerController {
     private final ScreenerHistoryService historyService;
     private final MarketCallMetrics marketCallMetrics;
     private final ScreenerCache screenerCache;
+
+    /** 「换一批」回看最近几次历史：只排除最近一次的话，第三次点击又会回到第一批。 */
+    private static final int ROTATE_LOOKBACK_SCANS = 3;
 
     /**
      * 不带任何条件即使用默认条件；body 可以整体缺省。
@@ -61,7 +64,27 @@ public class StockScreenerController {
             return Result.error(403, "低估精选仅管理员可运行");
         }
         try {
-            return Result.ok(recordHistory(stockScreenerService.scan(params)));
+            ScreenerResultDTO result;
+            String rotationFailure = null;
+            if (params != null && Boolean.TRUE.equals(params.getRotate())) {
+                // 历史读失败不阻断筛选：换一批是「多给一批候选」，不是正确性的前提。
+                // 但也不能悄悄退化成普通筛选——把原因挂进降级说明，页面上看得见。
+                java.util.Set<String> exclusions = java.util.Set.of();
+                try {
+                    exclusions = historyService.recentStockCodes(ROTATE_LOOKBACK_SCANS);
+                } catch (RuntimeException e) {
+                    rotationFailure = "「换一批」读取历史失败，本次没有排除之前推荐的个股："
+                            + MarketDataClient.shortReason(e);
+                    log.warn("读取筛选历史用于换一批失败（本次照常筛选）：{}", e.toString());
+                }
+                result = stockScreenerService.scan(params, exclusions);
+                if (rotationFailure != null) {
+                    result = result.withExtraDegradation(rotationFailure);
+                }
+            } else {
+                result = stockScreenerService.scan(params);
+            }
+            return Result.ok(recordHistory(result));
         } catch (IllegalArgumentException e) {
             return Result.error(400, e.getMessage());
         } catch (MarketDataException.MarketDataRateLimitedException e) {

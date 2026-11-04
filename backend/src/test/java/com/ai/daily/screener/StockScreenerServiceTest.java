@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -199,6 +200,31 @@ class StockScreenerServiceTest {
         assertThat(result.summary().degradations())
                 .anyMatch(d -> d.contains("日线未取到"));
         assertThat(result.priceAsOf()).isEqualTo("未取到");
+    }
+
+    // ================= 换一批 =================
+
+    @Test
+    void rotationExcludesPreviousPicksAndExplainsWhy() {
+        when(client.fetchUniverse()).thenReturn(snapshot(qualifiedUniverse(30)));
+        ScreenerParams params = new ScreenerParams();
+        params.setMode(ScreenerParams.MODE_STOCK_ONLY);
+        params.setBucket(ScreenerParams.BUCKET_STEADY);
+        params.setPerBucket(3);
+        StockScreenerService svc = service(3);
+
+        ScreenerResultDTO first = svc.scan(params);
+        Set<String> firstCodes = first.steadyStocks().stream()
+                .map(s -> s.row().getCode()).collect(java.util.stream.Collectors.toSet());
+        assertThat(firstCodes).isNotEmpty();
+
+        ScreenerResultDTO rotated = svc.scan(params, firstCodes);
+
+        assertThat(rotated.steadyStocks()).isNotEmpty();
+        assertThat(rotated.steadyStocks()).extracting(s -> s.row().getCode())
+                .doesNotContainAnyElementsOf(firstCodes);
+        assertThat(rotated.summary().notes())
+                .anyMatch(n -> n.contains("换一批") && n.contains(String.valueOf(firstCodes.size())));
     }
 
     // ================= 缓存 =================

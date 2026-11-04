@@ -433,7 +433,7 @@ class ScreeningRulesTest {
         ScreenerParams p = ScreenerParams.defaults();
         assertThat(p.getMode()).isEqualTo("index_first");
         assertThat(p.getBucket()).isEqualTo("both");
-        assertThat(p.getPerBucket()).isEqualTo(3);
+        assertThat(p.getPerBucket()).isEqualTo(5);
         assertThat(p.getPeMax()).isNull();
         assertThat(p.wantsIndexFunds()).isTrue();
         assertThat(p.wantsStocks()).isTrue();
@@ -677,15 +677,16 @@ class ScreeningRulesTest {
             pool.add(withPe(row(String.format("6004%02d", i), "X" + i, "行业" + i), String.valueOf(6 + i)));
         }
         List<StockRow> shortlist = ScreeningRules.shortlist(pool, ScreeningRules.Bucket.STEADY, DEFAULTS);
-        // 上限是 8，而且必须先过分数下限——20 只的池子只会有 6 只够格
-        assertThat(shortlist).hasSize(ScreeningRules.SHORTLIST_PER_BUCKET);
+        // 短名单有上限，但更要先过分数下限——池子里不够格时宁可少给，不能凑满 30。
+        assertThat(shortlist).isNotEmpty().hasSizeLessThanOrEqualTo(ScreeningRules.SHORTLIST_PER_BUCKET);
+        assertThat(shortlist).hasSizeLessThan(pool.size());
 
         List<StockRow> smallPool = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
             smallPool.add(withPe(row(String.format("6005%02d", i), "Y" + i, "行业" + i), String.valueOf(8 + i)));
         }
         assertThat(ScreeningRules.shortlist(smallPool, ScreeningRules.Bucket.STEADY, DEFAULTS))
-                .hasSizeLessThan(ScreeningRules.SHORTLIST_PER_BUCKET);
+                .hasSizeLessThanOrEqualTo(ScreeningRules.SHORTLIST_PER_BUCKET);
     }
 
     @Test
@@ -770,6 +771,37 @@ class ScreeningRulesTest {
         assertThat(picked).hasSize(1);
         assertThat(picked.get(0).degradations())
                 .anyMatch(d -> d.contains("价格位置"));
+    }
+
+    @Test
+    void negativeLongTermCagrAndUnrecoveredDrawdownBecomeRisks() {
+        List<StockRow> pool = new ArrayList<>();
+        Map<String, PricePosition> positions = new HashMap<>();
+        for (int i = 0; i < 6; i++) {
+            StockRow r = withPe(row(String.format("6010%02d", i), "L" + i, "行业" + i),
+                    String.valueOf(9 + i));
+            pool.add(r);
+            PricePosition p = new PricePosition();
+            p.setAvailable(true);
+            p.setPricePercentile(BigDecimal.valueOf(20 + i * 10));
+            p.setDrawdownFromHigh(BigDecimal.valueOf(5 + i));
+            p.setAnnualizedVolatility(BigDecimal.valueOf(20 + i));
+            p.setThreeYearCagr(new BigDecimal("-3.20"));
+            p.setFiveYearCagr(new BigDecimal("-1.10"));
+            p.setMaxDrawdownThreeYear(new BigDecimal("62.00"));
+            p.setThreeYearDrawdownRecovered(false);
+            positions.put(r.getCode(), p);
+        }
+
+        List<ScreeningRules.Selected> picked = ScreeningRules.select(pool,
+                ScreeningRules.Bucket.STEADY, DEFAULTS, positions,
+                new ScreeningRules.Constraints(1, Set.of(), new HashMap<>(), 1, 2)).picked();
+        assertThat(picked).hasSize(1);
+        assertThat(picked.get(0).risks())
+                .anyMatch(r -> r.contains("近 3 年年化 -3.2%"))
+                .anyMatch(r -> r.contains("近 5 年年化 -1.1%"))
+                .anyMatch(r -> r.contains("近 3 年最大回撤 62%"))
+                .anyMatch(r -> r.contains("尚未回到前期高点"));
     }
 
     // ================= 指数块的条件判定 =================

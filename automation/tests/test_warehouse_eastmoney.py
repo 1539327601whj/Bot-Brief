@@ -7,6 +7,7 @@ import warehouse_fixtures
 warehouse_fixtures.ensure_path()
 
 from warehouse.config import Config  # noqa: E402
+from warehouse.rate_limit import SourceError  # noqa: E402
 from warehouse.sources.eastmoney import (  # noqa: E402
     KLINE_URL,
     MONEYFLOW_URL,
@@ -26,6 +27,41 @@ load_json = warehouse_fixtures.load_json
 
 def client(http) -> EastmoneyClient:
     return EastmoneyClient(http, Config.from_env())
+
+
+class StockCatalogTest(unittest.TestCase):
+    def test_catalog_pages_until_short_page_and_skips_bj(self):
+        bodies = [
+            {"success": True, "result": {"data": [{"TRADE_DATE": "2025-09-30"}]}},
+            {"success": True, "result": {"count": 3, "data": [
+                {"SECURITY_CODE": "600519", "SECUCODE": "600519.SH",
+                 "SECURITY_NAME_ABBR": "贵州茅台"},
+                {"SECURITY_CODE": "300274", "SECUCODE": "300274.SZ",
+                 "SECURITY_NAME_ABBR": "阳光电源"},
+            ]}},
+            {"success": True, "result": {"count": 3, "data": [
+                {"SECURITY_CODE": "830799", "SECUCODE": "830799.BJ",
+                 "SECURITY_NAME_ABBR": "艾融软件"},
+            ]}},
+        ]
+
+        def next_body():
+            return bodies.pop(0)
+
+        http = FakeHttp(json_by_url={"datacenter-web": next_body})
+        rows = client(http).fetch_stock_catalog(page_size=2)
+
+        self.assertEqual(rows, [
+            {"raw_code": "600519", "name": "贵州茅台", "market": "SH"},
+            {"raw_code": "300274", "name": "阳光电源", "market": "SZ"},
+        ])
+
+    def test_missing_trade_date_is_an_error(self):
+        http = FakeHttp(json_by_url={
+            "datacenter-web": {"success": True, "result": {"data": []}},
+        })
+        with self.assertRaises(SourceError):
+            client(http).fetch_stock_catalog()
 
 
 class QuoteParseTest(unittest.TestCase):

@@ -45,6 +45,8 @@ public final class CodeLookupV2DTO {
             VerdictView verdict,
             List<DimensionView> dimensions,
             BuyZoneView buyZone,
+            /** 决策层：位置 / 时机 / 行动 / 长期短期。规则算出，AI 只能复述。 */
+            DecisionView decision,
             /** 旧页 8 档价格回放：「五年前那一天 vs 今天」，不是区间涨幅。 */
             List<LookbackView> priceLookbacks,
             /** 个股 PE 回放；指数/ETF 的估值历史走「估值」标签页，这里为空。 */
@@ -249,6 +251,125 @@ public final class CodeLookupV2DTO {
             BigDecimal riskPct,
             List<ReasonView> basis,
             List<String> notes
+    ) {
+    }
+
+    /**
+     * 决策层。标签是封闭集合：
+     * <ul>
+     *   <li>位置：{@code LOW / NEUTRAL / HIGH / INSUFFICIENT}</li>
+     *   <li>时机：{@code ACCUMULATE / HOLD / WAIT_STABILIZE / WAIT_PULLBACK / AVOID / INSUFFICIENT}</li>
+     *   <li>行动：{@code BUILD_GRADUALLY / HOLD_OBSERVE / WAIT / AVOID / INSUFFICIENT}</li>
+     *   <li>周期：{@code LONG / SHORT / BOTH / INSUFFICIENT}</li>
+     * </ul>
+     * 数据不足时一律 {@code INSUFFICIENT}，不用「中性」或 0 分顶替。
+     */
+    public record DecisionView(
+            DecisionPositionView position,
+            DecisionTimingView timing,
+            DecisionActionView action,
+            DecisionHorizonView horizon,
+            /** 本标的自己的长期趋势：3/5 年年化与 3 年回撤修复。 */
+            LongTermView longTerm,
+            /** 历史条件收益分布：当前价格分位附近，历史之后 1 / 3 年的收益统计。 */
+            HistoricalOutlookView outlook,
+            List<ReasonView> reasons,
+            List<ReasonView> risks,
+            List<String> watchItems,
+            String summary,
+            String disclaimer
+    ) {
+    }
+
+    /**
+     * 长期趋势。收益与回撤都是百分数（8.2 = 8.2%）。
+     *
+     * <p>{@code key}：{@code UP} / {@code FLAT_OR_DOWN} / {@code MIXED} / {@code INSUFFICIENT}。
+     * 样本不足时数值为 null，由 {@code summary} 说明缺什么。
+     */
+    public record LongTermView(
+            String key,
+            String label,
+            BigDecimal threeYearCagrPct,
+            BigDecimal fiveYearCagrPct,
+            BigDecimal threeYearMaxDrawdownPct,
+            Boolean drawdownRecovered,
+            String summary
+    ) {
+    }
+
+    /**
+     * 历史条件收益。**描述性统计，不是预测**。
+     *
+     * <p>{@code available=false} 时不给任何数字，{@code status} 说明为什么；
+     * 样本数、中位数、四分位与上涨占比都由后端算好，前端不要自己补 0。
+     */
+    public record HistoricalOutlookView(
+            boolean available,
+            BigDecimal currentPercentile,
+            List<HorizonStatsView> horizons,
+            String status,
+            String note
+    ) {
+    }
+
+    /** 一个持有期的统计。收益单位是百分比。 */
+    public record HorizonStatsView(
+            String key,
+            String label,
+            int sampleCount,
+            BigDecimal medianReturnPct,
+            BigDecimal p25ReturnPct,
+            BigDecimal p75ReturnPct,
+            BigDecimal winRatePct
+    ) {
+    }
+
+    /** 一个位置轴：+1 偏低位、0 中性、-1 偏高位。 */
+    public record DecisionAxisView(
+            String key,
+            String label,
+            String value,
+            String display,
+            int score,
+            String status,
+            String basis
+    ) {
+    }
+
+    public record DecisionPositionView(
+            String key,
+            String label,
+            int availableAxes,
+            int score,
+            List<DecisionAxisView> axes,
+            List<ReasonView> reasons
+    ) {
+    }
+
+    public record DecisionTimingView(
+            String key,
+            String label,
+            List<ReasonView> reasons,
+            List<String> triggers
+    ) {
+    }
+
+    public record DecisionActionView(
+            String key,
+            String label,
+            List<String> tranchePlan,
+            List<String> invalidation
+    ) {
+    }
+
+    public record DecisionHorizonView(
+            String key,
+            String label,
+            BigDecimal longScore,
+            BigDecimal shortScore,
+            BigDecimal gap,
+            String summary
     ) {
     }
 

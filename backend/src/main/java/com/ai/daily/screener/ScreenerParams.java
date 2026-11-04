@@ -22,8 +22,15 @@ public class ScreenerParams {
     private String mode;
     /** both（默认）/ steady / growth */
     private String bucket;
-    /** 每档输出只数，默认 3 */
+    /** 每档输出只数，默认 5（两档同时出时最多 10 只） */
     private Integer perBucket;
+    /**
+     * 「换一批」：排除最近几次已经推荐过的个股，默认 false。
+     *
+     * <p>只排除**个股**，指数块不参与轮换——指数池本来就是一份固定观察清单，
+     * 按批次隐藏其中一部分会让「本次哪些指数合格」这个判断变得不可复现。
+     */
+    private Boolean rotate;
 
     /** PE(TTM) 上限，留空按档位默认（稳健 30 / 成长 45）。对指数只在显式填写时生效。 */
     private BigDecimal peMax;
@@ -76,7 +83,8 @@ public class ScreenerParams {
         ScreenerParams p = new ScreenerParams();
         p.mode = blankToNull(mode) == null ? MODE_INDEX_FIRST : mode.trim();
         p.bucket = blankToNull(bucket) == null ? BUCKET_BOTH : bucket.trim();
-        p.perBucket = perBucket == null ? 3 : perBucket;
+        p.perBucket = perBucket == null ? 5 : perBucket;
+        p.rotate = Boolean.TRUE.equals(rotate);
 
         if (!MODES.contains(p.mode)) {
             throw new IllegalArgumentException("类别取值无效：" + mode);

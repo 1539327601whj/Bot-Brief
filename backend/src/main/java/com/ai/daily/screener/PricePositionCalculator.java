@@ -17,6 +17,14 @@ public final class PricePositionCalculator {
 
     /** 一年按 250 个交易日算。 */
     public static final int WINDOW = 250;
+    /** 3 年 / 5 年窗口（交易日）。 */
+    public static final int THREE_YEAR_WINDOW = 750;
+    public static final int FIVE_YEAR_WINDOW = 1250;
+    /**
+     * 长周期指标至少要有窗口的 80% 才计算。少太多时「3 年 CAGR」实际是
+     * 「1 年半的收益年化」，数字会好看得多，不能拿它当长期结论。
+     */
+    public static final double MIN_LONG_TERM_COVERAGE = 0.8;
     /** 年化波动至少要这么多根日线才算得出来。 */
     public static final int MIN_BARS_FOR_VOLATILITY = 60;
     /** 日线最后一根超过这个天数就算陈旧。 */
@@ -75,7 +83,74 @@ public final class PricePositionCalculator {
         p.setVsMa20(vsMovingAverage(window, 20, last, "MA20", p));
         p.setVsMa60(vsMovingAverage(window, 60, last, "MA60", p));
         p.setVsMa250(vsMovingAverage(window, 250, last, "MA250", p));
+        fillLongTerm(sorted, p);
         return p;
+    }
+
+    /**
+     * 3 / 5 年长期指标。**样本不足就留空，不拿短样本年化冒充长期收益。**
+     *
+     * <p>这些数只用于「长期是否向上」的风险提示，不参与价格位置打分——
+     * 打分仍是「同批候选里的相对位置」，长期收益不改变这一档的定义。
+     */
+    private static void fillLongTerm(List<Bar> sorted, PricePosition p) {
+        List<Bar> threeYears = tail(sorted, THREE_YEAR_WINDOW);
+        p.setThreeYearCagr(cagr(threeYears, THREE_YEAR_WINDOW));
+        p.setFiveYearCagr(cagr(tail(sorted, FIVE_YEAR_WINDOW), FIVE_YEAR_WINDOW));
+
+        if (threeYears.size() >= minBars(THREE_YEAR_WINDOW)) {
+            Drawdown drawdown = drawdown(threeYears);
+            p.setMaxDrawdownThreeYear(drawdown.percent());
+            p.setThreeYearDrawdownRecovered(drawdown.recovered());
+        }
+    }
+
+    private static List<Bar> tail(List<Bar> bars, int window) {
+        return bars.size() > window ? bars.subList(bars.size() - window, bars.size()) : bars;
+    }
+
+    private static int minBars(int window) {
+        return (int) Math.ceil(window * MIN_LONG_TERM_COVERAGE);
+    }
+
+    /** 首尾收盘价的年化收益 %；覆盖不足时返回 null。 */
+    static BigDecimal cagr(List<Bar> window, int targetBars) {
+        if (window == null || window.size() < minBars(targetBars)) return null;
+        Bar first = window.get(0);
+        Bar last = window.get(window.size() - 1);
+        long days = java.time.temporal.ChronoUnit.DAYS.between(first.date(), last.date());
+        double years = days / 365.25;
+        // 覆盖率够但日历跨度不够（例如中间停牌很久）时，年化仍然不是「3 年」的数
+        double minYears = targetBars >= FIVE_YEAR_WINDOW ? 4.0 : 2.5;
+        if (years < minYears || first.close().signum() <= 0) return null;
+        double ratio = last.close().doubleValue() / first.close().doubleValue();
+        if (ratio <= 0) return null;
+        double value = (Math.pow(ratio, 1.0 / years) - 1.0) * 100.0;
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    record Drawdown(BigDecimal percent, boolean recovered) {}
+
+    /** 峰谷最大回撤，以及之后是否回到回撤前的高点。 */
+    static Drawdown drawdown(List<Bar> window) {
+        BigDecimal peak = null;
+        BigDecimal worstPeak = null;
+        BigDecimal worst = BigDecimal.ZERO;
+        boolean recovered = true;
+        for (Bar b : window) {
+            BigDecimal close = b.close();
+            if (peak == null || close.compareTo(peak) > 0) peak = close;
+            if (peak.signum() > 0) {
+                BigDecimal dd = percent(peak.subtract(close), peak);
+                if (dd.compareTo(worst) > 0) {
+                    worst = dd;
+                    worstPeak = peak;
+                    recovered = false;
+                }
+            }
+            if (worstPeak != null && close.compareTo(worstPeak) >= 0) recovered = true;
+        }
+        return new Drawdown(worst.setScale(2, RoundingMode.HALF_UP), recovered);
     }
 
     /** 日线是否陈旧（最后一根距今超过 15 个自然日）。停牌股会在这里露出来。 */

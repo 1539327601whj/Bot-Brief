@@ -819,8 +819,9 @@ public class WarehouseRepository {
     /**
      * 按代码/名称/别名搜本地标的。
      *
-     * <p>只查 {@code md_instrument}：搜索框是「找一个已经认识的代码」的入口，
-     * 不应该为了一次输入去外呼全市场清单。库里没有就明说没有。
+     * <p>只查 {@code md_instrument}。本地库覆盖不全时，由
+     * {@code CodeLookupV2Service} 决定是否再用腾讯 smartbox 兜底；仓库这一层
+     * 不做任何外呼。
      *
      * <p>{@code %}/{@code _} 会被转义成字面量：用户输入 {@code %_%} 时应该得到
      * 「没有匹配」，而不是把全表端出来。

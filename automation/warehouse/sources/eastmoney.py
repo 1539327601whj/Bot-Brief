@@ -62,6 +62,7 @@ CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 # 而 push2 被封时 datacenter-web 通常还活着——这正是「被限流」与「网络断了」的判断依据。
 LIST_REPORT = "RPT_VALUEANALYSIS_DET"
 LIST_COLUMNS = "SECURITY_CODE,SECUCODE,SECURITY_NAME_ABBR,TOTAL_MARKET_CAP"
+CATALOG_COLUMNS = "SECURITY_CODE,SECUCODE,SECURITY_NAME_ABBR"
 
 QUOTE_HEADERS = {"Referer": "https://quote.eastmoney.com/"}
 KLINE_HEADERS = {"Referer": "https://quote.eastmoney.com/"}
@@ -583,6 +584,59 @@ class EastmoneyClient:
         if not secids:
             return []
         return self.fetch_quotes(secids)
+
+    def fetch_stock_catalog(self, max_count: int = 8000,
+                            page_size: int = 1000) -> list[dict[str, Any]]:
+        """全市场 A 股身份（代码、名称、市场），**不取行情**。
+
+        与 :meth:`fetch_universe` 同源（``RPT_VALUEANALYSIS_DET``），但只请求三列、
+        不随后批量拉报价——目录只服务搜索，不需要现价。默认上限 8000 足够覆盖当前
+        约 5600 只 A 股；北交所（``.BJ``）没有稳定行情形态，这里直接跳过。
+
+        服务端可能把 ``pageSize`` 截断：按它**实际返回的条数**当页大小继续翻，
+        否则首页会被误判成最后一页而静默少扫。
+        """
+        trade_date = self.fetch_latest_trade_date()
+        if trade_date is None:
+            raise SourceError(PROVIDER, "清单接口没有返回交易日，无法确定目录属于哪一天")
+
+        limit = max(1, max_count)
+        rows, count = self._fetch_list_page(
+            max(1, page_size), 1, trade_date, columns=CATALOG_COLUMNS)
+        size = max(1, len(rows))
+        page = 2
+        while len(rows) < limit and (count is None or len(rows) < count):
+            if len(rows) < size:
+                break
+            more, _ = self._fetch_list_page(
+                size, page, trade_date, columns=CATALOG_COLUMNS)
+            if not more:
+                break
+            rows.extend(more)
+            page += 1
+            if len(more) < size:
+                break
+
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows[:limit]:
+            code = clean_text(row.get("SECURITY_CODE"))
+            if not code or code in seen:
+                continue
+            secucode = clean_text(row.get("SECUCODE")) or ""
+            market = None
+            if "." in secucode:
+                _, suffix = secucode.split(".", 1)
+                market = suffix.upper() if suffix.upper() in ("SH", "SZ") else None
+            if market is None:
+                guessed = guess_market(code, "STOCK")
+                market = guessed if guessed in ("SH", "SZ") else None
+            name = clean_text(row.get("SECURITY_NAME_ABBR"))
+            if market is None or not name:
+                continue
+            seen.add(code)
+            out.append({"raw_code": code, "name": name, "market": market})
+        return out
 
     def fetch_industry_boards(self, page_size: int = 200) -> list[dict[str, Any]]:
         body = self.http.get_json(

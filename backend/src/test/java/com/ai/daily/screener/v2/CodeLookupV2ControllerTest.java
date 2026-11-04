@@ -111,7 +111,7 @@ class CodeLookupV2ControllerTest {
         authenticateAsAdmin();
         CodeLookupV2DTO.CoreView core = new CodeLookupV2DTO.CoreView("600519", "600519", "贵州茅台",
                 "STOCK", "SH", "酿酒行业", "GENERAL", null, "abc123", "2026-10-18T10:00:00",
-                true, false, 0, null, null, null, null, java.util.List.of(), null,
+                true, false, 0, null, null, null, null, java.util.List.of(), null, null,
                 java.util.List.of(), java.util.List.of(),
                 java.util.Map.of(), java.util.List.of(),
                 "code-lookup-v2-p4", CodeLookupV2DTO.DISCLAIMER);

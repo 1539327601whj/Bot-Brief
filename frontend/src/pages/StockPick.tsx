@@ -43,6 +43,12 @@ interface PricePosition {
   vsMa20: number | null
   vsMa60: number | null
   vsMa250: number | null
+  /** 近 3 / 5 年年化（%）。样本不足时为空，不拿短样本冒充长期收益。 */
+  threeYearCagr: number | null
+  fiveYearCagr: number | null
+  /** 近 3 年峰谷最大回撤（%）及之后是否回到回撤前高点。 */
+  maxDrawdownThreeYear: number | null
+  threeYearDrawdownRecovered: boolean | null
   barCount: number
   lastTradeDate: string | null
   degradations: string[]
@@ -233,7 +239,7 @@ interface Form {
 const DEFAULT_FORM: Form = {
   mode: 'index_first',
   bucket: 'both',
-  perBucket: '3',
+  perBucket: '5',
   peMax: '',
   pePercentileMax: '',
   marketCapMinYi: '',
@@ -525,6 +531,19 @@ function StockCandidate({ item, rank }: { item: Selected; rank: number }) {
             <div><label>年化波动</label><span>{pos.annualizedVolatility === null ? '—' : `${num(pos.annualizedVolatility, 1)}%`}</span></div>
             <div><label>对 MA20</label><span>{signed(pos.vsMa20)}</span></div>
             <div><label>对 MA250</label><span>{pos.vsMa250 === null ? '未确认' : signed(pos.vsMa250)}</span></div>
+            <div><label>近 3 年年化</label><span>{pos.threeYearCagr === null ? '样本不足' : signed(pos.threeYearCagr)}</span></div>
+            <div><label>近 5 年年化</label><span>{pos.fiveYearCagr === null ? '样本不足' : signed(pos.fiveYearCagr)}</span></div>
+            <div><label>近 3 年最大回撤</label><span>{pos.maxDrawdownThreeYear === null ? '样本不足' : `${num(pos.maxDrawdownThreeYear, 1)}%`}</span></div>
+            <div>
+              <label>回撤是否修复</label>
+              <span>
+                {pos.maxDrawdownThreeYear === null
+                  ? '样本不足'
+                  : pos.threeYearDrawdownRecovered === null
+                    ? '未确认'
+                    : pos.threeYearDrawdownRecovered ? '已回到高点' : '尚未回到高点'}
+              </span>
+            </div>
             <div><label>日线截止</label><span>{pos.lastTradeDate || '—'}</span></div>
           </div>
         ) : (
@@ -1026,6 +1045,11 @@ export default function StockPick() {
             onClick={() => run(buildPayload(form))}>
             {loading ? '筛选中…' : '开始筛选'}
           </button>
+          <button type="button" className="stockpick-reset" disabled={loading || !isAdmin}
+            title={isAdmin ? '排除最近 3 次历史里推荐过的个股，再算一批' : '筛选需管理员账号'}
+            onClick={() => run({ ...buildPayload(form), rotate: true })}>
+            换一批
+          </button>
           <button type="button" className="stockpick-reset" disabled={loading}
             onClick={() => setForm(DEFAULT_FORM)}>
             重置为默认条件
@@ -1070,7 +1094,7 @@ export default function StockPick() {
           <h3>当前账号只能查看</h3>
           <p>
             筛选条件可以照常调整，但发起筛选需要管理员账号：
-            一次筛选要向东财发二十多次请求，出口 IP 会被按 IP 限流，所以触发口只留一个。
+            一次筛选要向东财发几十次请求，出口 IP 会被按 IP 限流，所以触发口只留一个。
           </p>
         </section>
       )}

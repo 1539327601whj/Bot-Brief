@@ -276,6 +276,54 @@ const STOCK_CORE = {
     ],
     notes: ['区间由估值分位与技术支撑合成，当前价已在区间内。'],
   },
+  decision: {
+    position: {
+      key: 'NEUTRAL', label: '中性位置', availableAxes: 3, score: 1,
+      axes: [
+        { key: 'valuation', label: '估值位置', value: '28', display: '28%（偏低）', score: 1, status: 'OK', basis: 'PE 分位 28%' },
+        { key: 'price', label: '价格位置', value: '62', display: '62%（中性）', score: 0, status: 'OK', basis: '一年价格分位 62%' },
+        { key: 'trend', label: '趋势位置', value: 'ma250=6.4;momentum60=4.1', display: '相对 MA250 +6.4%，60 日动量 +4.1%（向上）', score: 1, status: 'OK', basis: '站上 MA250 且动量为正' },
+      ],
+      reasons: [{ text: '估值位置：28%（偏低）', evidenceIds: ['ev:decision:valuation'] }],
+    },
+    timing: {
+      key: 'ACCUMULATE', label: '可以分批',
+      reasons: [{ text: '估值偏低且趋势未破坏。', evidenceIds: ['ev:decision:timing'] }],
+      triggers: ['跌破 MA250 且 60 日动量 ≤ -10% 时重新评估'],
+    },
+    action: {
+      key: 'BUILD_GRADUALLY', label: '分批建仓',
+      tranchePlan: ['先建 1/3 观察仓，跌破区间下沿再评估'],
+      invalidation: ['趋势转为向下或估值分位升破 70%'],
+    },
+    horizon: {
+      key: 'LONG', label: '长期更优', longScore: 71.2, shortScore: 58.4, gap: 12.8,
+      summary: '长期分 71.2，短期分 58.4，长期更优：长期估值与趋势证据强于短期动量。',
+    },
+    longTerm: {
+      key: 'UP', label: '长期向上',
+      threeYearCagrPct: 8.2, fiveYearCagrPct: 6.1,
+      threeYearMaxDrawdownPct: 42.0, drawdownRecovered: true,
+      summary: '近 3 年年化 +8.2%；近 5 年年化 +6.1%；近 3 年最大回撤 42.0%，已回到回撤前高点',
+    },
+    outlook: {
+      available: true, currentPercentile: 62,
+      horizons: [
+        { key: '1y', label: '未来 1 年（250 个交易日）', sampleCount: 96, medianReturnPct: 7.4, p25ReturnPct: -8.2, p75ReturnPct: 21.6, winRatePct: 63.5 },
+        { key: '3y', label: '未来 3 年（750 个交易日）', sampleCount: 34, medianReturnPct: 25.1, p25ReturnPct: -3.4, p75ReturnPct: 48.9, winRatePct: 76.5 },
+      ],
+      status: null,
+      note: '历史统计来自本标的已有日线，样本相互重叠，且不包含未来可能出现的制度、行业与估值变化；它不预测收益，也不构成投资建议。',
+    },
+    reasons: [
+      { text: '估值位置：28%（偏低）', evidenceIds: ['ev:decision:valuation'] },
+      { text: '趋势位置：相对 MA250 +6.4%，60 日动量 +4.1%（向上）', evidenceIds: ['ev:decision:trend'] },
+    ],
+    risks: [{ text: '近 5 日主力资金净流出 1.2 亿。', evidenceIds: ['ev:tech:flow5'] }],
+    watchItems: ['跌破 MA250 且 60 日动量 ≤ -10% 时重新评估'],
+    summary: '位置：中性位置 · 时机：可以分批 · 行动：分批建仓 · 周期：长期更优',
+    disclaimer: '以上为规则计算的倾向与观察条件，不构成投资建议、证券推荐或买卖依据。',
+  },
   priceLookbacks: LOOKBACK_PRICE,
   peLookbacks: LOOKBACK_PE,
   data: {
@@ -504,6 +552,7 @@ const PARTIAL_CORE = {
       : { ...d, score: null, coverage: 0, status: 'EMPTY', reasons: ['依赖财务与估值，本次不评分。'] })),
   buyZone: { status: 'WITHHELD', low: null, high: null, stopLoss: null, distanceToZonePct: null,
     riskPct: null, basis: [], notes: ['覆盖率不足 50%，不提供参考区间。'] },
+  decision: null,
   priceLookbacks: LOOKBACK_PRICE.map(row => ({ ...row, baseline: null, change: null,
     status: '本地日线同步中，稍后重试' })),
   peLookbacks: LOOKBACK_PE.map(row => ({ ...row, baseline: null, change: null,

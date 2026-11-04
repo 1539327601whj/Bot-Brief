@@ -5,6 +5,7 @@ import com.ai.daily.screener.v2.FactsSnapshot;
 import com.ai.daily.screener.v2.InstrumentFactsService;
 import com.ai.daily.screener.v2.analysis.AnalysisResult;
 import com.ai.daily.screener.v2.analysis.BuyZone;
+import com.ai.daily.screener.v2.analysis.Decision;
 import com.ai.daily.screener.v2.analysis.InvestmentAnalysisService;
 import com.ai.daily.screener.v2.analysis.Reason;
 import com.ai.daily.screener.v2.analysis.Verdict;
@@ -215,6 +216,19 @@ public class BriefV2Service {
         sections.add(new CodeLookupV2DTO.BriefSectionView("规则结论", conclusion.toString(),
                 filterIds(pack, List.of("ev:verdict:score", "ev:verdict:score_low",
                         "ev:verdict:score_high", "ev:verdict:coverage"))));
+
+        Decision decision = analysis.decision();
+        if (decision != null) {
+            String decisionText = "位置：" + decision.position().label()
+                    + "；时机：" + decision.timing().label()
+                    + "；行动：" + decision.action().label()
+                    + "；周期：" + decision.horizon().label() + "。"
+                    + decision.horizon().summary();
+            sections.add(new CodeLookupV2DTO.BriefSectionView("位置 / 时机 / 行动 / 周期",
+                    decisionText,
+                    filterIds(pack, List.of("ev:decision:position", "ev:decision:timing",
+                            "ev:decision:action", "ev:decision:horizon"))));
+        }
 
         List<Reason> reasons = verdict.reasons();
         String reasonText = reasons.isEmpty()

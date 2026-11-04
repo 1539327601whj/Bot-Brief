@@ -136,8 +136,8 @@ public class MarketDataClient {
 
     public MarketDataClient(
             @Qualifier("marketRestTemplate") RestTemplate restTemplate,
-            @Value("${screener.kline-limit:250}") int klineLimit,
-            @Value("${screener.pool-size:300}") int poolSize,
+            @Value("${screener.kline-limit:1300}") int klineLimit,
+            @Value("${screener.pool-size:1000}") int poolSize,
             @Value("${screener.quote-batch-size:50}") int quoteBatchSize) {
         this.restTemplate = restTemplate;
         this.klineLimit = klineLimit;

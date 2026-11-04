@@ -30,8 +30,10 @@ class CodeLookupV2JsonContractTest {
         when(guard.isReady()).thenReturn(true);
         when(properties.isEnabled()).thenReturn(true);
         when(factsService.snapshot("600519")).thenReturn(AnalysisFixtures.healthyStock());
-        service = new CodeLookupV2Service(factsService, new InvestmentAnalysisService(),
-                mock(WarehouseRepository.class), guard, properties);
+        service = new CodeLookupV2Service(factsService,
+                new InvestmentAnalysisService(AnalysisFixtures.TODAY),
+                mock(WarehouseRepository.class), guard, properties,
+                mock(com.ai.daily.screener.TencentInstrumentSearchClient.class));
     }
 
     @Test
@@ -71,6 +73,19 @@ class CodeLookupV2JsonContractTest {
         assertThat(buyZone.path("notes").isArray()).isTrue();
         assertThat(buyZone.has("low")).isTrue();
         assertThat(buyZone.has("stopLoss")).isTrue();
+
+        JsonNode decision = json.path("decision");
+        assertThat(decision.path("position").path("key").asText()).isNotBlank();
+        assertThat(decision.path("position").path("label").asText()).isNotBlank();
+        assertThat(decision.path("position").path("axes").isArray()).isTrue();
+        assertThat(decision.path("timing").path("label").asText()).isNotBlank();
+        assertThat(decision.path("action").path("key").asText()).isNotBlank();
+        assertThat(decision.path("action").path("tranchePlan").isArray()).isTrue();
+        assertThat(decision.path("horizon").path("label").asText()).isNotBlank();
+        assertThat(decision.path("watchItems").isArray()).isTrue();
+        assertThat(decision.path("summary").asText()).contains("位置：");
+        assertThat(decision.path("disclaimer").asText()).isEqualTo(
+                com.ai.daily.screener.v2.analysis.Decision.DISCLAIMER);
 
         for (String key : new String[]{"quote", "prices", "valuations", "financials"}) {
             assertThat(json.path("data").has(key)).isTrue();

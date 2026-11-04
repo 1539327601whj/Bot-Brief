@@ -28,8 +28,10 @@ class CodeLookupV2ServiceAnalysisTest {
         WarehouseProperties properties = mock(WarehouseProperties.class);
         when(guard.isReady()).thenReturn(true);
         when(properties.isEnabled()).thenReturn(true);
-        service = new CodeLookupV2Service(factsService, new InvestmentAnalysisService(),
-                mock(WarehouseRepository.class), guard, properties);
+        service = new CodeLookupV2Service(factsService,
+                new InvestmentAnalysisService(AnalysisFixtures.TODAY),
+                mock(WarehouseRepository.class), guard, properties,
+                mock(com.ai.daily.screener.TencentInstrumentSearchClient.class));
     }
 
     @Test
@@ -46,6 +48,12 @@ class CodeLookupV2ServiceAnalysisTest {
                 .containsExactly("valuation", "growth", "quality", "health", "technical", "peers");
         assertThat(core.buyZone()).isNotNull();
         assertThat(core.buyZone().status()).isNotBlank();
+        assertThat(core.decision()).isNotNull();
+        assertThat(core.decision().position().key()).isIn("LOW", "NEUTRAL", "HIGH");
+        assertThat(core.decision().timing().key()).isNotBlank();
+        assertThat(core.decision().action().key()).isNotBlank();
+        assertThat(core.decision().horizon().key()).isNotBlank();
+        assertThat(core.decision().summary()).contains("位置：");
         assertThat(core.rulesVersion()).isEqualTo(InvestmentAnalysisService.RULES_VERSION);
         assertThat(core.disclaimer()).isEqualTo(CodeLookupV2DTO.DISCLAIMER);
         assertThat(core.data()).containsKeys("quote", "prices", "valuations", "financials");

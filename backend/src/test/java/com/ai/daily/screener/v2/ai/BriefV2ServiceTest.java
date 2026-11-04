@@ -52,7 +52,8 @@ class BriefV2ServiceTest {
         cache = mock(AnalysisCacheService.class);
         aiClientService = mock(AiClientService.class);
         mapper = new ObjectMapper();
-        service = new BriefV2Service(factsService, new InvestmentAnalysisService(),
+        service = new BriefV2Service(factsService,
+                new InvestmentAnalysisService(AnalysisFixtures.TODAY),
                 cache, aiClientService, mapper, 3000, 25000, 1800);
         when(cache.get(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(Optional.empty());
@@ -161,7 +162,7 @@ class BriefV2ServiceTest {
         assertThat(view.fallback()).isTrue();
         assertThat(view.sections()).isNotEmpty();
         assertThat(view.sections()).extracting(CodeLookupV2DTO.BriefSectionView::heading)
-                .containsExactly("规则结论", "主要依据", "风险与观察");
+                .containsExactly("规则结论", "位置 / 时机 / 行动 / 周期", "主要依据", "风险与观察");
         assertThat(view.reason()).contains("未通过校验");
         assertThat(view.note()).isEqualTo(BriefV2Service.NOTE_FALLBACK);
     }

@@ -70,6 +70,30 @@ class EvidencePackBuilderTest {
     }
 
     @Test
+    void decisionEvidenceCarriesTheFourAnswersVerbatim() {
+        FactsSnapshot facts = AnalysisFixtures.healthyStock();
+        AnalysisResult analysis = InvestmentAnalysisService.analyze(
+                facts, AnalysisFixtures.TODAY);
+        EvidencePack pack = EvidencePackBuilder.build(facts, analysis);
+
+        assertThat(pack.contains("ev:decision:position")).isTrue();
+        assertThat(pack.contains("ev:decision:timing")).isTrue();
+        assertThat(pack.contains("ev:decision:action")).isTrue();
+        assertThat(pack.contains("ev:decision:horizon")).isTrue();
+        // 位置轴的编号和决策层自己的依据编号是同一组，模型才能逐条解释。
+        assertThat(pack.contains("ev:decision:valuation")).isTrue();
+        assertThat(pack.contains("ev:decision:price")).isTrue();
+        assertThat(pack.contains("ev:decision:trend")).isTrue();
+
+        assertThat(pack.find("ev:decision:position").orElseThrow().display())
+                .startsWith(analysis.decision().position().label());
+        assertThat(pack.find("ev:decision:timing").orElseThrow().display())
+                .isEqualTo(analysis.decision().timing().label());
+        assertThat(pack.find("ev:decision:action").orElseThrow().display())
+                .isEqualTo(analysis.decision().action().label());
+    }
+
+    @Test
     void fundProfileEvidenceCarriesItsOwnSourceAndAsOf() {
         FactsSnapshot facts = AnalysisFixtures.etfWithFundProfile();
         AnalysisResult analysis = InvestmentAnalysisService.analyze(

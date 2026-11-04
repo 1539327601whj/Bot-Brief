@@ -1410,6 +1410,201 @@ button.cl-chip {
   line-height: 1.8;
 }
 
+/* ---------------- 决策卡 ---------------- */
+
+.cl-decision {
+  margin-top: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    radial-gradient(900px 220px at 92% -20%, rgba(var(--accent-rgb), 0.1), transparent 60%),
+    var(--bg-panel);
+  box-shadow: var(--shadow-card);
+}
+
+.cl-decision-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 20px;
+}
+
+.cl-decision-head h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+
+.cl-decision-summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.cl-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.cl-decision-cell {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--tone);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.cl-decision-cell label {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+
+.cl-decision-cell b {
+  display: block;
+  margin: 4px 0 6px;
+  color: var(--tone);
+  font-size: 18px;
+}
+
+.cl-decision-cell p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cl-decision-axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+/* 本标的长期趋势：3/5 年年化与回撤修复，独立于下方的历史条件收益 */
+.cl-longterm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tone);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.cl-longterm label {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+
+.cl-longterm b {
+  display: block;
+  margin-top: 2px;
+  color: var(--tone);
+  font-size: 15px;
+}
+
+.cl-longterm p {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* 历史条件收益：表格化排列，避免把「中位 +12.3%」读成预测目标 */
+.cl-outlook {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.cl-outlook h4 {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.cl-outlook-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.cl-outlook-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.cl-outlook-row b {
+  min-width: 150px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cl-outlook-row em {
+  color: var(--text);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-outlook .cl-muted {
+  margin: 8px 0 0;
+  color: var(--text-subtle);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.cl-decision-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.cl-decision-body h4 {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.cl-decision-body ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.cl-decision-body li + li {
+  margin-top: 4px;
+}
+
+.cl-decision .cl-disclaimer {
+  margin-top: 14px;
+}
+
 /* ---------------- 页脚 ---------------- */
 
 .cl-footer {
@@ -1442,6 +1637,14 @@ button.cl-chip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .cl-decision-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cl-decision-body {
+    grid-template-columns: 1fr;
+  }
+
   .cl-fact-grid,
   .cl-numbers,
   .cl-key-numbers {
@@ -1460,6 +1663,10 @@ button.cl-chip {
 @media (max-width: 760px) {
   .cl-page {
     padding-bottom: 28px;
+  }
+
+  .cl-decision-grid {
+    grid-template-columns: 1fr;
   }
 
   .cl-page-head {

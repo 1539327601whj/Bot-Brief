@@ -33,6 +33,14 @@ public class PricePosition {
     private BigDecimal vsMa20;
     private BigDecimal vsMa60;
     private BigDecimal vsMa250;
+    /** 近 3 年年化收益 %（前复权收盘价，按实际天数折算）。样本不足为 null。 */
+    private BigDecimal threeYearCagr;
+    /** 近 5 年年化收益 %。样本不足为 null。 */
+    private BigDecimal fiveYearCagr;
+    /** 近 3 年峰谷最大回撤 %（正数）。样本不足为 null。 */
+    private BigDecimal maxDrawdownThreeYear;
+    /** 近 3 年那次最大回撤之后，收盘价是否已经回到回撤前的高点。 */
+    private Boolean threeYearDrawdownRecovered;
     /** 参与计算的日线根数。 */
     private int barCount;
     /** 日线最后一根的日期。 */

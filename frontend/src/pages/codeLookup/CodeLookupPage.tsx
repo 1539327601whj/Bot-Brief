@@ -6,6 +6,7 @@ import type { CoreView, SearchHit } from './types'
 import { useCodeLookup } from './useCodeLookup'
 import { assetTypeLabel, dateTime } from './format'
 import DataQualityBanner from './components/DataQualityBanner'
+import DecisionCard from './components/DecisionCard'
 import VerdictHero from './components/VerdictHero'
 import ScoreTiles from './components/ScoreTiles'
 import ScenarioCards from './components/ScenarioCards'
@@ -24,7 +25,13 @@ import {
 } from './components/DetailSections'
 import './CodeLookupV2.css'
 
-const CODE_SHAPE = /^[0-9A-Za-z]{1,12}$/
+// 只有「真的是代码」才跳过搜索直接查询。名称、简称、拼音都要走 /search，
+// 否则 gzmt、茅台这类输入既搜不到、又会被当成代码去查一个不存在的标的。
+const LOOKUP_CODE = /^(?:(?:SH|SZ)?\d{6}|NDX|SP500|GDAXI|HSFML|H3\d{4})$/i
+
+function looksLikeLookupCode(value: string): boolean {
+  return LOOKUP_CODE.test(value.trim())
+}
 
 type TabKey = 'overview' | 'financial' | 'valuation' | 'technical' | 'events' | 'peers' | 'provenance'
 
@@ -57,9 +64,10 @@ export default function CodeLookupPage() {
     notice, recent, load, loadSeries, runBrief, clear,
   } = lookup
 
-  const codeReady = CODE_SHAPE.test(input.trim())
+  const codeReady = looksLikeLookupCode(input)
 
-  // 本地库搜索（代码 / 名称 / 别名）。只读 md_instrument，不触发任何行情外呼。
+  // 本地库 + 腾讯 smartbox 搜索（代码 / 名称 / 简称 / 拼音）。
+  // 本地库不触发行情外呼；smartbox 由后端做缓存与限流，前端只做防抖。
   useEffect(() => {
     const q = input.trim()
     if (q.length < 2 || codeReady) {
@@ -130,7 +138,11 @@ export default function CodeLookupPage() {
           <input
             value={input}
             onChange={event => setInput(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter' && codeReady && !coreLoading) submit() }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || coreLoading) return
+              if (codeReady) { submit(); return }
+              if (suggestions.length > 0) submit(suggestions[0].code)
+            }}
             placeholder="600519 / 510300 / 000300 / NDX，或输入名称搜索"
             maxLength={24}
             autoComplete="off"
@@ -161,10 +173,10 @@ export default function CodeLookupPage() {
             ))}
           </ul>
         )}
-        {searching && suggestions.length === 0 && <p className="cl-search-hint">正在本地库搜索…</p>}
+        {searching && suggestions.length === 0 && <p className="cl-search-hint">正在搜索标的…</p>}
         {!searching && input.trim().length >= 2 && !codeReady && suggestions.length === 0 && (
           <p className="cl-search-hint">
-            没找到匹配的名称。也可以直接输入代码（1–12 位字母或数字）。
+            没找到匹配的名称。也可以直接输入 6 位代码（如 600519、510300）。
           </p>
         )}
 
@@ -205,6 +217,7 @@ export default function CodeLookupPage() {
         <>
           <DataQualityBanner core={core} notice={notice} failure={coreFailure} />
 
+          <DecisionCard core={core} />
           <VerdictHero core={core} />
           <ScoreTiles dimensions={core.dimensions} />
 

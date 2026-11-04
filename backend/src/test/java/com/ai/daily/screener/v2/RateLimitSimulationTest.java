@@ -132,7 +132,8 @@ class RateLimitSimulationTest {
                 mock(EtfPriceHistoryService.class), mock(OffPoolIndexClient.class),
                 mock(EtfLiveKlineService.class), mock(FundProfileClient.class), cache, properties);
         service = new CodeLookupV2Service(factsService, new InvestmentAnalysisService(),
-                repository, schemaGuard, properties);
+                repository, schemaGuard, properties,
+                mock(com.ai.daily.screener.TencentInstrumentSearchClient.class));
         controller = new CodeLookupV2Controller(service, mock(SeriesService.class),
                 mock(BriefV2Service.class), metrics);
 

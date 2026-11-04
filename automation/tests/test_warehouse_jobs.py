@@ -79,12 +79,16 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(keys, [
             ("DAILY_MARKET_SNAPSHOT:2025-09-30", "DAILY_MARKET_SNAPSHOT"),
             ("DAILY_INDEX_PROFILE:2025-09-30", "DAILY_INDEX_PROFILE"),
+            ("DAILY_ETF_CATALOG:2025-09-30", "DAILY_ETF_CATALOG"),
+            ("DAILY_STOCK_CATALOG:2025-09-30", "DAILY_STOCK_CATALOG"),
         ])
 
     def test_industry_only_after_1730(self):
         self.assertEqual(self.scheduled(datetime(2025, 9, 30, 17, 29)), [
             ("DAILY_MARKET_SNAPSHOT:2025-09-30", "DAILY_MARKET_SNAPSHOT"),
             ("DAILY_INDEX_PROFILE:2025-09-30", "DAILY_INDEX_PROFILE"),
+            ("DAILY_ETF_CATALOG:2025-09-30", "DAILY_ETF_CATALOG"),
+            ("DAILY_STOCK_CATALOG:2025-09-30", "DAILY_STOCK_CATALOG"),
         ])
         keys = self.scheduled(datetime(2025, 9, 30, 17, 30))
         self.assertIn(("DAILY_INDUSTRY:2025-09-30", "DAILY_INDUSTRY"), keys)

@@ -14,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -103,6 +104,38 @@ class StockScreenerControllerTest {
         Result<ScreenerResultDTO> r = controller.scan(params);
         assertThat(r.getCode()).isEqualTo(200);
         verify(service).scan(params);
+    }
+
+    @Test
+    void rotateReadsRecentHistoryAndPassesItsCodesAsExclusions() {
+        authenticateAs("ADMIN", "NORMAL");
+        ScreenerParams params = new ScreenerParams();
+        params.setRotate(true);
+        Set<String> recent = Set.of("600519", "000001");
+        when(historyService.recentStockCodes(3)).thenReturn(recent);
+        when(service.scan(eq(params), any())).thenReturn(realResult());
+
+        Result<ScreenerResultDTO> r = controller.scan(params);
+
+        assertThat(r.getCode()).isEqualTo(200);
+        verify(service).scan(params, recent);
+        verify(service, never()).scan(params);
+    }
+
+    @Test
+    void rotateStillRunsWhenHistoryCannotBeReadAndSaysSo() {
+        authenticateAs("ADMIN", "NORMAL");
+        ScreenerParams params = new ScreenerParams();
+        params.setRotate(true);
+        when(historyService.recentStockCodes(3)).thenThrow(new IllegalStateException("库连不上"));
+        when(service.scan(eq(params), any())).thenReturn(realResult());
+
+        Result<ScreenerResultDTO> r = controller.scan(params);
+
+        assertThat(r.getCode()).isEqualTo(200);
+        verify(service).scan(params, Set.of());
+        assertThat(r.getData().summary().degradations())
+                .anyMatch(d -> d.contains("「换一批」读取历史失败"));
     }
 
     @Test

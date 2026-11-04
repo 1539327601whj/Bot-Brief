@@ -54,7 +54,12 @@ public final class ScreeningRules {
         MARKET_CAP("总市值", false),
         VOLATILITY("年化波动", true),
         PRICE_PERCENTILE("一年价格分位", true),
-        DRAWDOWN("距 52 周高点回撤", false),
+        /**
+         * 回撤越小越好。此前写成 {@code false}（回撤越大分位越高），与章程 §1
+         * 「不因为最近跌得多而推荐」以及用户「回撤很大且长期收不回来不要」直接冲突。
+         * 回撤仍然只是价格位置维的一个子项；后续会把它改成风险标记，而不是正向因子。
+         */
+        DRAWDOWN("距 52 周高点回撤", true),
         REVENUE_GROWTH("营收同比", false),
         PROFIT_GROWTH("净利同比", false);
 
@@ -111,7 +116,7 @@ public final class ScreeningRules {
     /** 分数下限。低于它的不进结果，宁可少给。 */
     public static final BigDecimal SCORE_FLOOR = new BigDecimal("55");
     /** 短名单每档上限（决定抓多少次日线）。 */
-    public static final int SHORTLIST_PER_BUCKET = 8;
+    public static final int SHORTLIST_PER_BUCKET = 30;
 
     private ScreeningRules() {}
 
@@ -694,6 +699,20 @@ public final class ScreeningRules {
                 risks.add("日线最后一根为 " + pos.getLastTradeDate() + "，价格位置基于该日之前的数据");
             }
             for (String d : pos.getDegradations()) risks.add(d);
+            if (pos.getThreeYearCagr() != null && pos.getThreeYearCagr().signum() <= 0) {
+                risks.add("近 3 年年化 " + strip(pos.getThreeYearCagr())
+                        + "%，长期没有向上；需确认是否处在夕阳行业或长期下行周期");
+            }
+            if (pos.getFiveYearCagr() != null && pos.getFiveYearCagr().signum() <= 0) {
+                risks.add("近 5 年年化 " + strip(pos.getFiveYearCagr())
+                        + "%，五年维度仍未上涨；这是长期风险，不是短期波动");
+            }
+            if (pos.getMaxDrawdownThreeYear() != null
+                    && pos.getMaxDrawdownThreeYear().compareTo(new BigDecimal("50")) > 0
+                    && Boolean.FALSE.equals(pos.getThreeYearDrawdownRecovered())) {
+                risks.add("近 3 年最大回撤 " + strip(pos.getMaxDrawdownThreeYear())
+                        + "%，且尚未回到前期高点；回撤能否修复无法由历史保证");
+            }
         }
         if (bucket == Bucket.GROWTH) {
             risks.add("成长档放宽了市值与杠杆门槛，波动与经营不确定性高于稳健档");

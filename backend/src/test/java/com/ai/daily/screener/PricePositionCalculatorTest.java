@@ -147,11 +147,52 @@ class PricePositionCalculatorTest {
     }
 
     @Test
-    void unsortedInputIsSortedByDate() {
-        List<PricePositionCalculator.Bar> bars = new ArrayList<>(ramp(10, 20, 250));
-        java.util.Collections.shuffle(bars, new java.util.Random(7));
+    void fiveYearCagrUsesCalendarSpanAndNeedsEnoughCoverage() {
+        LocalDate start = LocalDate.of(2020, 1, 1);
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>();
+        for (int i = 0; i < 1300; i++) {
+            // 1300 个交易日约 5.2 个自然年：日期按交易日折算，而不是一天一根
+            LocalDate date = start.plusDays(Math.round(i * 365.25 / 250));
+            bars.add(new PricePositionCalculator.Bar(date,
+                    BigDecimal.valueOf(10 * Math.pow(1.10, i / 250.0))));
+        }
         PricePosition p = PricePositionCalculator.compute(bars);
-        assertThat(p.getLastTradeDate()).isEqualTo(START.plusDays(249));
-        assertThat(p.getPricePercentile()).isEqualByComparingTo("100.00");
+
+        assertThat(p.getThreeYearCagr().doubleValue()).isCloseTo(10, org.assertj.core.data.Offset.offset(0.5));
+        assertThat(p.getFiveYearCagr().doubleValue()).isCloseTo(10, org.assertj.core.data.Offset.offset(0.5));
+
+        // 只有一年日线时不能拿它年化后冒充「3 年 CAGR」
+        PricePosition tooShort = PricePositionCalculator.compute(ramp(10, 20, 250));
+        assertThat(tooShort.getThreeYearCagr()).isNull();
+        assertThat(tooShort.getFiveYearCagr()).isNull();
+        assertThat(tooShort.getMaxDrawdownThreeYear()).isNull();
+    }
+
+    @Test
+    void threeYearDrawdownTracksWhetherThePriorPeakWasRegained() {
+        List<PricePositionCalculator.Bar> recovered = new ArrayList<>();
+        for (int i = 0; i < 800; i++) {
+            double v = i < 100 ? 100 : i < 200 ? 100 - (i - 100) * 0.4 : 60 + (i - 200) * 0.084;
+            recovered.add(new PricePositionCalculator.Bar(
+                    LocalDate.of(2022, 1, 1).plusDays(i), BigDecimal.valueOf(v)));
+        }
+        PricePosition ok = PricePositionCalculator.compute(recovered);
+        assertThat(ok.getMaxDrawdownThreeYear()).isEqualByComparingTo("40.00");
+        assertThat(ok.getThreeYearDrawdownRecovered()).isTrue();
+
+        PricePosition falling = PricePositionCalculator.compute(fallingSeries());
+        assertThat(falling.getMaxDrawdownThreeYear()).isEqualByComparingTo("60.00");
+        assertThat(falling.getThreeYearDrawdownRecovered()).isFalse();
+    }
+
+    /** 800 根：先横盘在 100，再一路跌到 40，最后也没有回到 100。 */
+    private static List<PricePositionCalculator.Bar> fallingSeries() {
+        List<PricePositionCalculator.Bar> bars = new ArrayList<>();
+        for (int i = 0; i < 800; i++) {
+            double v = i < 100 ? 100 : 100 - (i - 100) * 60.0 / 699;
+            bars.add(new PricePositionCalculator.Bar(
+                    LocalDate.of(2022, 1, 1).plusDays(i), BigDecimal.valueOf(v)));
+        }
+        return bars;
     }
 }

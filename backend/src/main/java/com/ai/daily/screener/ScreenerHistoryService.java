@@ -15,8 +15,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 「低估精选」筛选历史：管理员每次成功筛选落一行，可回看、可整页回放。
@@ -121,6 +123,30 @@ public class ScreenerHistoryService {
                 .orderByDesc(ScreenerScanHistory::getScannedAt)
                 .orderByDesc(ScreenerScanHistory::getId);
         return mapper.selectPage(p, q);
+    }
+
+    /**
+     * 最近几次筛选推荐过的个股代码，供「换一批」排除。
+     *
+     * <p>只读 {@code selection_json}（列表查询已经带上这一列），不解析几十 KB 的
+     * {@code result_json}。解析坏掉的历史跳过——轮换是锦上添花，不能因为它把筛选弄失败。
+     * 返回顺序按历史从新到旧，调用方只当集合用。
+     */
+    public Set<String> recentStockCodes(int scans) {
+        Set<String> out = new LinkedHashSet<>();
+        Page<ScreenerScanHistory> p = page(1, Math.max(1, scans));
+        for (ScreenerScanHistory row : p.getRecords()) {
+            if (row.getSelectionJson() == null || row.getSelectionJson().isBlank()) continue;
+            try {
+                ScreenerHistoryDTO.Selection selection = objectMapper.readValue(row.getSelectionJson(),
+                        new TypeReference<ScreenerHistoryDTO.Selection>() {});
+                for (ScreenerHistoryDTO.Ref ref : selection.steadyStocks()) out.add(ref.code());
+                for (ScreenerHistoryDTO.Ref ref : selection.growthStocks()) out.add(ref.code());
+            } catch (JsonProcessingException e) {
+                log.warn("筛选历史入选清单解析失败，跳过该条 id={}：{}", row.getId(), e.toString());
+            }
+        }
+        return out;
     }
 
     /** 详情：列表项 + 可整页回放的结果 JSON。 */

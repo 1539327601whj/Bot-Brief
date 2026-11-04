@@ -3,6 +3,8 @@ package com.ai.daily.screener.v2.ai;
 import com.ai.daily.screener.v2.FactsSnapshot;
 import com.ai.daily.screener.v2.analysis.AnalysisResult;
 import com.ai.daily.screener.v2.analysis.BuyZone;
+import com.ai.daily.screener.v2.analysis.ConditionalReturnCalculator;
+import com.ai.daily.screener.v2.analysis.Decision;
 import com.ai.daily.screener.v2.analysis.DimensionScore;
 import com.ai.daily.screener.v2.analysis.Reason;
 import com.ai.daily.screener.v2.analysis.Scenario;
@@ -79,6 +81,8 @@ public final class EvidencePackBuilder {
             add(items, zoneEvidence("ev:buyzone:stop", "参考止损位", zone.stopLoss(), facts));
         }
 
+        addDecisionEvidence(items, facts, analysis.decision());
+
         FactsSnapshot.Quote quote = facts.quote().data();
         if (quote != null && quote.price() != null) {
             add(items, new Evidence("ev:quote:price", "现价", plain(quote.price()),
@@ -107,6 +111,100 @@ public final class EvidencePackBuilder {
         return new Evidence(id, label, plain(value), value,
                 sourceFor(facts, "ev:val:"), asOfFor(facts, "ev:val:"),
                 "由估值分位与技术支撑合成，规则计算，不是目标价");
+    }
+
+    /**
+     * 决策层的四问是给模型「复述」的，不是给它自由发挥的素材。
+     *
+     * <p>标签本身（相对低位 / 等待企稳 / 分批建仓 / 长期更优）写进 display，
+     * 模型只能在正文里逐字沿用；位置轴的明细单独编号，方便它解释「为什么」。
+     */
+    private static void addDecisionEvidence(Map<String, Evidence> items, FactsSnapshot facts,
+                                            Decision decision) {
+        if (decision == null) {
+            return;
+        }
+        String asOf = dateOf(facts);
+        Decision.Position position = decision.position();
+        add(items, new Evidence("ev:decision:position", "位置判断",
+                position.label() + "（可用轴 " + position.availableAxes()
+                        + " 个，轴得分 " + position.score() + "）",
+                BigDecimal.valueOf(position.score()), "规则计算", asOf,
+                axesBasis(position.axes())));
+        for (Decision.Axis axis : position.axes()) {
+            if (!"OK".equals(axis.status())) {
+                continue;
+            }
+            add(items, new Evidence("ev:decision:" + axis.key(),
+                    "位置轴 · " + axis.label(), axis.display(), null,
+                    "规则计算", asOf, axis.basis()));
+        }
+        add(items, new Evidence("ev:decision:timing", "时机判断",
+                decision.timing().label(), null, "规则计算", asOf,
+                join(decision.timing().triggers())));
+        add(items, new Evidence("ev:decision:action", "行动建议",
+                decision.action().label(), null, "规则计算", asOf,
+                join(decision.action().tranchePlan())));
+        add(items, new Evidence("ev:decision:horizon", "长期/短期比较",
+                decision.horizon().label() + "（长期 "
+                        + plain(decision.horizon().longScore()) + "，短期 "
+                        + plain(decision.horizon().shortScore()) + "）",
+                decision.horizon().gap(), "规则计算", asOf,
+                decision.horizon().summary()));
+        if (decision.longTerm() != null) {
+            add(items, new Evidence("ev:decision:longterm", "本标的长期趋势",
+                    decision.longTerm().label(), null, "规则计算", asOf,
+                    decision.longTerm().summary()));
+        }
+        addOutlookEvidence(items, decision.outlook(), asOf);
+    }
+
+    /** 历史条件收益只作为「参照」进入材料，措辞里必须带样本数与「不预测」限制。 */
+    private static void addOutlookEvidence(Map<String, Evidence> items,
+                                           ConditionalReturnCalculator.Outlook outlook,
+                                           String asOf) {
+        if (outlook == null) {
+            return;
+        }
+        if (!outlook.available() || outlook.horizons().isEmpty()) {
+            add(items, new Evidence("ev:decision:outlook", "历史条件收益",
+                    "未计算：" + outlook.status(), null, "历史统计", asOf,
+                    outlook.note()));
+            return;
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("当前价格分位 ").append(plain(outlook.currentPercentile())).append("%；");
+        text.append("历史上分位相近时：");
+        for (ConditionalReturnCalculator.HorizonStats h : outlook.horizons()) {
+            text.append(h.label()).append(" 样本 ").append(h.sampleCount())
+                    .append(" 个，中位 ").append(plain(h.medianReturnPct()))
+                    .append("%，四分位 [").append(plain(h.p25ReturnPct()))
+                    .append("%, ").append(plain(h.p75ReturnPct()))
+                    .append("%]，上涨占比 ").append(plain(h.winRatePct())).append("%；");
+        }
+        add(items, new Evidence("ev:decision:outlook", "历史条件收益",
+                text.toString(), null, "历史统计", asOf, outlook.note()));
+    }
+
+    private static String axesBasis(List<Decision.Axis> axes) {
+        StringBuilder out = new StringBuilder();
+        for (Decision.Axis axis : axes) {
+            if (!"OK".equals(axis.status())) {
+                continue;
+            }
+            if (out.length() > 0) {
+                out.append("；");
+            }
+            out.append(axis.label()).append(' ').append(axis.display());
+        }
+        return out.length() == 0 ? "位置轴不足" : out.toString();
+    }
+
+    private static String join(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "—";
+        }
+        return String.join("；", values);
     }
 
     private static String coverageBasis(Verdict verdict) {

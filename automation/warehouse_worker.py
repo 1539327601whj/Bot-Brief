@@ -30,11 +30,13 @@ from warehouse.rate_limit import RateLimited, SourceCooling
 from warehouse.schema import SchemaMismatch, assert_schema, check_schema
 from warehouse.sync import SyncOutcome, combine
 from warehouse.sync.events import sync_events
+from warehouse.sync.etf_catalog import sync_etf_catalog
 from warehouse.sync.index_profile import sync_index_detail
 from warehouse.sync.industry import sync_industry_boards
 from warehouse.sync.instruments import load_index_pool, pool_rows, upsert_instruments
 from warehouse.sync.snapshot import sync_market_snapshot
 from warehouse.sync.stock import sync_stock_detail
+from warehouse.sync.stock_catalog import sync_stock_catalog
 from warehouse.logs import configure as configure_logging
 
 logger = logging.getLogger("warehouse.worker")
@@ -47,6 +49,8 @@ BATCH_TASKS = frozenset({
     jobs.TASK_DAILY_MARKET_SNAPSHOT,
     jobs.TASK_DAILY_INDEX_PROFILE,
     jobs.TASK_DAILY_INDUSTRY,
+    jobs.TASK_DAILY_ETF_CATALOG,
+    jobs.TASK_DAILY_STOCK_CATALOG,
     jobs.TASK_NEWS_REFRESH,
 })
 
@@ -171,6 +175,12 @@ def dispatch(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
 
     if task == jobs.TASK_DAILY_INDUSTRY:
         return sync_industry_boards(clients.db, clients.eastmoney)
+
+    if task == jobs.TASK_DAILY_ETF_CATALOG:
+        return sync_etf_catalog(clients.db, clients.sina)
+
+    if task == jobs.TASK_DAILY_STOCK_CATALOG:
+        return sync_stock_catalog(clients.db, clients.eastmoney)
 
     if task == jobs.TASK_NEWS_REFRESH:
         return _run_news_refresh(clients)
