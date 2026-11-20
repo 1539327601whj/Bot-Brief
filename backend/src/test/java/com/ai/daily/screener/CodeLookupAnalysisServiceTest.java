@@ -311,7 +311,7 @@ class CodeLookupAnalysisServiceTest {
                         "阳光电源等在内蒙古成立智算科技公司", "证券时报",
                         LocalDate.of(2026, 10, 15), "https://a/1", null)), 1));
 
-        CodeLookupAnalysisDTO out = service.analyse("300274");
+        CodeLookupAnalysisDTO out = service.analyse(dto(false), TODAY);
 
         CodeLookupAnalysisDTO.NewsGroupView news = groupOf(out, NewsItem.Category.NEWS);
         assertThat(news.state()).isEqualTo(CodeLookupAnalysisDTO.NewsGroupView.State.OK);
@@ -333,7 +333,7 @@ class CodeLookupAnalysisServiceTest {
                         news("阳光电源：拟在内蒙古投资建设智算中心项目", "证券时报", "https://a/1"),
                         news("阳光电源拟在内蒙古投资建设智算中心项目", "每日经济新闻", "https://a/2")), 2));
 
-        CodeLookupAnalysisDTO out = service.analyse("300274");
+        CodeLookupAnalysisDTO out = service.analyse(dto(false), TODAY);
 
         assertThat(groupOf(out, NewsItem.Category.NEWS).items()).hasSize(1);
         assertThat(groupOf(out, NewsItem.Category.NEWS).note()).contains("重复 1");
