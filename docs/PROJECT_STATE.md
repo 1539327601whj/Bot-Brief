@@ -8,6 +8,9 @@
 
 ## 已完成
 
+- 2026-11-20：修复 `/api/reports/{id}/navigation` 未进安全白名单导致公开 Demo 访问返回 403；`SecurityConfig` 新增 `^/api/reports/\d+/navigation$` 的登录可见规则，并补 `SecurityConfigTest`。**未部署**，需重新推送后生效。
+- 2026-11-20：服务器自托管 runner 从 2.336.0 手工升级到 2.338.2。2.336.0 已过 GitHub 的运行时版本下限，表现为 online 但不接任务；runner 自动更新又因直连 GitHub 下载超时连续失败。用 `gh-proxy.com` 16 路 Range 并行下载后原地解压升级，升级后 #114 部署在 3m40s 内成功。
+
 - 2026-11-20：简报详情页新增同版次导航。后端新增 `GET /api/reports/{id}/navigation`（`ReportQueryService.visibleIdsOfEdition`），返回同版次、当前账号可见的有序 id、总数与当前序号；前端详情页底部显示 `共 N 篇`、`‹ 上一篇 / 1 … N / 下一篇 ›` 与「跳至 __ 页」输入框，宽屏（≥1420px）另在页面左右显示圆形翻页钮。翻页使用 `replace` 跳转，连翻多篇后按返回仍回到打开它的列表页。
 - 2026-11-20：历史简报的页码与筛选（版次、日期、关键词）写入 URL（`/reports?edition=…&page=3`），从详情页返回时恢复原页码而不是回到第 1 页；筛选变更用 `replace` 写 URL，不污染浏览器历史。新增 `frontend/src/utils/navigation.ts`：按 `history.state.idx` 判断是否真有站内上一页，有就 `navigate(-1)`，没有就走页面自己的兜底（详情页 → `/reports`，顶部栏 → `/`）。顶部栏与详情页返回都改用它。刷新或浏览器前进/后退时，列表状态也按 URL 恢复。
 - 2026-11-20：新增 `automation/scripts/verify_report_pager.mjs`：假后端 + Edge 无头真机验证「第 3 页打开第 21 篇 → 页码条 1..46 → 跳页到 46 → 返回仍是第 3 页」，并检查 390px 下页码条换行、无横向溢出且「跳至」输入框未被 antd 在窄屏隐藏。
@@ -62,5 +65,6 @@
 - 蛋卷口径的指数估值没有历史接口，本地库一天涨一行；不足 3 年时只能给出当前分位与「3/5 年分位不可用」，不要期待自动补齐。
 - 跨进程东财冷却 key 仍不统一。
 - 生产默认 JWT/管理员密码尚未强制失败。
+- 自托管 runner 的自动更新下载不了 GitHub（100 秒超时），每跨过 GitHub 的运行时版本下限就会「online 但不接任务」。需在版本发布 30 天内手工升级：用 `gh-proxy.com` 分片并行下载 release 包，停服务后以 `github-runner` 用户原地解压，再启动服务；旧 `bin`/`externals` 留在 `/opt/actions-runner/*.bak-2.336` 可回滚。
 - 数据库迁移仍靠手工 SQL，V3/V4 版本号重复。
 - 前端没有真实自动化测试。

@@ -34,6 +34,7 @@ class SecurityConfigTest {
     static class TestController {
         @RequestMapping(path = {
                 "/api/auth/me", "/api/reports", "/api/reports/latest", "/api/reports/1",
+                "/api/reports/1/navigation",
                 "/api/stats/dashboard", "/api/chat", "/api/content-growth/overview",
                 "/api/shop/analytics/overview", "/api/subscription", "/api/channels",
                 "/api/push-logs", "/api/admin/invite-codes", "/api/market-valuations/000300/latest",
@@ -74,6 +75,8 @@ class SecurityConfigTest {
                 .andExpect(jsonPath("$.code").value(401))
                 .andExpect(jsonPath("$.message").isNotEmpty())
                 .andExpect(jsonPath("$.data").doesNotExist());
+        mockMvc.perform(get("/api/reports/1/navigation"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -83,6 +86,7 @@ class SecurityConfigTest {
 
         mockMvc.perform(get("/api/reports").with(demo)).andExpect(status().isOk());
         mockMvc.perform(get("/api/reports/1").with(demo)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/reports/1/navigation").with(demo)).andExpect(status().isOk());
         mockMvc.perform(get("/api/reports/latest").with(demo)).andExpect(status().isOk());
         mockMvc.perform(get("/api/stats/dashboard").with(demo)).andExpect(status().isOk());
         mockMvc.perform(get("/api/auth/me").with(demo)).andExpect(status().isOk());
