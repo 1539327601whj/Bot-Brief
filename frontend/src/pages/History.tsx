@@ -1,5 +1,5 @@
-import { cloneElement, isValidElement, useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { cloneElement, isValidElement, useCallback, useState, useEffect, useMemo } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DatePicker, Input, ConfigProvider, Pagination } from 'antd'
 import type { PaginationProps } from 'antd'
 import type { Dayjs } from 'dayjs'
@@ -43,27 +43,53 @@ export default function History() {
   const [pageData, setPageData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [page, setPage] = useState(1)
   const [retryKey, setRetryKey] = useState(0)
-  const [edition, setEdition] = useState('')
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [keyword, setKeyword] = useState('')
-  const [debouncedKeyword, setDebouncedKeyword] = useState('')
+
+  // 页码与筛选条件写进 URL：从简报详情返回时浏览器会带回原来的列表状态，
+  // 不会总是回到第一页。
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = useMemo(() => {
+    const parsed = Number.parseInt(searchParams.get('page') || '1', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  }, [searchParams])
+  const edition = searchParams.get('edition') || ''
+  const rangeStart = searchParams.get('startDate') || ''
+  const rangeEnd = searchParams.get('endDate') || ''
+  const debouncedKeyword = searchParams.get('keyword') || ''
+  const range = useMemo<[Dayjs | null, Dayjs | null] | null>(() => {
+    if (!rangeStart && !rangeEnd) return null
+    return [rangeStart ? dayjs(rangeStart) : null, rangeEnd ? dayjs(rangeEnd) : null]
+  }, [rangeStart, rangeEnd])
+  const [keyword, setKeyword] = useState(debouncedKeyword)
+
+  const updateParams = useCallback((patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams)
+    Object.entries(patch).forEach(([key, value]) => {
+      if (value == null || value === '') next.delete(key)
+      else next.set(key, value)
+    })
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const setPage = (nextPage: number) => {
+    updateParams({ page: nextPage > 1 ? String(nextPage) : null })
+  }
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setDebouncedKeyword(keyword.trim())
-      setPage(1)
+      const next = keyword.trim()
+      if (next !== debouncedKeyword) {
+        updateParams({ keyword: next || null, page: null })
+      }
     }, 300)
     return () => clearTimeout(t)
-  }, [keyword])
+  }, [keyword, debouncedKeyword, updateParams])
 
   useEffect(() => {
-    if (!canSeePublicDigest && edition.startsWith('market_watch')) {
-      setEdition('')
-      setPage(1)
+    if (user && !canSeePublicDigest && edition.startsWith('market_watch')) {
+      updateParams({ edition: null, page: null })
     }
-  }, [canSeePublicDigest, edition])
+  }, [user, canSeePublicDigest, edition, updateParams])
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
@@ -123,13 +149,15 @@ export default function History() {
   const hasFilter = edition !== '' || !!range?.[0] || !!range?.[1] || !!debouncedKeyword
 
   const changeEdition = (nextEdition: string) => {
-    setEdition(nextEdition)
-    setPage(1)
+    updateParams({ edition: nextEdition || null, page: null })
   }
 
   const changeRange = (nextRange: [Dayjs | null, Dayjs | null] | null) => {
-    setRange(nextRange)
-    setPage(1)
+    updateParams({
+      startDate: nextRange?.[0]?.format('YYYY-MM-DD') ?? null,
+      endDate: nextRange?.[1]?.format('YYYY-MM-DD') ?? null,
+      page: null,
+    })
   }
 
   const changeKeyword = (nextKeyword: string) => {
@@ -137,11 +165,8 @@ export default function History() {
   }
 
   const resetFilters = () => {
-    setEdition('')
-    setRange(null)
     setKeyword('')
-    setDebouncedKeyword('')
-    setPage(1)
+    updateParams({ edition: null, startDate: null, endDate: null, keyword: null, page: null })
   }
 
   const renderReportCard = (report: Report) => {

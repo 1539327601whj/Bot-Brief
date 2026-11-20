@@ -1,6 +1,6 @@
 # 项目状态
 
-> 最后更新：2026-11-04
+> 最后更新：2026-11-20
 
 ## 当前阶段
 
@@ -8,6 +8,10 @@
 
 ## 已完成
 
+- 2026-11-20：简报详情页新增同版次导航。后端新增 `GET /api/reports/{id}/navigation`（`ReportQueryService.visibleIdsOfEdition`），返回同版次、当前账号可见的有序 id、总数与当前序号；前端详情页底部显示 `共 N 篇`、`‹ 上一篇 / 1 … N / 下一篇 ›` 与「跳至 __ 页」输入框，宽屏（≥1420px）另在页面左右显示圆形翻页钮。翻页使用 `replace` 跳转，连翻多篇后按返回仍回到打开它的列表页。
+- 2026-11-20：历史简报的页码与筛选（版次、日期、关键词）写入 URL（`/reports?edition=…&page=3`），从详情页返回时恢复原页码而不是回到第 1 页；筛选变更用 `replace` 写 URL，不污染浏览器历史。新增 `frontend/src/utils/navigation.ts`：按 `history.state.idx` 判断是否真有站内上一页，有就 `navigate(-1)`，没有就走页面自己的兜底（详情页 → `/reports`，顶部栏 → `/`）。顶部栏与详情页返回都改用它。刷新或浏览器前进/后退时，列表状态也按 URL 恢复。
+- 2026-11-20：新增 `automation/scripts/verify_report_pager.mjs`：假后端 + Edge 无头真机验证「第 3 页打开第 21 篇 → 页码条 1..46 → 跳页到 46 → 返回仍是第 3 页」，并检查 390px 下页码条换行、无横向溢出且「跳至」输入框未被 antd 在窄屏隐藏。
+- 验证：后端 `mvn -Dtest=ReportNavigationControllerTest,ReportQueryServiceTest test` 通过；前端 `npm run test`、`npm run build` 通过；`verify_report_pager.mjs` 全部断言通过（截图在 `automation/screenshots/report-pager/`）。
 - 2026-11-04：建立上下文持久化文件（`CLAUDE.md`、`docs/PROJECT_STATE.md`、`docs/DECISIONS.md`）。
 - 2026-11-04：修复低估精选 `DRAWDOWN` 因子方向（回撤越大不再得分越高）。
 - 2026-11-04：新增代码查询规则决策层 `DecisionEngine`，首屏输出位置 / 时机 / 行动 / 长期短期；数据不足时四块统一为 `INSUFFICIENT`。

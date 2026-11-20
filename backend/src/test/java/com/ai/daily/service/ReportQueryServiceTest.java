@@ -2,7 +2,9 @@ package com.ai.daily.service;
 
 import com.ai.daily.entity.Report;
 import com.ai.daily.task.ScheduledPushTask;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +76,21 @@ class ReportQueryServiceTest {
         assertThat(service.getLatest(7L, false, false, "market_watch_evening")).isNull();
         verify(subscriptions, never()).getOrCreateForUser(any());
         verify(reports, never()).getLatestPublicMarketWatch();
+    }
+
+    @Test
+    void editionNavigationSkipsWhenEditionOrUserMissing() {
+        ReportService reports = mock(ReportService.class);
+        ReportQueryService service = new ReportQueryService(
+                reports,
+                mock(ReportAssemblyService.class),
+                mock(SubscriptionService.class),
+                mock(SubscriptionPreferences.class),
+                mock(ScheduledPushTask.class));
+
+        assertThat(service.visibleIdsOfEdition(7L, false, false, "   ")).isEmpty();
+        assertThat(service.visibleIdsOfEdition(null, false, false, "morning")).isEmpty();
+        verify(reports, org.mockito.Mockito.never()).list(ArgumentMatchers.<Wrapper<Report>>any());
     }
 
     @Test

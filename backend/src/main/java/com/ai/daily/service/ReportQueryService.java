@@ -143,6 +143,36 @@ public class ReportQueryService {
         return reportService.page(page, wrapper);
     }
 
+    /**
+     * 同一版次下当前用户可见的简报 id，按创建时间倒序（与历史简报列表一致）。
+     * 用于详情页的上一篇 / 下一篇与页码跳转，数据只读、不落库。
+     */
+    public List<Long> visibleIdsOfEdition(
+            Long userId, boolean demo, boolean allowPublicDigest, String edition) {
+        if (edition == null || edition.isBlank()) return List.of();
+        if (!demo && userId == null) return List.of();
+        if (!demo && !isPublicOnlyEdition(edition)) {
+            safeEnsureTodayAssembled(userId);
+        }
+        LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(Report::getId);
+        if (demo) {
+            wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID).eq(Report::getEdition, edition);
+        } else if (Report.isPersonalizedEdition(edition)) {
+            wrapper.eq(Report::getUserId, userId).eq(Report::getEdition, Report.PERSONAL);
+        } else if (allowPublicDigest && (Report.isSharedPublicEdition(edition) || Report.isPublicDigest(edition))) {
+            wrapper.eq(Report::getUserId, Report.PUBLIC_OWNER_ID).eq(Report::getEdition, edition);
+        } else {
+            // 其余版次（如历史遗留的个人版次）只回本人自己的记录。
+            wrapper.eq(Report::getUserId, userId).eq(Report::getEdition, edition);
+        }
+        if (!demo) {
+            applyReleaseScope(wrapper);
+        }
+        wrapper.orderByDesc(Report::getCreatedAt).orderByDesc(Report::getId);
+        return reportService.list(wrapper).stream().map(Report::getId).toList();
+    }
+
     public long countVisible(Long userId, boolean demo, LocalDateTime start, LocalDateTime end) {
         return countVisible(userId, demo, false, start, end);
     }

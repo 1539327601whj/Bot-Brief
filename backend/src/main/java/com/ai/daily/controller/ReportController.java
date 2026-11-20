@@ -299,6 +299,29 @@ public class ReportController {
     }
 
     /**
+     * 同一版次简报导览：总数、当前序号与有序 id 列表，供详情页上一篇 / 下一篇与页码跳转使用。
+     * GET /api/reports/{id}/navigation
+     */
+    @GetMapping("/{id}/navigation")
+    public Result<Map<String, Object>> getNavigation(@PathVariable Long id) {
+        Long userId = SecurityUtils.currentUserId();
+        boolean demo = SecurityUtils.isDemo();
+        boolean allowPublicDigest = SecurityUtils.canReadPublicDigest();
+        Report report = reportQueryService.getById(userId, demo, allowPublicDigest, id);
+        if (report == null) {
+            return Result.error(404, "简报不存在");
+        }
+        List<Long> ids = reportQueryService.visibleIdsOfEdition(
+                userId, demo, allowPublicDigest, report.getEdition());
+        Map<String, Object> data = new HashMap<>();
+        data.put("edition", report.getEdition());
+        data.put("ids", ids);
+        data.put("total", ids.size());
+        data.put("index", ids.indexOf(id) + 1);
+        return Result.ok(data);
+    }
+
+    /**
      * 获取单条简报详情
      * GET /api/reports/{id}
      */

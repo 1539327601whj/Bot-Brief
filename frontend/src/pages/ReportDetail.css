@@ -512,10 +512,96 @@
   color: var(--text);
 }
 
+/* 同版次简报导览：底部页码 + 左右翻页，两侧圆钮只在宽屏出现 */
+.report-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 34px 0;
+  padding: 18px 0 6px;
+  border-top: 1px solid rgba(var(--tint-rgb), 0.08);
+}
+
+.report-pager .ant-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 8px;
+}
+
+.report-side-arrow:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.88);
+  outline-offset: 2px;
+}
+
+.report-side-arrow {
+  position: fixed;
+  top: 50%;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: rgba(var(--glass-rgb), 0.72);
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-soft);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.report-side-arrow:hover:not(:disabled) {
+  border-color: rgba(var(--accent-rgb), 0.7);
+  background: rgba(var(--tint-rgb), 0.1);
+  color: var(--accent-strong);
+}
+
+.report-side-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.report-side-prev {
+  left: calc(50vw - 433px);
+}
+
+.report-side-next {
+  right: calc(50vw - 668px);
+}
+
+@media (max-width: 1419px) {
+  .report-side-arrow { display: none; }
+}
+
 @media (max-width: 720px) {
   .detail-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .report-pager {
+    margin: 4px 12px 0;
+    padding-top: 14px;
+    gap: 8px;
+  }
+
+  .report-pager .ant-pagination-total-text {
+    display: none;
+  }
+
+  /* antd 默认在 576px 以下隐藏「跳至 __ 页」，这里要保留，让手机也能按数字跳转。 */
+  .report-pager .ant-pagination-options {
+    display: inline-block;
   }
 
   .report-article {

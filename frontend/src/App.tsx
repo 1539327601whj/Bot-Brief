@@ -25,6 +25,7 @@ import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
 import BrandLogo from './components/BrandLogo'
 import UserMenu from './components/UserMenu'
 import ViewScrollRestoration from './components/ViewScrollRestoration'
+import { goBackOr } from './utils/navigation'
 import './Layout.css'
 
 // 侧边栏导航组件
@@ -162,8 +163,7 @@ function Header({ navOpen, onToggleNav }: { navOpen: boolean; onToggleNav: () =>
   const showBack = location.pathname !== '/'
 
   const goBack = () => {
-    if (location.key !== 'default') navigate(-1)
-    else navigate('/')
+    goBackOr(navigate, '/')
   }
 
   return (
