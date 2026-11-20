@@ -8,7 +8,8 @@
 
 ## 已完成
 
-- 2026-11-20：修复 `/api/reports/{id}/navigation` 未进安全白名单导致公开 Demo 访问返回 403；`SecurityConfig` 新增 `^/api/reports/\d+/navigation$` 的登录可见规则，并补 `SecurityConfigTest`。**未部署**，需重新推送后生效。
+- 2026-11-20：修复 `/api/reports/{id}/navigation` 未进安全白名单导致公开 Demo 访问返回 403；`SecurityConfig` 新增 `^/api/reports/\d+/navigation$` 的登录可见规则，并补 `SecurityConfigTest`。已部署，线上 Demo 实测返回 200（99 篇，index 1）。
+- 2026-11-20：修好两条会随时间失效的新闻分组测试：`CodeLookupAnalysisServiceTest` 改用显式传入 `TODAY` 的 `analyse(dto, today)`，不再依赖「今天」与固定夹具日期相差 30 天内；`市场数据链路测试` 恢复全绿。
 - 2026-11-20：服务器自托管 runner 从 2.336.0 手工升级到 2.338.2。2.336.0 已过 GitHub 的运行时版本下限，表现为 online 但不接任务；runner 自动更新又因直连 GitHub 下载超时连续失败。用 `gh-proxy.com` 16 路 Range 并行下载后原地解压升级，升级后 #114 部署在 3m40s 内成功。
 
 - 2026-11-20：简报详情页新增同版次导航。后端新增 `GET /api/reports/{id}/navigation`（`ReportQueryService.visibleIdsOfEdition`），返回同版次、当前账号可见的有序 id、总数与当前序号；前端详情页底部显示 `共 N 篇`、`‹ 上一篇 / 1 … N / 下一篇 ›` 与「跳至 __ 页」输入框，宽屏（≥1420px）另在页面左右显示圆形翻页钮。翻页使用 `replace` 跳转，连翻多篇后按返回仍回到打开它的列表页。
