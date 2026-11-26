@@ -114,7 +114,7 @@ class CodeLookupV2ControllerTest {
                 true, false, 0, null, null, null, null, java.util.List.of(), null, null,
                 java.util.List.of(), java.util.List.of(),
                 java.util.Map.of(), java.util.List.of(),
-                "code-lookup-v2-p4", CodeLookupV2DTO.DISCLAIMER);
+                "code-lookup-v2-p4", CodeLookupV2DTO.DISCLAIMER, null);
         when(service.core("600519")).thenReturn(core);
 
         Result<CodeLookupV2DTO.CoreView> result = controller.core("600519");

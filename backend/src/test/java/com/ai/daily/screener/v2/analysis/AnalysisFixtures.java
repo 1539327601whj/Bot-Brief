@@ -75,7 +75,7 @@ public final class AnalysisFixtures {
                 FactsSnapshot.Domain.empty("本地没有估值历史"),
                 base.indexValuation(), base.financials(), base.moneyflow(),
                 base.indexProfile(), base.industry(), base.events(),
-                false, 0, true, "noval1", "2026-10-18T10:00:00");
+                false, 0, true, "noval1", "2026-10-18T10:00:00", null);
     }
 
     public static FactsSnapshot emptyStock() {
@@ -92,7 +92,7 @@ public final class AnalysisFixtures {
                 FactsSnapshot.Domain.notApplicable("个股没有指数画像"),
                 FactsSnapshot.Domain.notApplicable("个股没有行业权重"),
                 FactsSnapshot.Domain.empty("没有事件"),
-                true, 0, true, "empty1", "2026-10-18T10:00:00");
+                true, 0, true, "empty1", "2026-10-18T10:00:00", null);
     }
 
     private static FactsSnapshot stock(String name, String code, String market, String industry,
@@ -120,7 +120,7 @@ public final class AnalysisFixtures {
                 FactsSnapshot.Domain.notApplicable("个股没有指数画像"),
                 FactsSnapshot.Domain.notApplicable("个股没有行业权重"),
                 FactsSnapshot.Domain.ok(List.of(), null),
-                false, 0, true, "stock-" + code, "2026-10-18T10:00:00");
+                false, 0, true, "stock-" + code, "2026-10-18T10:00:00", null);
     }
 
     // ------------------------------------------------------------------
@@ -169,7 +169,7 @@ public final class AnalysisFixtures {
                 FactsSnapshot.Domain.ok(profile, "2026-09-30"),
                 FactsSnapshot.Domain.ok(industry, "2026-09-30"),
                 FactsSnapshot.Domain.ok(List.of(), null),
-                false, 0, true, assetType + "-" + code, "2026-10-18T10:00:00");
+                false, 0, true, assetType + "-" + code, "2026-10-18T10:00:00", null);
     }
 
     /** 带基金档案的 ETF：规模 194.68 亿、年化跟踪误差 1.02%（同类 2.21%）。 */
@@ -188,7 +188,7 @@ public final class AnalysisFixtures {
                 base.prices(), base.valuations(), base.indexValuation(), base.financials(),
                 base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
                 base.syncPending(), base.retryAfterMs(), base.fromCache(),
-                base.snapshotId(), base.snapshotAt());
+                base.snapshotId(), base.snapshotAt(), base.etfResearch());
     }
 
     /** ETF 没有基金档案，只有行情源给的总市值（100 亿）：规模回退到估算口径。 */
@@ -203,7 +203,7 @@ public final class AnalysisFixtures {
                 base.prices(), base.valuations(), base.indexValuation(), base.financials(),
                 base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
                 base.syncPending(), base.retryAfterMs(), base.fromCache(),
-                base.snapshotId(), base.snapshotAt());
+                base.snapshotId(), base.snapshotAt(), base.etfResearch());
     }
 
     /**
@@ -226,7 +226,7 @@ public final class AnalysisFixtures {
                 base.valuations(), base.indexValuation(), base.financials(),
                 base.moneyflow(), base.indexProfile(), base.industry(), base.events(),
                 base.syncPending(), base.retryAfterMs(), base.fromCache(),
-                base.snapshotId(), base.snapshotAt());
+                base.snapshotId(), base.snapshotAt(), base.etfResearch());
     }
 
     private static WarehouseRows.IndustryWeight weight(String indexCode, String name,
@@ -360,6 +360,6 @@ public final class AnalysisFixtures {
                 new FactsSnapshot.Domain<>(List.copyOf(events), DataStatus.OK, null,
                         published.toString()),
                 base.syncPending(), base.retryAfterMs(), base.fromCache(),
-                base.snapshotId(), base.snapshotAt());
+                base.snapshotId(), base.snapshotAt(), base.etfResearch());
     }
 }

@@ -42,7 +42,7 @@ class CodeLookupV2JsonContractTest {
 
         assertThat(json.path("code").asText()).isEqualTo("600519");
         assertThat(json.path("assetType").asText()).isEqualTo("STOCK");
-        assertThat(json.path("rulesVersion").asText()).isEqualTo("code-lookup-v2-p5");
+        assertThat(json.path("rulesVersion").asText()).isEqualTo("code-lookup-v2-p6");
         assertThat(json.path("disclaimer").asText()).isEqualTo(CodeLookupV2DTO.DISCLAIMER);
         assertThat(json.path("snapshotId").asText()).isNotBlank();
 

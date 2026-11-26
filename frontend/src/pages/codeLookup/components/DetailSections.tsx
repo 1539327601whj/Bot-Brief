@@ -6,6 +6,7 @@ import type {
   IndexProfileView,
   IndustryView,
   MoneyFlowPoint,
+  PricePoint,
   SeriesView,
   ValuationPoint,
 } from '../types'
@@ -22,6 +23,7 @@ import {
   yi,
 } from '../format'
 import { domainLabel } from './DataQualityBanner'
+import { eventReaction } from '../portfolio'
 import { FinancialTrendChart, IndustryDonut, MoneyFlowChart, ValuationChart } from './Charts'
 
 function SectionStatus({ status, note }: { status: string; note: string | null }) {
@@ -227,12 +229,28 @@ export function TechnicalTab({ core, moneyflow, moneyflowLoading, moneyflowNote 
 // 新闻政策
 // ---------------------------------------------------------------------
 
-export function EventsTab({ detail }: { detail: DetailView | null }) {
+export function EventsTab({ core, detail, price }: { core: CoreView; detail: DetailView | null; price: PricePoint[] }) {
   if (!detail) return <p className="cl-empty">明细还在加载。</p>
   const section = detail.events
+  const name = `${core.name ?? ''} ${core.industry ?? ''} ${core.trackingIndexCode ?? ''}`
+  const topics: Record<string, RegExp> = {
+    '科技ETF': /科技|半导体|芯片|人工智能|纳指|NDX/,
+    '创业板': /创业板/,
+    '沪深300': /沪深\s*300|SH000300/,
+    '红利ETF': /红利|股息/,
+    '黄金ETF': /黄金|上海金/,
+  }
+  const events = section.data.map(event => {
+    const topic = event.eventType?.startsWith('ETF:') ? event.eventType.slice(4) : null
+    const direct = event.instrumentCode != null && event.instrumentCode.endsWith(`:${detail.code}`)
+    const related = direct || (topic != null && (topic === '美联储议息' || topics[topic]?.test(name)))
+    return { event, topic, related, direct }
+  }).sort((first, second) => Number(second.direct) - Number(first.direct)
+    || Number(second.related) - Number(first.related))
   return (
     <div className="cl-stack">
       <SectionStatus status={section.status} note={section.note} />
+      <p className="cl-note">事件反应以前一个收盘价为基准，比较发布后首个完整交易日和前三个完整交易日。日内发布或发布时间不明确时，从下一交易日算起。</p>
       {section.data.length === 0 ? (
         <p className="cl-empty">
           {section.status === 'OK'
@@ -241,7 +259,9 @@ export function EventsTab({ detail }: { detail: DetailView | null }) {
         </p>
       ) : (
         <ul className="cl-events">
-          {section.data.map((event, index) => (
+          {events.map(({ event, topic, related }, index) => {
+            const reaction = related ? eventReaction(event, price) : null
+            return (
             <li key={`${event.url || event.title}-${index}`}>
               <div className="cl-event-head">
                 <span className="cl-chip">{eventCategoryLabel(event.category)}</span>
@@ -251,6 +271,7 @@ export function EventsTab({ detail }: { detail: DetailView | null }) {
                   </span>
                 )}
                 {event.importance && <span className="cl-chip">{event.importance}</span>}
+                {topic && <span className="cl-chip">关注 {topic}</span>}
                 <span className="cl-event-date">{dateTime(event.publishedAt)}</span>
               </div>
               {event.url ? (
@@ -259,14 +280,19 @@ export function EventsTab({ detail }: { detail: DetailView | null }) {
                 <b>{event.title}</b>
               )}
               {event.summary && <p>{event.summary}</p>}
-              <span className="cl-event-source">{event.source || '来源未标'}{event.eventType ? ` · ${event.eventType}` : ''}</span>
+              {reaction ? <p className="cl-event-source">
+                本标的同期反应 · {reaction.firstDate} {signedPct(reaction.first)}
+                {reaction.thirdDate ? ` · 截至 ${reaction.thirdDate} 累计 ${signedPct(reaction.third)}` : ' · 前三日样本尚未齐'}
+              </p> : related ? <p className="cl-event-source">暂无可对齐的收盘价。</p>
+                : <p className="cl-event-source">组合背景资讯。</p>}
+              <span className="cl-event-source">{event.source || '来源未标'}{event.eventType && !topic ? ` · ${event.eventType}` : ''}</span>
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
       <p className="cl-note">
-        这里只列<b>标题、来源、日期与链接</b>，不摘正文、不做情绪评分。
-        事件极性只来自高置信度的公告与监管信息，普通资讯不参与结论调整。
+        行情变化用于核对新闻与市场反应的时间顺序。若要判断下跌原因，还需看同期基准和后续财报。
       </p>
     </div>
   )

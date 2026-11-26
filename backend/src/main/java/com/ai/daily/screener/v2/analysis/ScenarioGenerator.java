@@ -43,10 +43,15 @@ public final class ScenarioGenerator {
         BigDecimal valuation = score.dimensionScore("valuation");
         BigDecimal trend = score.dimensionScore(indexLike ? "trend" : "technical");
         boolean hasHardFlags = verdict.hardFlags() != null && !verdict.hardFlags().isEmpty();
+        var research = facts.etfResearch();
+        boolean equityResearch = research != null && research.gold() == null;
+        boolean hasEarningsSupport = !equityResearch || (research.earnings().supported()
+                && !research.earnings().sustainedContraction());
 
         boolean bull = score.finalScore().compareTo(BULL_SCORE) >= 0
                 && atLeast(valuation, GOOD_DIMENSION)
                 && atLeast(trend, GOOD_DIMENSION)
+                && hasEarningsSupport
                 && !hasHardFlags;
         boolean bear = !bull && (score.finalScore().compareTo(BEAR_SCORE) < 0
                 || (trend != null && trend.compareTo(WEAK_TREND) < 0)
@@ -58,6 +63,10 @@ public final class ScenarioGenerator {
                 : "估值与趋势同时站上 55 分、且没有硬约束时，才进入这一情景。";
         String baseNarrative = "估值与趋势未形成共振，等待方向确认；"
                 + "区间上沿与下沿的突破方向比单日涨跌更有信息量。";
+        if (!hasEarningsSupport) {
+            bullNarrative = "先等同一期成分股财报确认盈利支撑，再看估值和价格趋势能否同时改善。";
+            baseNarrative = "继续观察价格与量能。现有成分股数据尚未验证盈利支撑，下一期财报是复核条件。";
+        }
         String bearNarrative = bear
                 ? (hasHardFlags
                 ? "存在硬约束（详见风险清单），结论已封顶；若再跌破参考止损，弱势可能延续。"
@@ -69,13 +78,15 @@ public final class ScenarioGenerator {
 
         return List.of(
                 new Scenario("bull", "乐观", bull,
-                        "总分 ≥ 65、估值 ≥ 55、趋势 ≥ 55、无硬约束",
+                        "总分 ≥ 65、估值 ≥ 55、趋势 ≥ 55、无硬约束"
+                                + (equityResearch ? "，成分股样本盈利有支撑" : ""),
                         bullNarrative,
                         List.of(valuationEvidence, maEvidence),
                         "PE 分位升破 80，或收盘跌破" + stopText,
                         Scenario.DISCLAIMER),
                 new Scenario("base", "中性", !bull && !bear,
-                        "总分 45–64，或估值与趋势方向相反",
+                        "总分 45–64，或估值与趋势方向相反"
+                                + (equityResearch ? "，或盈利支撑待验证" : ""),
                         baseNarrative,
                         List.of(valuationEvidence, "ev:tech:price_percentile"),
                         "放量突破参考区间上沿或跌破下沿",

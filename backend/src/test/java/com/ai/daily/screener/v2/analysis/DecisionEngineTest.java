@@ -197,6 +197,6 @@ class DecisionEngineTest {
                 base.indexValuation(), base.financials(), base.moneyflow(),
                 base.indexProfile(), base.industry(), base.events(),
                 base.syncPending(), base.retryAfterMs(), base.fromCache(),
-                base.snapshotId(), base.snapshotAt());
+                base.snapshotId(), base.snapshotAt(), base.etfResearch());
     }
 }

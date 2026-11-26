@@ -48,6 +48,8 @@ def sync_events(
     stock_code: str | None = None,
     policy_subject: str | None = None,
     fetched_at: datetime | None = None,
+    news_topic: str | None = None,
+    news_limit: int | None = None,
 ) -> SyncOutcome:
     stamp = fetched_at or now_beijing()
     parts: dict[str, SyncOutcome] = {}
@@ -73,7 +75,13 @@ def sync_events(
         parts[route] = SyncOutcome("OK" if found else "EMPTY", rows=len(found))
 
     if keyword:
-        collect("news", lambda: news.search_news(keyword))
+        def load_news() -> list[dict]:
+            found = news.search_news(keyword)[:news_limit]
+            if news_topic:
+                return [{**item, "event_type": news_topic} for item in found]
+            return found
+
+        collect("news", load_news)
     if stock_code:
         # ETF 公告恒为空（东财接口只覆盖股票），这是正常结果，不是失败。
         collect("notice", lambda: news.fetch_notices(stock_code))

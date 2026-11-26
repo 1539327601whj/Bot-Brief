@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { EtfResearchView } from './codeLookup/types'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import './MarketWatch.css'
@@ -74,6 +76,7 @@ interface Selected {
  * 于是渲染时不需要任何「猜」：值为 null 就直接印状态串。前端**不再**有 `|| '—'` 这种兜底。
  */
 interface IndexFundItem {
+  etfResearch?: EtfResearchView | null
   indexCode: string
   indexName: string
   category: string
@@ -655,6 +658,32 @@ function IndexFundCard({ item }: { item: IndexFundItem }) {
         <Cell label="PE 分位" value={item.pePercentile} status={item.percentileStatus} format={pct} />
       </div>
 
+      {item.etfResearch && (
+        <div className="stockpick-provenance">
+          <div>
+            <label>低位与盈利</label>
+            <span>{item.etfResearch.candidate ? '低位且盈利有支撑'
+              : item.etfResearch.earnings.state === 'UNCONFIRMED'
+                ? item.etfResearch.earnings.note
+                : item.etfResearch.earnings.state === 'SUPPORTED'
+                  && item.etfResearch.earnings.growth != null
+                  && item.etfResearch.earnings.growth.revenueCagr < 0
+                  && item.etfResearch.earnings.growth.profitCagr < 0
+                  ? '近期盈利有支撑，三年营收和利润均收缩'
+                  : item.etfResearch.earnings.state === 'SUPPORTED'
+                  ? '盈利有支撑，低位条件未确认或未达到'
+                  : '样本盈利表现分化或走弱'}</span>
+          </div>
+          {item.etfResearch.earnings.profitYoy !== null && (
+            <div>
+              <label>成分股净利同比</label>
+              <span>{signed(item.etfResearch.earnings.profitYoy)} · 权重覆盖 {num(item.etfResearch.earnings.sampleWeight, 1)}%</span>
+            </div>
+          )}
+          {item.etfCode && <Link to={`/code-lookup?code=${encodeURIComponent(item.etfCode)}`}>查看 ETF 详情</Link>}
+        </div>
+      )}
+
       {/*
         「这条曲线有多旧」是读者该自己判断的事实，所以把日期和来源都摆出来。
         不去猜「几天算旧」：交易日历在只看指数时拿不到，猜出来的阈值会在春节误报。
@@ -717,6 +746,7 @@ export default function StockPick() {
   // 指数那一块的两个纯前端状态：筛选与展开。都不进 URL、不发请求——
   // 服务端返回的是一次扫描的完整口径，客户端切片是即时的，少改一处协议。
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [earningsOnly, setEarningsOnly] = useState(false)
   const [expandedCategories, setExpandedCategories] = useState<string[]>([])
   const startedAt = useRef(0)
 
@@ -868,7 +898,9 @@ export default function StockPick() {
    * 章程 §5 明令禁止；这里用数据结构而不是注释来保证。
    */
   const indexGroups = useMemo(() => {
-    const funds = result?.indexFunds ?? []
+    const allFunds = result?.indexFunds ?? []
+    const candidates = allFunds.filter(f => f.etfResearch?.candidate)
+    const funds = earningsOnly ? candidates : allFunds
     const present = funds.map(f => f.category)
     // 认不出的类别原样列在最后，不吞掉——吞掉就是「有条目悄悄不见了」
     const order = [
@@ -891,8 +923,9 @@ export default function StockPick() {
       }),
       etfBacked: funds.filter(f => f.etfCode !== null).length,
       counts: qualCounts(funds),
+      candidateCount: candidates.length,
     }
-  }, [result])
+  }, [result, earningsOnly])
 
   const etfBackedCount = indexGroups.etfBacked
   const indexCounts = indexGroups.counts
@@ -1178,10 +1211,21 @@ export default function StockPick() {
               <div className="stockpick-cat-chips">
                 <button
                   type="button"
+                  aria-pressed={earningsOnly}
+                  className={`stockpick-filter-chip ${earningsOnly ? 'on' : ''}`}
+                  onClick={() => {
+                    setEarningsOnly(value => !value)
+                    setCategoryFilter('all')
+                  }}
+                >
+                  低位且盈利有支撑（{indexGroups.candidateCount}）
+                </button>
+                <button
+                  type="button"
                   className={`stockpick-filter-chip ${categoryFilter === 'all' ? 'on' : ''}`}
                   onClick={() => setCategoryFilter('all')}
                 >
-                  全部（{result.indexFunds.length}）
+                  全部类别（{indexCounts.total}）
                 </button>
                 {indexGroups.all.map(g => (
                   <button
@@ -1194,6 +1238,9 @@ export default function StockPick() {
                   </button>
                 ))}
               </div>
+              {earningsOnly && indexGroups.candidateCount === 0 && (
+                <p className="stockpick-note">本次没有证据齐全且同时符合低位和盈利条件的 ETF。</p>
+              )}
 
               {(categoryFilter === 'all' ? indexGroups.all : indexGroups.all.filter(
                 g => g.category === categoryFilter,

@@ -81,7 +81,7 @@ class StockScreenerServicePrefetchReadTest {
 
     private StockScreenerService service(LocalTime at, boolean readEnabled, ScreenerCache cache) {
         return new StockScreenerService(client, cache, valuationService, priceService, indexPool, alt,
-                prefetchService, readEnabled, 3, 10) {
+                prefetchService, readEnabled, 3, 10, mock(EtfResearch.class)) {
             @Override
             LocalTime localTimeNow() {
                 return at;

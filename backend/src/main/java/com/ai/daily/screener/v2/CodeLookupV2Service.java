@@ -106,7 +106,8 @@ public class CodeLookupV2Service {
                 data,
                 notes,
                 analysis.rulesVersion(),
-                CodeLookupV2DTO.DISCLAIMER);
+                CodeLookupV2DTO.DISCLAIMER,
+                snapshot.etfResearch());
     }
 
     private static CodeLookupV2DTO.QuoteView quoteView(FactsSnapshot.Domain<FactsSnapshot.Quote> domain) {
@@ -428,7 +429,7 @@ public class CodeLookupV2Service {
         for (WarehouseRows.Event e : rows) {
             out.add(new CodeLookupV2DTO.EventView(e.category(), e.eventType(), e.title(),
                     e.summary(), e.url(), e.publishedAt() == null ? null : e.publishedAt().toString(),
-                    e.source(), e.importance(), e.polarity()));
+                    e.source(), e.importance(), e.polarity(), e.instrumentCode()));
         }
         return out;
     }

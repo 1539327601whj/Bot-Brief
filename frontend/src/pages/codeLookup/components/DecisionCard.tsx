@@ -3,6 +3,7 @@ import { num, signedPct } from '../format'
 
 interface Props {
   core: CoreView
+  portfolioManaged?: boolean
 }
 
 type Tone = 'good' | 'ok' | 'warn' | 'bad' | 'muted'
@@ -61,7 +62,7 @@ function availableAxes(decision: DecisionView): DecisionAxisView[] {
  * 这里只展示后端规则算出的封闭标签，不在前端二次推导或改写成更「好听」的说法。
  * 四块中任何一块是 `INSUFFICIENT`，就照实显示「数据不足」。
  */
-export default function DecisionCard({ core }: Props) {
+export default function DecisionCard({ core, portfolioManaged }: Props) {
   const decision = core.decision
   if (!decision) return null
 
@@ -79,16 +80,16 @@ export default function DecisionCard({ core }: Props) {
     <section className="cl-decision" aria-label="规则决策">
       <header className="cl-decision-head">
         <div>
-          <div className="cl-kicker">先看结论 · 规则计算</div>
+          <div className="cl-kicker">{portfolioManaged ? '价格位置与趋势' : '先看结论 · 规则计算'}</div>
           <h3>
             {core.name || '名称未取到'}
             <span className="cl-code">{core.code}</span>
           </h3>
         </div>
-        <p className="cl-decision-summary">{decision.summary}</p>
+        {!portfolioManaged && <p className="cl-decision-summary">{decision.summary}</p>}
       </header>
 
-      <div className="cl-decision-grid">
+      <div className={portfolioManaged ? 'cl-decision-grid cl-portfolio-market-grid' : 'cl-decision-grid'}>
         <div className={`cl-decision-cell cl-tone-${positionToneValue}`}>
           <label>位置</label>
           <b>{position.label}</b>
@@ -99,7 +100,7 @@ export default function DecisionCard({ core }: Props) {
           </p>
         </div>
 
-        <div className={`cl-decision-cell cl-tone-${timingToneValue}`}>
+        {!portfolioManaged && <><div className={`cl-decision-cell cl-tone-${timingToneValue}`}>
           <label>时机</label>
           <b>{timing.label}</b>
           <p>{timing.triggers[0] || (timing.key === 'INSUFFICIENT' ? '先补齐数据' : '按当前证据等待')}</p>
@@ -109,7 +110,7 @@ export default function DecisionCard({ core }: Props) {
           <label>行动</label>
           <b>{action.label}</b>
           <p>{action.tranchePlan[0] || '先补齐关键数据，再做判断'}</p>
-        </div>
+        </div></>}
 
         <div className={`cl-decision-cell cl-tone-${horizonToneValue}`}>
           <label>周期</label>

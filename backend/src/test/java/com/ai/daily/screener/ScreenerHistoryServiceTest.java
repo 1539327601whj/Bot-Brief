@@ -349,6 +349,6 @@ class ScreenerHistoryServiceTest {
                 "腾讯", "腾讯", "中证指数官网", "近十年 PE(TTM) 分位",
                 LocalDate.of(2026, 9, 30), 250, LocalDate.of(2026, 9, 30),
                 List.of("PE 分位是【指数】的口径，不是该 ETF 自身的分位；不同估值来源不可横向比较"),
-                qualification, reasons);
+                qualification, reasons, null);
     }
 }

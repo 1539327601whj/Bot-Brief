@@ -1,5 +1,7 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.screener.EtfResearch;
+import com.ai.daily.screener.PricePositionCalculator;
 import com.ai.daily.entity.EtfPriceHistory;
 import com.ai.daily.entity.MarketValuationHistory;
 import com.ai.daily.screener.EtfPriceSeriesSelector;
@@ -73,6 +75,8 @@ public class InstrumentFactsService {
     private final FundProfileClient fundProfileClient;
     private final ScreenerCache screenerCache;
     private final WarehouseProperties properties;
+    private final EtfResearch etfResearch;
+    private final FredRates fredRates;
 
     /**
      * 本地估值库为空时现取中证/蛋卷历史的短期缓存。
@@ -89,15 +93,18 @@ public class InstrumentFactsService {
     public FactsSnapshot snapshot(String rawCode) {
         InstrumentCode instrument = resolver.resolve(rawCode);
         OnDemandSyncService.SyncReport report = onDemandSyncService.sync(instrument, null);
-        LocalDate today = LocalDate.now(SHANGHAI);
+        LocalDateTime evaluatedAt = LocalDateTime.now(SHANGHAI);
+        LocalDate today = evaluatedAt.toLocalDate();
 
-        WareHousIdentity identity = identity(instrument, report);
+        FactsSnapshot.Domain<FactsSnapshot.FundProfile> fundProfile = fundProfile(instrument);
+        WareHousIdentity identity = identity(instrument, report, fundProfile.data());
 
         // ------------------------------------------------------------------
         // 价格
         // ------------------------------------------------------------------
         List<WarehouseRows.PriceBar> prices =
                 repository.latestPrices(instrument.key(), OnDemandSyncService.ADJ_QFQ, PRICE_BARS);
+        List<WarehouseRows.PriceBar> volumePrices = prices;
         DataStatus priceStatus = report.priceStatus();
         String priceNote = report.priceNote();
         if (instrument.isEtf()) {
@@ -122,6 +129,9 @@ public class InstrumentFactsService {
                         etfLiveKlineService.fetchAndStore(instrument, report.name(), fullHistory);
                 if (!live.isEmpty()) {
                     liveFetched = true;
+                    if (volumePrices.isEmpty() || lastDate(live).isAfter(lastDate(volumePrices))) {
+                        volumePrices = live;
+                    }
                     // 落库后再读一次：让选源器在「新取的一页 + 旧的长序列」之间按同源规则挑，
                     // 而不是拿 800 根新数据盖掉本地已有的 2600 根历史。
                     List<WarehouseRows.PriceBar> reread =
@@ -225,9 +235,33 @@ public class InstrumentFactsService {
                 : FactsSnapshot.Domain.ok(events, events.get(0).publishedAt() == null
                 ? null : events.get(0).publishedAt().toLocalDate().toString());
 
-        FactsSnapshot.Domain<FactsSnapshot.FundProfile> fundProfile = fundProfile(instrument);
+        EtfResearch.View research = null;
+        if (instrument.isEtf() && isGoldFund(identity.identity().name(), fundProfile.data())) {
+            research = EtfResearch.gold(fredRates, prices, preferVolumePrices(volumePrices, prices),
+                    EtfResearch.completedDay(evaluatedAt), today);
+        } else if (instrument.isEtf() && !isNonStockFund(fundProfile.data())) {
+            LocalDate completedDay = EtfResearch.completedDay(evaluatedAt);
+            EtfResearch.Earnings earnings = indexCode == null || indexCode.isBlank()
+                    ? EtfResearch.missing("尚未匹配到跟踪指数")
+                    : etfResearch.earnings(List.of(indexCode), today).getOrDefault(indexCode,
+                            EtfResearch.missing("暂无成分股盈利数据"));
+            Boolean lowPrice = EtfResearch.lowPrice(PricePositionCalculator.compute(prices.stream()
+                    .filter(bar -> bar.tradeDate() != null && !bar.tradeDate().isAfter(completedDay))
+                    .map(bar -> new PricePositionCalculator.Bar(bar.tradeDate(), bar.closePrice()))
+                    .toList()), today);
+            String name = identity.identity().name();
+            boolean usIndex = "NDX".equals(indexCode) || "SP500".equals(indexCode)
+                    || (name != null && name.matches(".*(?:纳指|纳斯达克|标普500|美国|美股).*"));
+            research = EtfResearch.View.of(lowPrice, earnings,
+                    EtfResearch.volume(preferVolumePrices(volumePrices, prices), completedDay),
+                    usIndex ? EtfResearch.compareUsRates(fredRates, prices, completedDay) : null,
+                    benchmark(instrument, indexCode, usIndex, prices, completedDay));
+        }
         String snapshotId = snapshotId(instrument, priceAsOf, valuationDomain.asOf(),
                 financials.asOf(), indexValuation.asOf(), fundProfile.asOf());
+        if (research != null) {
+            snapshotId = sha256(snapshotId + "|" + research).substring(0, 16);
+        }
         String snapshotAt = LocalDateTime.now(SHANGHAI).toString();
 
         boolean syncPending = report.syncPending();
@@ -244,7 +278,7 @@ public class InstrumentFactsService {
                 priceDomain, valuationDomain, indexValuation, financials, moneyflow,
                 profile, industry, eventDomain,
                 syncPending, report.retryAfterMs(), !report.fetchedFromSource(),
-                snapshotId, snapshotAt);
+                snapshotId, snapshotAt, research);
     }
 
     // ------------------------------------------------------------------
@@ -254,8 +288,20 @@ public class InstrumentFactsService {
     private record WareHousIdentity(FactsSnapshot.Identity identity, String indexCode) {
     }
 
-    private WareHousIdentity identity(InstrumentCode instrument,
-                                      OnDemandSyncService.SyncReport report) {
+    private static boolean isNonStockFund(FactsSnapshot.FundProfile profile) {
+        return profile != null && profile.fundType() != null
+                && profile.fundType().matches(".*(?:债券|货币|商品|黄金|REIT).*");
+    }
+
+    private static boolean isGoldFund(String name, FactsSnapshot.FundProfile profile) {
+        String labels = (name == null ? "" : name) + " "
+                + (profile == null || profile.trackingTarget() == null ? "" : profile.trackingTarget());
+        return labels.matches(".*(?:黄金|上海金|Au99\\.99).*")
+                && !labels.matches(".*(?:黄金股|黄金产业|金矿).*");
+    }
+
+    private WareHousIdentity identity(InstrumentCode instrument, OnDemandSyncService.SyncReport report,
+                                      FactsSnapshot.FundProfile fundProfile) {
         Optional<WarehouseRows.Instrument> stored = repository.findInstrument(instrument.key());
         WarehouseRows.Instrument row = stored.orElse(null);
 
@@ -270,6 +316,8 @@ public class InstrumentFactsService {
             IndexFundPool.Fund fund = indexFundPool.byEtfCode(instrument.rawCode());
             if (fund != null) {
                 trackingIndex = fund.indexCode();
+            } else if (trackingIndex == null && fundProfile != null) {
+                trackingIndex = matchTrackingTarget(fundProfile.trackingTarget());
             }
         }
         LocalDate listDate = row != null && row.listDate() != null ? row.listDate() : report.listDate();
@@ -288,6 +336,45 @@ public class InstrumentFactsService {
                 instrument.rawCode(), instrument.assetType(), instrument.market(), name,
                 industry, industryCode, trackingIndex, listDate, status, sectorProfile(industry));
         return new WareHousIdentity(identity, indexCode);
+    }
+
+    private String matchTrackingTarget(String target) {
+        if (target == null || target.isBlank()) return null;
+        String key = trackingName(target);
+        List<String> matches = indexFundPool.funds().stream()
+                .filter(fund -> key.equals(trackingName(fund.tracking()))
+                        || key.equals(trackingName(fund.indexName())))
+                .map(IndexFundPool.Fund::indexCode).distinct().toList();
+        return matches.size() == 1 ? matches.get(0) : null;
+    }
+
+    private static String trackingName(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "").replaceFirst("指数$", "");
+    }
+
+    private static List<WarehouseRows.PriceBar> preferVolumePrices(List<WarehouseRows.PriceBar> volume,
+                                                                   List<WarehouseRows.PriceBar> price) {
+        if (!volume.isEmpty() && (price.isEmpty() || !lastDate(volume).isBefore(lastDate(price)))) {
+            return volume;
+        }
+        return price;
+    }
+
+    private EtfResearch.Benchmark benchmark(InstrumentCode instrument, String indexCode, boolean usIndex,
+                                            List<WarehouseRows.PriceBar> prices, LocalDate today) {
+        IndexFundPool.Fund tracked = indexCode == null ? null : indexFundPool.byIndexCode(indexCode);
+        boolean chinaA = tracked != null && ("broad".equals(tracked.category())
+                || "sector".equals(tracked.category()) || "strategy".equals(tracked.category())
+                || "theme".equals(tracked.category()));
+        if ((!usIndex && !chinaA) || prices.size() < 21) return null;
+        String code = usIndex ? "513500" : "510300";
+        String label = usIndex ? "标普500ETF" : "沪深300ETF";
+        if (code.equals(instrument.rawCode()) || (usIndex ? "SP500" : "SH000300").equals(indexCode)) {
+            return null;
+        }
+        InstrumentCode benchmark = InstrumentCode.etf(code, "SH");
+        return EtfResearch.compareBenchmark(code, label, prices,
+                etfPrefetchedPrices(benchmark, 60, today), today);
     }
 
     /**
@@ -346,7 +433,8 @@ public class InstrumentFactsService {
                                                              LocalDate today) {
         try {
             List<EtfPriceHistory> rows = etfPriceHistoryService.latestBatch(
-                    List.of(instrument.rawCode()), today.minusYears(11), EtfPriceHistoryService.QFQ);
+                    List.of(instrument.rawCode()), limit <= 60 ? today.minusDays(100) : today.minusYears(11),
+                    EtfPriceHistoryService.QFQ);
             if (rows.isEmpty()) {
                 return List.of();
             }

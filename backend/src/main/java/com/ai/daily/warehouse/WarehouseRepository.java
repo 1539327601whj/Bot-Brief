@@ -380,6 +380,47 @@ public class WarehouseRepository {
                 (rs, rowNum) -> indexConstituent(rs), indexCode, asOf);
     }
 
+    /** Weighted constituents and comparable disclosed reports for a batch of tracked indices. */
+    public List<ConstituentEarnings> constituentEarnings(List<String> indexCodes, LocalDate asOf) {
+        if (indexCodes.isEmpty()) return List.of();
+        String placeholders = String.join(",", Collections.nCopies(indexCodes.size(), "?"));
+        List<Object> args = new ArrayList<>(indexCodes);
+        args.add(asOf);
+        args.add(asOf.minusMonths(45));
+        args.add(asOf);
+        String sql = """
+                WITH latest AS (
+                    SELECT index_code, MAX(as_of) AS as_of FROM md_index_constituent
+                    WHERE index_code IN (%s) AND as_of <= ? AND weight > 0 GROUP BY index_code
+                ), holdings AS (
+                    SELECT c.index_code, c.as_of, c.stock_code, c.weight,
+                           ROW_NUMBER() OVER (PARTITION BY c.index_code, c.stock_code
+                                              ORDER BY c.fetched_at DESC, c.source) AS rn
+                    FROM md_index_constituent c JOIN latest l
+                      ON l.index_code = c.index_code AND l.as_of = c.as_of
+                    WHERE c.weight > 0
+                )
+                SELECT h.index_code, h.as_of, h.stock_code, h.weight, f.report_date,
+                       f.revenue_yoy, f.net_profit_yoy, f.revenue, f.net_profit
+                FROM holdings h
+                LEFT JOIN md_financial_report f ON f.stock_code = h.stock_code
+                    AND f.report_date >= ? AND COALESCE(f.available_from, f.announce_date) <= ?
+                WHERE h.rn = 1
+                ORDER BY h.index_code, h.stock_code, f.report_date DESC,
+                         f.fetched_at DESC, f.source, f.report_type
+                """.formatted(placeholders);
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new ConstituentEarnings(
+                rs.getString("index_code"), rs.getObject("as_of", LocalDate.class),
+                rs.getString("stock_code"), rs.getBigDecimal("weight"),
+                rs.getObject("report_date", LocalDate.class), rs.getBigDecimal("revenue_yoy"),
+                rs.getBigDecimal("net_profit_yoy"), rs.getBigDecimal("revenue"),
+                rs.getBigDecimal("net_profit")), args.toArray());
+    }
+
+    public record ConstituentEarnings(String indexCode, LocalDate holdingsDate, String stockCode,
+                                      BigDecimal weight, LocalDate reportDate, BigDecimal revenueYoy,
+                                      BigDecimal profitYoy, BigDecimal revenue, BigDecimal profit) {}
+
     private LocalDate latestAsOf(String table, String indexCode) {
         // 表名来自本类内部常量（两个方法各传一个字面量），不是用户输入。
         List<LocalDate> rows = jdbcTemplate.query(

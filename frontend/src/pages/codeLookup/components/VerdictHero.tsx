@@ -10,10 +10,11 @@ import BuyZoneCard from './BuyZoneCard'
 
 interface Props {
   core: CoreView
+  portfolioManaged?: boolean
 }
 
 /** 首屏结论。**没有分数时只显示「数据不足」与原因，绝不用 0 分顶替。** */
-export default function VerdictHero({ core }: Props) {
+export default function VerdictHero({ core, portfolioManaged }: Props) {
   const { verdict, buyZone } = core
   const tone = verdictTone(verdict.labelKey)
   const withheld = verdict.score === null
@@ -23,7 +24,7 @@ export default function VerdictHero({ core }: Props) {
     <section className="cl-hero">
       <div className="cl-hero-id">
         <div>
-          <div className="cl-kicker">Code Lookup · 规则结论</div>
+          <div className="cl-kicker">{portfolioManaged ? '标的评分与参考价格区间' : 'Code Lookup · 规则结论'}</div>
           <h2>
             {core.name || '名称未取到'}
             <span className="cl-code">{core.code}</span>
@@ -37,9 +38,9 @@ export default function VerdictHero({ core }: Props) {
             {core.fromCache && <span className="cl-chip">进程内缓存</span>}
           </div>
         </div>
-        <div className={`cl-verdict-tone cl-tone-${tone}`}>
+        {!portfolioManaged && <div className={`cl-verdict-tone cl-tone-${tone}`}>
           {withheld ? '数据不足' : verdict.label}
-        </div>
+        </div>}
       </div>
 
       <div className="cl-hero-main">

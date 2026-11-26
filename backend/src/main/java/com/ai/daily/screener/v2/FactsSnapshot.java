@@ -1,5 +1,6 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.screener.EtfResearch;
 import com.ai.daily.warehouse.InstrumentCode;
 import com.ai.daily.warehouse.WarehouseRows;
 
@@ -44,7 +45,8 @@ public record FactsSnapshot(
         boolean fromCache,
         /** 价格 / 估值 / 财务三个 asOf 的哈希，贯穿 core/detail/brief。 */
         String snapshotId,
-        String snapshotAt
+        String snapshotAt,
+        EtfResearch.View etfResearch
 ) {
 
     /** 身份信息。{@code name} 可能为空——那说明连行情源都没认出这个代码。 */

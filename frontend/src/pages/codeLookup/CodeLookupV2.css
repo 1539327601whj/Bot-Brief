@@ -853,6 +853,71 @@ button.cl-chip {
   margin-top: 10px;
 }
 
+.cl-portfolio {
+  margin: 14px 0;
+}
+
+.cl-portfolio details {
+  margin-top: 12px;
+}
+
+.cl-portfolio summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.cl-portfolio :is(input, select) {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+}
+
+.cl-portfolio :is(form, .cl-portfolio-current) > label {
+  display: grid;
+  gap: 4px;
+  max-width: 280px;
+}
+
+.cl-portfolio :is(.cl-portfolio-form, .cl-portfolio-current) {
+  display: grid;
+  gap: 10px;
+}
+
+.cl-portfolio td input {
+  min-width: 70px;
+}
+
+.cl-portfolio-fill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.cl-portfolio-fill > label {
+  flex: 1 1 130px;
+}
+
+.cl-portfolio-reference {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.cl-portfolio-error {
+  color: #e05d61;
+}
+
+.cl-decision-grid.cl-portfolio-market-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* ---------------- 基金档案 ---------------- */
 
 .cl-fund-profile dl {

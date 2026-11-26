@@ -451,6 +451,24 @@ const ETF_CORE = {
   inputCode: '510300', code: 'ETF:510300', name: '沪深300ETF', assetType: 'ETF',
   market: '沪市', industry: null, sectorProfile: 'BROAD_INDEX',
   trackingIndexCode: '000300', snapshotId: 'a8f30c1d9e2b7461',
+  etfResearch: {
+    lowPrice: true, candidate: true,
+    earnings: {
+      state: 'SUPPORTED', holdingsDate: '2026-10-16', reportDate: '2026-06-30',
+      companies: 8, sampleWeight: 23.8, knownWeight: 28.3, revenueYoy: 9.2, profitYoy: 12.1,
+      resilientWeightShare: 81, note: '按当前指数权重计算成分样本同比增速',
+      growth: {
+        from: '2023-06-30', to: '2026-06-30', companies: 8, sampleWeight: 23.8,
+        revenueCagr: 7.1, profitCagr: 8.2,
+      },
+    },
+    volume: {
+      date: '2026-10-16', source: 'eastmoney', volumeVsPrevious20: 1.45, closeChange: 0.34,
+      amount: 1.9e9, turnoverRate: 1.24,
+    },
+    usRates: null,
+    benchmark: null,
+  },
   quote: { ...STOCK_CORE.quote, price: 4.128, pctChange: 0.34, amount: 1.9e9, marketCap: 3.4e11 },
   valuation: {
     source: 'csindex', sourceLabel: '中证指数', method: '跟踪指数 PE 分位',
@@ -756,7 +774,9 @@ const server = createServer(async (req, res) => {
 
   if (path === '/__seed') {
     res.writeHead(200, { 'Content-Type': MIME['.html'] })
-    res.end(SEED)
+    res.end(currentCase === 'portfolio'
+      ? SEED.replace("role: 'USER', accountType: 'DEMO'", "role: 'ADMIN', accountType: 'NORMAL'")
+      : SEED)
     return
   }
 
@@ -769,7 +789,8 @@ const server = createServer(async (req, res) => {
     if (path === '/api/auth/me') {
       return json(report('ok', {
         id: 1, email: 'demo@example.com', displayName: '演示账号',
-        role: 'USER', accountType: 'DEMO',
+        role: currentCase === 'portfolio' ? 'ADMIN' : 'USER',
+        accountType: currentCase === 'portfolio' ? 'NORMAL' : 'DEMO',
       }))
     }
 
@@ -779,14 +800,14 @@ const server = createServer(async (req, res) => {
         return json({ code: 429, message: '请求过于频繁，请 5 分钟后再试', data: null })
       }
       coreHits += 1
-      const core = CORES[currentCase]
+      const core = CORES[currentCase === 'portfolio' ? 'etf' : currentCase]
       // 部分数据这一张要先让人看到「同步中」，再看到它自己消失。
       const syncPending = currentCase === 'partial' && coreHits === 1
       return json(report('ok', { ...core, syncPending }))
     }
 
     if (path === '/api/code-lookup/v2/detail') {
-      return json(report('ok', detailFor(currentCase)))
+      return json(report('ok', detailFor(currentCase === 'portfolio' ? 'etf' : currentCase)))
     }
 
     if (path === '/api/code-lookup/v2/series') {
@@ -825,7 +846,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (path === '/api/code-lookup/v2/status') {
-      const core = CORES[currentCase]
+      const core = CORES[currentCase === 'portfolio' ? 'etf' : currentCase]
       return json(report('ok', {
         code: core.inputCode, snapshotId: core.snapshotId,
         priceAsOf: '2026-10-16', valuationAsOf: '2026-10-16',
@@ -1137,6 +1158,7 @@ async function assertNoOverflow(cdp, width, height, mobile, label) {
 const CASES = [
   { name: 'stock', code: '600519', label: '个股' },
   { name: 'etf', code: '510300', label: 'ETF' },
+  { name: 'portfolio', code: '510300', label: '组合仓位' },
   { name: 'index', code: '000300', label: '指数' },
   { name: 'partial', code: '300274', label: '数据不足' },
   { name: 'rate-limited', code: '600519', label: '429 限流' },
@@ -1155,10 +1177,14 @@ async function runCase(port, item) {
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/__seed` })
     await cdp.waitFor('!!document.querySelector(".cl-search-row input")', '查询框')
 
-    if (!await cdp.eval(SET_INPUT('.cl-search-row input', item.code))) {
-      throw new Error('没找到代码输入框')
+    if (item.name === 'etf' || item.name === 'portfolio') {
+      await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/code-lookup?code=${item.code}` })
+    } else {
+      if (!await cdp.eval(SET_INPUT('.cl-search-row input', item.code))) {
+        throw new Error('没找到代码输入框')
+      }
+      if (!await cdp.eval(CLICK_BY_TEXT('查询'))) throw new Error('没找到「查询」按钮')
     }
-    if (!await cdp.eval(CLICK_BY_TEXT('查询'))) throw new Error('没找到「查询」按钮')
 
     if (item.name === 'rate-limited') {
       await cdp.waitFor('!!document.querySelector(".cl-failure-rate-limited")', '限流提示')
@@ -1173,6 +1199,34 @@ async function runCase(port, item) {
     }
 
     await cdp.waitFor('!!document.querySelector(".cl-hero")', '结论主卡')
+
+    if (item.name === 'portfolio') {
+      await cdp.waitFor('!!document.querySelector(".cl-portfolio-current")', '组合仓位')
+      await cdp.eval(SET_INPUT('input[name=capital]', '100000'))
+      await cdp.eval(SET_INPUT('input[name=csi300-weight]', '20'))
+      await cdp.eval(SET_INPUT('input[name=technology-benchmark]', '588000'))
+      if (!await cdp.eval(CLICK_BY_TEXT('保存组合计划'))) throw new Error('未找到保存组合计划按钮')
+      await cdp.waitFor('document.body.innerText.includes("组合计划已保存")', '计划保存')
+      await cdp.waitFor('document.querySelector(".cl-portfolio-reference")?.innerText.includes("观望 · 新增 0 成")', '观望参考')
+      if (await cdp.eval('document.querySelector("[aria-label=\\"规则决策\\"]")?.innerText.includes("分批建仓")')) {
+        throw new Error('组合仓位参考与通用建仓标签同时出现')
+      }
+      await cdp.eval('document.querySelector(".cl-portfolio-current details").open = true')
+      await cdp.eval(SET_INPUT('input[name=shares]', '100'))
+      await cdp.eval(SET_INPUT('input[name=price]', '4.15'))
+      if (!await cdp.eval(CLICK_BY_TEXT('保存实际成交'))) throw new Error('未找到实际成交按钮')
+      await cdp.waitFor('document.body.innerText.includes("剩余持仓成本 415 元")', '实际成交')
+      await cdp.send('Page.reload', {})
+      await cdp.waitFor('document.querySelector(".cl-portfolio-current")?.textContent.includes("剩余持仓成本 415 元")', '持仓刷新后恢复')
+      await cdp.eval('document.querySelector(".cl-portfolio > details:last-child").open = true')
+      if (!await cdp.eval(CLICK_BY_TEXT('计算联动'))) throw new Error('未找到计算联动按钮')
+      await cdp.waitFor('document.body.innerText.includes("同跌 / 后者跌")', '联动统计')
+      await assertNoOverflow(cdp, 390, 900, false, '组合仓位 390')
+      const file = await shoot(cdp, 'code-lookup-v2-portfolio', 1440, 1200, false)
+      if (cdp.consoleErrors.length) throw new Error(`控制台报错：\n${cdp.consoleErrors.join('\n')}`)
+      console.log('  ✓ 组合计划、实际成交、持仓恢复与联动')
+      return [file]
+    }
 
     // 六维评分必须刚好 6 块。
     const tiles = await cdp.eval('document.querySelectorAll(".cl-tile").length')
@@ -1200,6 +1254,10 @@ async function runCase(port, item) {
 
     // 基金档案：ETF 概览必须有这张卡，字段带单位与截止日；个股不该出现。
     if (item.name === 'etf') {
+      const researchText = await cdp.eval('document.querySelector("[aria-label=\\"ETF 价格和盈利证据\\"]")?.innerText || ""')
+      for (const expected of ['盈利有支撑', '23.8%', '1.45 倍', '三年年化营收']) {
+        if (!researchText.includes(expected)) throw new Error(`ETF 价格和盈利证据缺少「${expected}」`)
+      }
       await cdp.waitFor('!!document.querySelector(".cl-fund-profile")', '基金档案卡')
       const profileText = await cdp.eval('document.querySelector(".cl-fund-profile").innerText')
       for (const expected of ['基金档案', '194.68 亿', '1.02%', '2.21%', '2026-06-30']) {

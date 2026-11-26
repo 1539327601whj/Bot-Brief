@@ -29,7 +29,7 @@ import java.util.Locale;
  */
 public final class InvestmentScoreModel {
 
-    public static final String RULES_VERSION = "code-lookup-v2-p5";
+    public static final String RULES_VERSION = "code-lookup-v2-p6";
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final BigDecimal YI = BigDecimal.valueOf(100_000_000L);

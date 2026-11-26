@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import api from '../../utils/api'
 import type { CoreView, SearchHit } from './types'
@@ -7,6 +7,8 @@ import { useCodeLookup } from './useCodeLookup'
 import { assetTypeLabel, dateTime } from './format'
 import DataQualityBanner from './components/DataQualityBanner'
 import DecisionCard from './components/DecisionCard'
+import EtfResearchCard from './components/EtfResearchCard'
+import PortfolioPanel from './components/PortfolioPanel'
 import VerdictHero from './components/VerdictHero'
 import ScoreTiles from './components/ScoreTiles'
 import ScenarioCards from './components/ScenarioCards'
@@ -48,6 +50,8 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 export default function CodeLookupPage() {
   const { user } = useAuth()
   const canSee = user?.accountType === 'DEMO' || user?.role === 'ADMIN'
+  const [searchParams] = useSearchParams()
+  const linkedCode = searchParams.get('code') || ''
 
   const [input, setInput] = useState('')
   const [tab, setTab] = useState<TabKey>('overview')
@@ -65,6 +69,7 @@ export default function CodeLookupPage() {
   } = lookup
 
   const codeReady = looksLikeLookupCode(input)
+  const portfolioManaged = user?.accountType === 'NORMAL' && core?.assetType === 'ETF'
 
   // 本地库 + 腾讯 smartbox 搜索（代码 / 名称 / 简称 / 拼音）。
   // 本地库不触发行情外呼；smartbox 由后端做缓存与限流，前端只做防抖。
@@ -100,10 +105,19 @@ export default function CodeLookupPage() {
     void load(code)
   }, [input, load])
 
+  useEffect(() => {
+    if (!canSee || !looksLikeLookupCode(linkedCode)) return
+    setInput(linkedCode)
+    setSuggestions([])
+    setTab('overview')
+    void load(linkedCode)
+  }, [canSee, linkedCode, load])
+
   // 标签页按需拉序列：切到哪个页才读哪个本地库，不在首屏一次性取三段。
   useEffect(() => {
     if (!core) return
     if (tab === 'overview') void loadSeries('price', priceRange)
+    if (tab === 'events') void loadSeries('price', '1y')
     if (tab === 'valuation') void loadSeries('valuation', valuationRange)
     if (tab === 'technical') void loadSeries('moneyflow', '1y')
   }, [tab, core, priceRange, valuationRange, loadSeries])
@@ -189,7 +203,7 @@ export default function CodeLookupPage() {
           </div>
         )}
         <p className="cl-search-hint">
-          进页面不会自动查询；每次查询都会读取本地仓库，缺失时才会在预算内同步。
+          输入代码查询，或从「低估精选」打开对应标的。查询优先读取本地数据。
         </p>
       </section>
 
@@ -213,13 +227,20 @@ export default function CodeLookupPage() {
         </section>
       )}
 
+      {user?.accountType === 'NORMAL' && (!core || core.assetType === 'ETF') && (
+        <PortfolioPanel key={user.id} userId={user.id} core={core} />
+      )}
+
       {core && (
         <>
           <DataQualityBanner core={core} notice={notice} failure={coreFailure} />
 
-          <DecisionCard core={core} />
-          <VerdictHero core={core} />
-          <ScoreTiles dimensions={core.dimensions} />
+          {!core.etfResearch?.gold && <DecisionCard core={core} portfolioManaged={portfolioManaged} />}
+          <EtfResearchCard core={core} />
+          {!core.etfResearch?.gold && <>
+            <VerdictHero core={core} portfolioManaged={portfolioManaged} />
+            <ScoreTiles dimensions={core.dimensions} />
+          </>}
 
           <nav className="cl-tabs" aria-label="详情标签页">
             {TABS.map(item => (
@@ -246,7 +267,9 @@ export default function CodeLookupPage() {
               seriesFailure={seriesFailure}
               priceRange={priceRange}
               onPriceRange={setPriceRange}
-              brief={brief}
+              brief={portfolioManaged && brief ? {
+                ...brief, sections: brief.sections.filter(section => !['时机', '行动'].includes(section.heading)),
+              } : brief}
               briefLoading={briefLoading}
               briefFailure={briefFailure}
               onBrief={runBrief}
@@ -277,7 +300,9 @@ export default function CodeLookupPage() {
             />
           )}
 
-          {tab === 'events' && <EventsTab detail={detail} />}
+          {tab === 'events' && <EventsTab core={core} detail={detail}
+            price={series[`${core.inputCode}:price:1y`]?.interval === '1d'
+              ? series[`${core.inputCode}:price:1y`].price : []} />}
 
           {tab === 'peers' && (
             <PeersTab core={core} detail={detail} industry={detail?.industry.data || []} />

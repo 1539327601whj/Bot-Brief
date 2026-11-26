@@ -132,7 +132,7 @@ class StockScreenerServiceTest {
      */
     private StockScreenerService service(int fetchThreads, ScreenerCache cache, int maxLiveFetches) {
         return new StockScreenerService(client, cache, valuationService, priceService, indexPool, alt,
-                prefetchService, true, fetchThreads, maxLiveFetches);
+                prefetchService, true, fetchThreads, maxLiveFetches, mock(EtfResearch.class));
     }
 
     private static MarketDataClient.UniverseSnapshot snapshot(List<StockRow> rows) {
@@ -323,7 +323,7 @@ class StockScreenerServiceTest {
         p.setMode("index_only");
 
         ScreenerResultDTO result = new StockScreenerService(client, new ScreenerCache(15, 20, 60, 10),
-                valuationService, priceService, synthetic, alt, prefetchService, true, 3, 10).scan(p);
+                valuationService, priceService, synthetic, alt, prefetchService, true, 3, 10, mock(EtfResearch.class)).scan(p);
 
         ScreenerResultDTO.IndexFundItem f = item(result, "510300");
         assertThat(f.valuationSource()).isNull();

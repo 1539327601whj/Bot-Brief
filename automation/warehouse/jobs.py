@@ -31,6 +31,8 @@ TASK_DAILY_INDEX_PROFILE = "DAILY_INDEX_PROFILE"
 TASK_DAILY_INDUSTRY = "DAILY_INDUSTRY"
 TASK_DAILY_ETF_CATALOG = "DAILY_ETF_CATALOG"
 TASK_DAILY_STOCK_CATALOG = "DAILY_STOCK_CATALOG"
+TASK_DAILY_ETF_EARNINGS = "DAILY_ETF_EARNINGS"
+TASK_DAILY_ETF_NEWS = "DAILY_ETF_NEWS"
 TASK_NEWS_REFRESH = "NEWS_REFRESH"
 
 PRIORITY_USER = 100
@@ -213,6 +215,13 @@ def ensure_scheduled_jobs(db: WarehouseDb, config: Config, now: datetime) -> lis
             enqueue(db, key, task, priority=PRIORITY_BATCH)
             created.append(key)
 
+        key = _daily_key(TASK_DAILY_ETF_EARNINGS, day)
+        enqueue(db, key, TASK_DAILY_ETF_EARNINGS, priority=PRIORITY_BATCH - 1)
+        created.append(key)
+        key = _daily_key(TASK_DAILY_ETF_NEWS, day)
+        enqueue(db, key, TASK_DAILY_ETF_NEWS, priority=PRIORITY_NEWS)
+        created.append(key)
+
     if (now.hour, now.minute) >= (config.industry_start_hour, config.industry_start_minute):
         key = _daily_key(TASK_DAILY_INDUSTRY, day)
         # 注意：不要复用上面的循环变量 task，否则会被写成 DAILY_INDEX_PROFILE。
@@ -242,6 +251,8 @@ __all__ = [
     "TASK_DAILY_INDUSTRY",
     "TASK_DAILY_ETF_CATALOG",
     "TASK_DAILY_STOCK_CATALOG",
+    "TASK_DAILY_ETF_EARNINGS",
+    "TASK_DAILY_ETF_NEWS",
     "TASK_DAILY_MARKET_SNAPSHOT",
     "TASK_INDEX_DETAIL",
     "TASK_NEWS_REFRESH",

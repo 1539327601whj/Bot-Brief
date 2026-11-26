@@ -62,7 +62,7 @@ class InstrumentFactsServiceEtfFallbackTest {
         service = new InstrumentFactsService(resolver, syncService, repository,
                 mock(MarketValuationHistoryService.class), indexFundPool,
                 mock(EtfPriceHistoryService.class), mock(com.ai.daily.screener.OffPoolIndexClient.class),
-                liveKlineService, fundProfileClient, cache, properties);
+                liveKlineService, fundProfileClient, cache, properties, mock(com.ai.daily.screener.EtfResearch.class), mock(FredRates.class));
     }
 
     @Test

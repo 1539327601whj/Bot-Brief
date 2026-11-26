@@ -31,6 +31,7 @@ from warehouse.schema import SchemaMismatch, assert_schema, check_schema
 from warehouse.sync import SyncOutcome, combine
 from warehouse.sync.events import sync_events
 from warehouse.sync.etf_catalog import sync_etf_catalog
+from warehouse.sync.financials import sync_stock_financials
 from warehouse.sync.index_profile import sync_index_detail
 from warehouse.sync.industry import sync_industry_boards
 from warehouse.sync.instruments import load_index_pool, pool_rows, upsert_instruments
@@ -51,6 +52,8 @@ BATCH_TASKS = frozenset({
     jobs.TASK_DAILY_INDUSTRY,
     jobs.TASK_DAILY_ETF_CATALOG,
     jobs.TASK_DAILY_STOCK_CATALOG,
+    jobs.TASK_DAILY_ETF_EARNINGS,
+    jobs.TASK_DAILY_ETF_NEWS,
     jobs.TASK_NEWS_REFRESH,
 })
 
@@ -142,6 +145,54 @@ def _run_news_refresh(clients: Clients) -> SyncOutcome:
     return combine("NEWS_REFRESH", parts)
 
 
+def _run_etf_earnings(clients: Clients) -> SyncOutcome:
+    today = now_beijing().date()
+    rows = clients.db.query_all(
+        """
+        WITH latest AS (
+            SELECT index_code, MAX(as_of) AS as_of FROM md_index_constituent
+            WHERE as_of BETWEEN DATE_SUB(%s, INTERVAL 6 MONTH) AND %s AND weight > 0
+            GROUP BY index_code
+        ), eligible AS (
+            SELECT c.stock_code, SUM(c.weight) AS tracked_weight
+            FROM md_index_constituent c JOIN latest l
+              ON c.index_code = l.index_code AND c.as_of = l.as_of
+            WHERE c.weight > 0 AND c.stock_code REGEXP '^(00|30|60|68)[0-9]{4}$'
+            GROUP BY c.stock_code
+        )
+        SELECT e.stock_code FROM eligible e
+        WHERE NOT EXISTS (
+            SELECT 1 FROM md_financial_report f WHERE f.stock_code = e.stock_code
+              AND f.fetched_at >= DATE_SUB(%s, INTERVAL 30 DAY)
+              AND f.report_date >= DATE_SUB(%s, INTERVAL 9 MONTH)
+              AND f.revenue_yoy IS NOT NULL AND f.net_profit_yoy IS NOT NULL
+              AND f.net_profit IS NOT NULL AND COALESCE(f.available_from, f.announce_date) <= %s
+        )
+        ORDER BY e.tracked_weight DESC, e.stock_code
+        LIMIT 8
+        """,
+        (today, today, today, today, today),
+    )
+    if not rows:
+        return SyncOutcome("EMPTY", detail={"reason": "暂无待补齐的 A 股指数成分股财报"})
+    parts: dict[str, SyncOutcome] = {}
+    for row in rows:
+        code = row["stock_code"]
+        parts[code] = sync_stock_financials(clients.db, clients.eastmoney, code)
+    return combine("DAILY_ETF_EARNINGS", parts)
+
+
+def _run_etf_news(clients: Clients) -> SyncOutcome:
+    topics = ("科技ETF", "创业板", "沪深300", "红利ETF", "黄金ETF", "美联储议息")
+    parts = {}
+    for keyword in topics:
+        parts[keyword] = sync_events(
+            clients.db, clients.news, instrument_code=None, keyword=keyword,
+            news_topic=f"ETF:{keyword}", news_limit=4,
+        )
+    return combine("DAILY_ETF_NEWS", parts)
+
+
 def dispatch(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
     task = job.get("task")
     payload = job.get("payload") or {}
@@ -181,6 +232,12 @@ def dispatch(clients: Clients, job: dict[str, Any]) -> SyncOutcome:
 
     if task == jobs.TASK_DAILY_STOCK_CATALOG:
         return sync_stock_catalog(clients.db, clients.eastmoney)
+
+    if task == jobs.TASK_DAILY_ETF_EARNINGS:
+        return _run_etf_earnings(clients)
+
+    if task == jobs.TASK_DAILY_ETF_NEWS:
+        return _run_etf_news(clients)
 
     if task == jobs.TASK_NEWS_REFRESH:
         return _run_news_refresh(clients)

@@ -92,6 +92,7 @@ public class SeriesService {
                 instrument.key(), OnDemandSyncService.ADJ_QFQ, from, today);
         String sourceNote = null;
         if (instrument.isEtf()) {
+            rows = sameSourcePrices(rows);
             // 与 InstrumentFactsService 用**同一条**判据：指数池 ETF 的日线每天 16:30
             // 已经预取进 etf_price_history，池外 ETF 也可能由点击补数写进去。
             // 只在 md_price_daily 为空时才读它的话，会出现「分数用 2600 根腾讯、
@@ -120,6 +121,16 @@ public class SeriesService {
                 : null;
         return new CodeLookupV2DTO.SeriesView(instrument.key(), "price", range, actual,
                 points, List.of(), List.of(), note);
+    }
+
+    private static List<WarehouseRows.PriceBar> sameSourcePrices(List<WarehouseRows.PriceBar> rows) {
+        if (rows.stream().map(WarehouseRows.PriceBar::source).distinct().count() <= 1) return rows;
+        var points = rows.stream().map(row -> new EtfPriceSeriesSelector.Point(
+                row.tradeDate(), row.closePrice(), row.source(), row.adjType())).toList();
+        var chosen = EtfPriceSeriesSelector.selectPoints(points, 3000);
+        if (chosen.isEmpty()) return List.of();
+        String source = chosen.get(0).source();
+        return rows.stream().filter(row -> row.source() != null && source.equals(row.source().strip())).toList();
     }
 
     /**

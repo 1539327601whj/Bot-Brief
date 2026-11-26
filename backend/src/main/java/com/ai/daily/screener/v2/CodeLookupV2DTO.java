@@ -1,5 +1,6 @@
 package com.ai.daily.screener.v2;
 
+import com.ai.daily.screener.EtfResearch;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,8 @@ public final class CodeLookupV2DTO {
             Map<String, DomainView> data,
             List<String> notes,
             String rulesVersion,
-            String disclaimer
+            String disclaimer,
+            EtfResearch.View etfResearch
     ) {
     }
 
@@ -513,7 +515,8 @@ public final class CodeLookupV2DTO {
             String publishedAt,
             String source,
             String importance,
-            String polarity
+            String polarity,
+            String instrumentCode
     ) {
     }
 

@@ -215,6 +215,72 @@ export interface DecisionView {
 }
 
 
+interface RateChange {
+  from: string
+  to: string
+  basisPoints: number
+}
+
+export interface EtfResearchView {
+  lowPrice: boolean | null
+  candidate: boolean
+  gold?: {
+    lowPrice: boolean | null
+    macro: {
+      etfFrom: string
+      etfTo: string
+      etfReturnPct: number
+      realTreasury: RateChange | null
+      dollar: { from: string; to: string; returnPct: number } | null
+      usdCny: { from: string; to: string; returnPct: number } | null
+    } | null
+  } | null
+  earnings: {
+    state: 'SUPPORTED' | 'WEAK_OR_MIXED' | 'UNCONFIRMED'
+    holdingsDate: string | null
+    reportDate: string | null
+    companies: number
+    sampleWeight: number | null
+    knownWeight: number | null
+    revenueYoy: number | null
+    profitYoy: number | null
+    resilientWeightShare: number | null
+    note: string
+    growth: {
+      from: string
+      to: string
+      companies: number
+      sampleWeight: number
+      revenueCagr: number
+      profitCagr: number
+    } | null
+  }
+  volume: {
+    date: string
+    source: string | null
+    volumeVsPrevious20: number | null
+    closeChange: number | null
+    amount: number | null
+    turnoverRate: number | null
+  } | null
+  usRates: {
+    etfFrom: string
+    etfTo: string
+    etfReturnPct: number
+    policy: RateChange | null
+    treasury: RateChange | null
+  } | null
+  benchmark: {
+    code: string
+    label: string
+    from: string
+    to: string
+    etfReturnPct: number
+    benchmarkReturnPct: number
+    relativePctPoints: number
+  } | null
+}
+
 export interface CoreView {
   inputCode: string
   code: string
@@ -236,6 +302,7 @@ export interface CoreView {
   dimensions: DimensionView[]
   buyZone: BuyZoneView | null
   decision: DecisionView | null
+  etfResearch?: EtfResearchView | null
   priceLookbacks: LookbackView[]
   peLookbacks: LookbackView[]
   data: Record<string, DomainView>
@@ -322,6 +389,7 @@ export interface IndustryView {
 }
 
 export interface EventView {
+  instrumentCode?: string | null
   category: string | null
   eventType: string | null
   title: string

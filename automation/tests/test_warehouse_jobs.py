@@ -81,6 +81,8 @@ class ScheduleTest(unittest.TestCase):
             ("DAILY_INDEX_PROFILE:2025-09-30", "DAILY_INDEX_PROFILE"),
             ("DAILY_ETF_CATALOG:2025-09-30", "DAILY_ETF_CATALOG"),
             ("DAILY_STOCK_CATALOG:2025-09-30", "DAILY_STOCK_CATALOG"),
+            ("DAILY_ETF_EARNINGS:2025-09-30", "DAILY_ETF_EARNINGS"),
+            ("DAILY_ETF_NEWS:2025-09-30", "DAILY_ETF_NEWS"),
         ])
 
     def test_industry_only_after_1730(self):
@@ -89,6 +91,8 @@ class ScheduleTest(unittest.TestCase):
             ("DAILY_INDEX_PROFILE:2025-09-30", "DAILY_INDEX_PROFILE"),
             ("DAILY_ETF_CATALOG:2025-09-30", "DAILY_ETF_CATALOG"),
             ("DAILY_STOCK_CATALOG:2025-09-30", "DAILY_STOCK_CATALOG"),
+            ("DAILY_ETF_EARNINGS:2025-09-30", "DAILY_ETF_EARNINGS"),
+            ("DAILY_ETF_NEWS:2025-09-30", "DAILY_ETF_NEWS"),
         ])
         keys = self.scheduled(datetime(2025, 9, 30, 17, 30))
         self.assertIn(("DAILY_INDUSTRY:2025-09-30", "DAILY_INDUSTRY"), keys)

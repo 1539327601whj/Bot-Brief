@@ -144,6 +144,7 @@ public record ScreenerResultDTO(
              * <p>规则：{@code qualification} 为 {@code blocked} / {@code unconfirmed} 时非空，
              * 为 {@code qualified} / {@code no_conditions} 时为空列表。
              */
-            List<String> qualificationReasons
+            List<String> qualificationReasons,
+            EtfResearch.View etfResearch
     ) {}
 }

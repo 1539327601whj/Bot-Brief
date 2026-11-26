@@ -82,6 +82,7 @@ public final class EvidencePackBuilder {
         }
 
         addDecisionEvidence(items, facts, analysis.decision());
+        if (facts.etfResearch() != null) addEtfResearch(items, facts);
 
         FactsSnapshot.Quote quote = facts.quote().data();
         if (quote != null && quote.price() != null) {
@@ -104,6 +105,23 @@ public final class EvidencePackBuilder {
                 : facts.identity().name() + "（" + facts.instrument().key() + "）";
         return new EvidencePack(subject, facts.snapshotId(), analysis.rulesVersion(),
                 List.copyOf(items.values()));
+    }
+
+    private static void addEtfResearch(Map<String, Evidence> items, FactsSnapshot facts) {
+        var research = facts.etfResearch();
+        var earnings = research.earnings();
+        String asOf = earnings.reportDate() == null ? null : earnings.reportDate().toString();
+        if (earnings.profitYoy() != null) {
+            add(items, new Evidence("ev:etf:profit_yoy", "成分股样本归母净利同比",
+                    plain(earnings.profitYoy()) + "%", earnings.profitYoy(), "成分股财报", asOf,
+                    earnings.note()));
+        }
+        if (research.volume() != null && research.volume().volumeVsPrevious20() != null) {
+            var volume = research.volume();
+            add(items, new Evidence("ev:etf:relative_volume", "收盘成交量 / 此前 20 日均量",
+                    plain(volume.volumeVsPrevious20()) + " 倍", volume.volumeVsPrevious20(),
+                    volume.source(), volume.date().toString(), "同源收盘日线"));
+        }
     }
 
     private static Evidence zoneEvidence(String id, String label, BigDecimal value,

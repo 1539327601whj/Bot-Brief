@@ -97,6 +97,29 @@ public final class DecisionEngine {
         boolean withheld = verdict == null || verdict.withheld();
         Decision.Timing timing = timing(position, axes, verdict, withheld);
         Decision.Action action = action(timing, buyZone, vsMa250, momentum60, withheld);
+        if ("ACCUMULATE".equals(timing.key()) && facts.etfResearch() != null && facts.etfResearch().gold() == null) {
+            var earnings = facts.etfResearch().earnings();
+            if (!earnings.supported() || earnings.sustainedContraction()) {
+                String reason = switch (earnings.state()) {
+                    case "UNCONFIRMED" -> "尚未确认成分股盈利支撑";
+                    case "SUPPORTED" -> "成分股样本三年营收和利润均收缩";
+                    default -> "成分股样本的营收或盈利表现未达到支撑条件";
+                };
+                timing = new Decision.Timing("WAIT_STABILIZE", "观望", List.of(Reason.plain(reason)),
+                        List.of("等可比财报确认盈利持续改善，再重新评估交易时机"));
+                action = new Decision.Action("WAIT", "观望", timing.triggers(), List.of());
+            } else if (!withheld && buyZone != null && buyZone.low() != null && buyZone.high() != null) {
+                List<String> plan = new ArrayList<>(action.tranchePlan());
+                plan.add("已有仓位时，可在盈利支撑延续、价格符合参考区间且留有计划仓位的条件下评估加仓");
+                action = new Decision.Action(action.key(), action.label(), List.copyOf(plan),
+                        action.invalidation());
+            }
+        }
+        if ("HOLD".equals(timing.key()) && facts.etfResearch() != null) {
+            List<String> triggers = new ArrayList<>(timing.triggers());
+            triggers.set(0, "盈利支撑确认、估值和量价条件改善后，再按已有仓位评估加仓");
+            timing = new Decision.Timing(timing.key(), timing.label(), timing.reasons(), List.copyOf(triggers));
+        }
         Decision.Horizon horizon = horizon(facts, score, tech);
         Decision.LongTerm longTerm = longTerm(
                 facts.prices() == null ? null : facts.prices().data());

@@ -90,6 +90,7 @@ public class StockScreenerService {
     private final boolean prefetchReadEnabled;
     private final int indexPoolMaxLiveFetches;
     private final ExecutorService fetchPool;
+    private final EtfResearch etfResearch;
 
     /**
      * 陈旧预取快照最多能用多少天。超过就当「没有可用数据」，退回实时。
@@ -111,7 +112,8 @@ public class StockScreenerService {
             ScreenerPrefetchService prefetchService,
             @Value("${screener.prefetch.read-enabled:true}") boolean prefetchReadEnabled,
             @Value("${screener.fetch-threads:5}") int fetchThreads,
-            @Value("${screener.index-pool-max-live-fetches:10}") int indexPoolMaxLiveFetches) {
+            @Value("${screener.index-pool-max-live-fetches:10}") int indexPoolMaxLiveFetches,
+            EtfResearch etfResearch) {
         this.marketDataClient = marketDataClient;
         this.cache = cache;
         this.valuationHistoryService = valuationHistoryService;
@@ -119,6 +121,7 @@ public class StockScreenerService {
         this.indexPool = indexPool;
         this.altQuoteSource = altQuoteSource;
         this.prefetchService = prefetchService;
+        this.etfResearch = etfResearch;
         this.prefetchReadEnabled = prefetchReadEnabled;
         // 兜底额度：池子扩到 200 条时，「每只一条日线」的外呼量正是把 IP 封得更深的做法。
         // 这个数字是安全阀，**不要因为「反正有兜底」就调大**。
@@ -787,6 +790,11 @@ public class StockScreenerService {
         ValuationRead valuations = latestValuations(degradations);
         describeIndexConditions(p, notes);
 
+        LocalDateTime evaluatedAt = LocalDateTime.now(SHANGHAI);
+        LocalDate today = evaluatedAt.toLocalDate();
+        LocalDate completedDay = EtfResearch.completedDay(evaluatedAt);
+        Map<String, EtfResearch.Earnings> earnings = etfResearch.earnings(indexPool.withEtf().stream()
+                .map(IndexFundPool.Fund::indexCode).toList(), today);
         List<ScreenerResultDTO.IndexFundItem> items = new ArrayList<>();
         for (IndexFundPool.Fund f : indexPool.funds()) {
             MarketDataClient.EtfQuote q = f.hasEtf() ? quotes.get(f.etfCode()) : null;
@@ -940,6 +948,13 @@ public class StockScreenerService {
             }
 
             MarketDataClient.KlineOutcome kline = f.hasEtf() ? klines.get(f.etfCode()) : null;
+            EtfResearch.Earnings evidence = earnings.get(f.indexCode());
+            PricePosition researchPosition = pos;
+            if (hasPosition && kline != null && pos.getLastTradeDate().isAfter(completedDay)) {
+                researchPosition = PricePositionCalculator.compute(kline.bars().stream()
+                        .filter(bar -> bar.date() != null && !bar.date().isAfter(completedDay)).toList());
+            }
+            Boolean lowPrice = EtfResearch.lowPrice(researchPosition, today);
 
             items.add(new ScreenerResultDTO.IndexFundItem(
                     f.indexCode(), f.indexName(), f.category(),
@@ -958,7 +973,8 @@ public class StockScreenerService {
                     hasPosition ? pos.getLastTradeDate() : null,
                     cardNotes,
                     qualificationName(verdict.state()),
-                    verdict.reasons()));
+                    verdict.reasons(),
+                    evidence == null ? null : EtfResearch.View.of(lowPrice, evidence, null, null, null)));
         }
         return items;
     }

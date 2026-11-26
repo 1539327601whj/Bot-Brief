@@ -3,6 +3,8 @@ package com.ai.daily.screener;
 import com.ai.daily.service.EtfPriceHistoryService;
 import com.ai.daily.service.MarketValuationHistoryService;
 import com.ai.daily.warehouse.SharedRateLimitStore;
+import com.ai.daily.warehouse.WarehouseRepository;
+import com.ai.daily.warehouse.WarehouseSchemaGuard;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
@@ -37,6 +39,9 @@ class ScreenerBeansContextTest {
             context.registerBean(EtfPriceHistoryService.class, () -> mock(EtfPriceHistoryService.class));
             context.registerBean(AltQuoteSource.class, () -> mock(AltQuoteSource.class));
             context.registerBean(ScreenerPrefetchService.class, () -> mock(ScreenerPrefetchService.class));
+            context.registerBean(WarehouseRepository.class, () -> mock(WarehouseRepository.class));
+            context.registerBean(WarehouseSchemaGuard.class, () -> mock(WarehouseSchemaGuard.class));
+            context.registerBean(EtfResearch.class);
             // 真实那份池子：它的构造器带 @Value(classpath:...)，顺带证明这一步在容器里也过
             context.registerBean(IndexFundPool.class);
             context.registerBean(StockScreenerService.class);
